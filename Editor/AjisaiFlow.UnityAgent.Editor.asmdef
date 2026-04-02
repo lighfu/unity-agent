@@ -1,0 +1,78 @@
+{
+    "name": "AjisaiFlow.UnityAgent.Editor",
+    "rootNamespace": "AjisaiFlow.UnityAgent.Editor",
+    "references": [
+        "AjisaiFlow.UnityAgent.SDK",
+        "AjisaiFlow.MD3SDK.Editor",
+        "nadena.dev.modular-avatar.core",
+        "nadena.dev.modular-avatar.core.editor",
+        "jp.suzuryg.face-emo.domain.Runtime",
+        "jp.suzuryg.face-emo.components.Runtime",
+        "com.vrcfury.api",
+        "VRCQuestTools",
+        "net.nekobako.BlendShapeModifier.Runtime",
+        "AnimatorAsCode.V1",
+        "AnimatorAsCode.V1.VRChat",
+        "AnimatorAsCode.V1.ModularAvatar",
+        "com.anatawa12.avatar-optimizer.runtime",
+        "lilToon.Editor",
+        "jp.lilxyzw.ndmfmeshsimplifier.runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "nadena.dev.modular-avatar",
+            "expression": "",
+            "define": "MODULAR_AVATAR"
+        },
+        {
+            "name": "jp.suzuryg.face-emo",
+            "expression": "",
+            "define": "FACE_EMO"
+        },
+        {
+            "name": "com.vrcfury.vrcfury",
+            "expression": "",
+            "define": "VRCFURY"
+        },
+        {
+            "name": "com.github.kurotu.vrc-quest-tools",
+            "expression": "",
+            "define": "VRC_QUEST_TOOLS"
+        },
+        {
+            "name": "net.nekobako.blend-shape-modifier",
+            "expression": "",
+            "define": "BLEND_SHAPE_MODIFIER"
+        },
+        {
+            "name": "dev.hai-vr.animator-as-code.v1",
+            "expression": "",
+            "define": "ANIMATOR_AS_CODE"
+        },
+        {
+            "name": "com.anatawa12.avatar-optimizer",
+            "expression": "",
+            "define": "AVATAR_OPTIMIZER"
+        },
+        {
+            "name": "jp.lilxyzw.liltoon",
+            "expression": "",
+            "define": "LILTOON"
+        },
+        {
+            "name": "jp.lilxyzw.ndmfmeshsimplifier",
+            "expression": "",
+            "define": "NDMF_MESH_SIMPLIFIER"
+        }
+    ],
+    "noEngineReferences": false
+}

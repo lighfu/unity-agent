@@ -1,0 +1,29 @@
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.suo
+*.user
+
+.DS_Store
+Thumbs.db
+
+# Font files (too large for git)
+Fonts/*.ttf
+Fonts/*.otf
+Fonts/*.ttf.meta
+Fonts/*.otf.meta
+
+# Large binary assets
+*.png
+*.png.meta
+*.zip
+*.zip.meta

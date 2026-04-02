@@ -1,0 +1,39 @@
+name: Release SDK
+
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/sdk-v}" >> $GITHUB_OUTPUT
+
+      - name: Verify SDK package.json version matches tag
+        run: |
+          PKG_VERSION=$(jq -r .version SDK/package.json)
+          TAG_VERSION=${{ steps.version.outputs.version }}
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Version mismatch: SDK/package.json=$PKG_VERSION tag=$TAG_VERSION"
+            exit 1
+          fi
+
+      - name: Create release zip
+        run: |
+          cd SDK
+          zip -r "../com.ajisaiflow.unityagent.sdk-${{ steps.version.outputs.version }}.zip" .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "com.ajisaiflow.unityagent.sdk-*.zip"
+          generate_release_notes: true

@@ -1,0 +1,16 @@
+{
+    "name": "AjisaiFlow.UnityAgent.SDK",
+    "rootNamespace": "AjisaiFlow.UnityAgent.SDK",
+    "references": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

@@ -1,0 +1,40 @@
+name: Release Editor
+
+on:
+  push:
+    tags:
+      - 'editor-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/editor-v}" >> $GITHUB_OUTPUT
+
+      - name: Verify package.json version matches tag
+        run: |
+          PKG_VERSION=$(jq -r .version package.json)
+          TAG_VERSION=${{ steps.version.outputs.version }}
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Version mismatch: package.json=$PKG_VERSION tag=$TAG_VERSION"
+            exit 1
+          fi
+
+      - name: Create release zip
+        run: |
+          zip -r "com.ajisaiflow.unityagent-${{ steps.version.outputs.version }}.zip" . \
+            -x ".git/*" ".github/*" "README.md" "CHANGELOG.md" ".gitignore" \
+            -x "SDK/*" "SDK.meta"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "com.ajisaiflow.unityagent-*.zip"
+          generate_release_notes: true
