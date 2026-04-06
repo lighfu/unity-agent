@@ -116,7 +116,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             sb.Append("}");
             var requestData = sb.ToString();
 
-            Debug.Log($"[UnityAgent] Request to: {url}\nPayload: {requestData}");
+            AgentLogger.Debug(LogTag.Provider, $"Request to: {url}\nPayload: {requestData}");
 
             // ── HTTP request with SSE streaming and retry ──
             float retryDelay = 1.0f;
@@ -126,7 +126,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 if (attempt > 0)
                 {
                     string waitMsg = $"Rate limit (429). Retrying in {retryDelay}s... ({attempt}/{MaxRetries})";
-                    Debug.LogWarning($"[UnityAgent] {waitMsg}");
+                    AgentLogger.Warning(LogTag.Provider, waitMsg);
                     onStatus?.Invoke(waitMsg);
                     double t0 = EditorApplication.timeSinceStartup;
                     while (EditorApplication.timeSinceStartup - t0 < retryDelay)
@@ -188,7 +188,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                             yield break;
                         }
 
-                        Debug.Log($"[UnityAgent] Success ({result.Length} chars)");
+                        AgentLogger.Info(LogTag.Provider, $"Success ({result.Length} chars)");
                         onSuccess?.Invoke(result);
                         yield break;
                     }
@@ -201,7 +201,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                         string body = handler.GetBufferedText();
                         if (string.IsNullOrEmpty(body)) body = req.downloadHandler?.text ?? "";
                         string errorDetail = $"Status Code: {req.responseCode}\nError: {req.error}\nContext: {body}";
-                        Debug.LogError($"[UnityAgent] OpenAI Compatible Error:\n{errorDetail}");
+                        AgentLogger.Error(LogTag.Provider, $"OpenAI Compatible Error:\n{errorDetail}");
                         onError?.Invoke($"OpenAI Error: {req.error}\n{body}");
                         yield break;
                     }

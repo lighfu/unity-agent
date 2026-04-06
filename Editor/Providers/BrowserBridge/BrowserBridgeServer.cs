@@ -44,7 +44,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[BrowserBridgeServer] IPv4 listener failed: {ex.Message}");
+                AgentLogger.Warning(LogTag.WebServer, $"IPv4 listener failed: {ex.Message}");
                 _listener = null;
             }
 
@@ -56,13 +56,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[BrowserBridgeServer] IPv6 listener failed: {ex.Message}");
+                AgentLogger.Warning(LogTag.WebServer, $"IPv6 listener failed: {ex.Message}");
                 _listener6 = null;
             }
 
             if (_listener == null && _listener6 == null)
             {
-                Debug.LogError($"[BrowserBridgeServer] Failed to start on port {port}");
+                AgentLogger.Error(LogTag.WebServer, $"Failed to start on port {port}");
                 _running = false;
                 return;
             }
@@ -87,7 +87,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
                 _listenThread6.Start();
             }
 
-            Debug.Log($"[BrowserBridgeServer] Started on port {port} (v4={_listener != null}, v6={_listener6 != null})");
+            AgentLogger.Info(LogTag.WebServer, $"Started on port {port} (v4={_listener != null}, v6={_listener6 != null})");
         }
 
         public void Stop()
@@ -105,7 +105,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
             _clientThread = null;
             BrowserBridgeState.SetConnected(false);
             lock (_lock) _sendQueue.Clear();
-            Debug.Log("[BrowserBridgeServer] Stopped");
+            AgentLogger.Info(LogTag.WebServer, "Stopped");
         }
 
         public void Send(string json)
@@ -160,7 +160,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
                 }
 
                 BrowserBridgeState.SetConnected(true);
-                Debug.Log("[BrowserBridgeServer] Client connected (WebSocket handshake complete)");
+                AgentLogger.Info(LogTag.WebServer, "Client connected (WebSocket handshake complete)");
 
                 // Read/write loop
                 while (_running && client.Connected)
@@ -188,7 +188,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
             }
             catch (Exception ex)
             {
-                Debug.Log($"[BrowserBridgeServer] Client disconnected: {ex.Message}");
+                AgentLogger.Info(LogTag.WebServer, $"Client disconnected: {ex.Message}");
             }
             finally
             {
@@ -382,7 +382,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[BrowserBridgeServer] Send failed: {ex.Message}");
+                    AgentLogger.Warning(LogTag.WebServer, $"Send failed: {ex.Message}");
                     break;
                 }
             }
@@ -400,7 +400,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.BrowserBridge
                 case "ready":
                     var siteUrl = BrowserBridgeProtocol.GetField(json, "geminiUrl");
                     BrowserBridgeState.SetSiteUrl(siteUrl);
-                    Debug.Log("[BrowserBridgeServer] Extension ready: " + siteUrl);
+                    AgentLogger.Info(LogTag.WebServer, "Extension ready: " + siteUrl);
                     break;
 
                 case "partial":

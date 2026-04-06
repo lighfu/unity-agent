@@ -81,7 +81,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             {
                 var locations = string.Join(", ",
                     dup.Select(t => $"{t.method.DeclaringType.Name}({t.assemblyName})"));
-                Debug.LogWarning($"[UnityAgent] Duplicate tool name '{dup.Key}' found in: {locations}");
+                AgentLogger.Warning(LogTag.Tool, $"Duplicate tool name '{dup.Key}' found in: {locations}");
             }
 
             _cache = result;

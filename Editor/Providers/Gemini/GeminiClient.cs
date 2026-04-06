@@ -154,7 +154,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                         }
 
                         string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        Debug.LogWarning($"[GeminiClient] {waitMsg}");
+                        AgentLogger.Warning(LogTag.Provider, waitMsg);
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = UnityEditor.EditorApplication.timeSinceStartup;
@@ -267,7 +267,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                         }
 
                         string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        Debug.LogWarning($"[GeminiClient] {waitMsg}");
+                        AgentLogger.Warning(LogTag.Provider, waitMsg);
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = EditorApplication.timeSinceStartup;

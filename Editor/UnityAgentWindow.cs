@@ -638,16 +638,25 @@ namespace AjisaiFlow.UnityAgent.Editor
         }
 
         /// <summary>
-        /// Called by UnityAgentSettingsWindow after settings are saved to EditorPrefs.
-        /// Reloads all settings and reinitializes the agent.
+        /// Called by UnityAgentSettingsWindow after settings are saved.
+        /// Lightweight reload: settings + agent only, no UI rebuild.
         /// </summary>
         internal void ReloadSettingsFromPrefs()
         {
             LoadSettings();
             InitializeAgent();
             UpdateProviderModelChips();
+            UpdateToolbarBadges();
+        }
 
-            // テーマ再適用 (非IMD3Themeableのインライン色も含め全再構築)
+        /// <summary>
+        /// Called by UnityAgentSettingsWindow after theme changes.
+        /// Full UI rebuild required because inline colors need updating.
+        /// </summary>
+        internal void ReloadSettingsAndTheme()
+        {
+            LoadSettings();
+            InitializeAgent();
             CreateGUI();
         }
 

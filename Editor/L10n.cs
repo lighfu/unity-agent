@@ -349,7 +349,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[L10n] Asset save error ({langCode}): {ex.Message}");
+                AgentLogger.Warning(LogTag.L10n, $"Asset save error ({langCode}): {ex.Message}");
                 return 0;
             }
         }
@@ -396,7 +396,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[L10n] Keys load error: {ex.Message}");
+                AgentLogger.Warning(LogTag.L10n, $"Keys load error: {ex.Message}");
             }
         }
 
@@ -421,7 +421,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[L10n] Keys save error: {ex.Message}");
+                AgentLogger.Warning(LogTag.L10n, $"Keys save error: {ex.Message}");
             }
         }
 
@@ -463,7 +463,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[L10n] Asset load error ({langCode}): {ex.Message}");
+                    AgentLogger.Warning(LogTag.L10n, $"Asset load error ({langCode}): {ex.Message}");
                 }
             }
 
@@ -479,7 +479,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[L10n] Cache load error ({langCode}): {ex.Message}");
+                    AgentLogger.Warning(LogTag.L10n, $"Cache load error ({langCode}): {ex.Message}");
                 }
             }
 
@@ -507,7 +507,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[L10n] Cache save error ({langCode}): {ex.Message}");
+                AgentLogger.Warning(LogTag.L10n, $"Cache save error ({langCode}): {ex.Message}");
             }
         }
 

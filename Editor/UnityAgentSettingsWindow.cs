@@ -477,6 +477,15 @@ namespace AjisaiFlow.UnityAgent.Editor
             BuildImageModelSection(parent);
             AddDivider(parent);
             BuildMeshySettings(parent);
+            AddDivider(parent);
+
+            AddSectionLabel(parent, M("ログ"), M("UnityAgentの内部ログを確認できます。"));
+            var logBtn = new MD3Button(M("ログウィンドウを開く"), MD3ButtonStyle.Outlined);
+            logBtn.style.marginLeft = 12;
+            logBtn.style.marginRight = 12;
+            logBtn.style.marginTop = 8;
+            logBtn.clicked += () => AgentLogWindow.Open();
+            parent.Add(logBtn);
         }
 
         private void BuildThinkingModeSection(VisualElement parent)
@@ -1299,7 +1308,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 AgentSettings.ThemeMode = idx;
                 if (idx == 3 && !_customThemeLoaded)
                     LoadCustomTheme();
-                NotifyMainWindow();
+                NotifyMainWindowTheme();
                 // テーマ変更を自身にも反映
                 _theme = ResolveTheme();
                 _theme.ApplyTo(rootVisualElement);
@@ -1380,7 +1389,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 {
                     AgentSettings.ClearAllThemeColors();
                     _customTheme = MD3Theme.Auto();
-                    NotifyMainWindow();
+                    NotifyMainWindowTheme();
                     RebuildContentArea();
                 };
                 copyRow.Add(resetBtn);
@@ -1421,7 +1430,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                             {
                                 AgentSettings.SetThemeColorField(_customTheme, cn, newColor);
                                 AgentSettings.SetThemeColor(cn, newColor);
-                                NotifyMainWindow();
+                                NotifyMainWindowTheme();
                             }
                         });
                         colorImgui.style.width = 64;
@@ -2291,7 +2300,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             for (int i = 0; i < names.Length; i++)
                 AgentSettings.SetThemeColor(names[i], AgentSettings.GetThemeColorField(baseTheme, names[i]));
             AgentSettings.InvalidateThemeCache();
-            NotifyMainWindow();
+            NotifyMainWindowTheme();
             _theme = ResolveTheme();
             _theme.ApplyTo(rootVisualElement);
             _rightPanel.style.backgroundColor = _theme.SurfaceContainerHigh;
@@ -2335,13 +2344,21 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
         }
 
+        /// <summary>Lightweight: reload settings + reinitialize agent. No UI rebuild.</summary>
         private static void NotifyMainWindow()
         {
             var mainWindows = Resources.FindObjectsOfTypeAll<UnityAgentWindow>();
             foreach (var w in mainWindows)
                 w.ReloadSettingsFromPrefs();
+        }
 
-            // ModelCapabilityWindow もテーマ再適用
+        /// <summary>Full rebuild: reload settings + recreate all UI (theme change).</summary>
+        private static void NotifyMainWindowTheme()
+        {
+            var mainWindows = Resources.FindObjectsOfTypeAll<UnityAgentWindow>();
+            foreach (var w in mainWindows)
+                w.ReloadSettingsAndTheme();
+
             var capWindows = Resources.FindObjectsOfTypeAll<ModelCapabilityWindow>();
             foreach (var w in capWindows)
                 w.CreateGUI();

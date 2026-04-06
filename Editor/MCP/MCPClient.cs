@@ -82,7 +82,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             // Spawn process
             string argsStr = string.Join(" ", _args);
-            Debug.Log($"[MCPClient:{ServerName}] Connecting: {_command} {argsStr}");
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] Connecting: {_command} {argsStr}");
 
             System.Diagnostics.Process process;
             try
@@ -91,25 +91,25 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 foreach (var kv in _env)
                 {
                     startInfo.EnvironmentVariables[kv.Key] = kv.Value;
-                    Debug.Log($"[MCPClient:{ServerName}] ENV: {kv.Key}={kv.Value}");
+                    AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] ENV: {kv.Key}={kv.Value}");
                 }
 
                 process = System.Diagnostics.Process.Start(startInfo);
                 if (process == null)
                 {
-                    Debug.LogError($"[MCPClient:{ServerName}] Failed to start process.");
+                    AgentLogger.Error(LogTag.MCP, $"[{ServerName}] Failed to start process.");
                     yield break;
                 }
             }
             catch (Exception ex)
             {
                 LastError = $"Launch error: {ex.Message}";
-                Debug.LogError($"[MCPClient:{ServerName}] {LastError}\n{ex.StackTrace}");
+                AgentLogger.Error(LogTag.MCP, $"[{ServerName}] {LastError}\n{ex.StackTrace}");
                 yield break;
             }
 
             _process = process;
-            Debug.Log($"[MCPClient:{ServerName}] Process started. PID={process.Id}");
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] Process started. PID={process.Id}");
 
             // Async readers
             process.OutputDataReceived += (s, e) =>
@@ -121,12 +121,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         _lineQueue.Enqueue(e.Data);
                         // 接続完了前のみログ出力（接続後の通常通信はキューに入れるだけ）
                         if (!IsConnected)
-                            Debug.Log($"[MCPClient:{ServerName}] STDOUT: {e.Data.Substring(0, Math.Min(200, e.Data.Length))}...");
+                            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] STDOUT: {e.Data.Substring(0, Math.Min(200, e.Data.Length))}...");
                     }
                     else
                     {
                         _stdoutDone = true;
-                        Debug.Log($"[MCPClient:{ServerName}] STDOUT: EOF");
+                        AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] STDOUT: EOF");
                     }
                 }
             };
@@ -138,10 +138,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         _stderrBuilder.AppendLine(e.Data);
                     // WARNING/ERROR は常に LogWarning
                     if (e.Data.Contains("ERROR") || e.Data.Contains("WARN"))
-                        Debug.LogWarning($"[MCPClient:{ServerName}] STDERR: {e.Data}");
-                    // INFO レベルは接続完了前のみ Log（接続後は LSP 等の大量ログを抑制）
+                        AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] STDERR: {e.Data}");
                     else if (!IsConnected)
-                        Debug.Log($"[MCPClient:{ServerName}] STDERR: {e.Data}");
+                        AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] STDERR: {e.Data}");
                 }
             };
             process.BeginOutputReadLine();
@@ -157,7 +156,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 string stderr;
                 lock (_lock) stderr = _stderrBuilder.ToString();
                 LastError = $"Process exited immediately (ExitCode={process.ExitCode})";
-                Debug.LogError($"[MCPClient:{ServerName}] {LastError}\nSTDERR:\n{stderr}");
+                AgentLogger.Error(LogTag.MCP, $"[{ServerName}] {LastError}\nSTDERR:\n{stderr}");
                 Dispose();
                 yield break;
             }
@@ -172,7 +171,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     ("version", JNode.Str("1.0"))
                 ))
             );
-            Debug.Log($"[MCPClient:{ServerName}] Sending initialize request (id={initId})...");
+            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Sending initialize request (id={initId})...");
             SendRequest("initialize", initParams, initId);
 
             JNode initResponse = null;
@@ -184,9 +183,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 string stderr;
                 lock (_lock) stderr = _stderrBuilder.ToString();
                 LastError = $"Initialize failed: {errMsg}";
-                Debug.LogError($"[MCPClient:{ServerName}] {LastError}");
+                AgentLogger.Error(LogTag.MCP, $"[{ServerName}] {LastError}");
                 if (!string.IsNullOrEmpty(stderr))
-                    Debug.LogError($"[MCPClient:{ServerName}] STDERR accumulated:\n{stderr}");
+                    AgentLogger.Error(LogTag.MCP, $"[{ServerName}] STDERR accumulated:\n{stderr}");
                 Dispose();
                 yield break;
             }
@@ -196,11 +195,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             // Save server capabilities
             ServerCapabilities = initResponse["result"]["capabilities"];
-            Debug.Log($"[MCPClient:{ServerName}] Initialized (protocol: {initResponse["result"]["protocolVersion"].AsString})");
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] Initialized (protocol: {initResponse["result"]["protocolVersion"].AsString})");
 
             // --- Discover tools ---
             int listId = NextId();
-            Debug.Log($"[MCPClient:{ServerName}] Sending tools/list request (id={listId})...");
+            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Sending tools/list request (id={listId})...");
             SendRequest("tools/list", JNode.Obj(), listId);
 
             JNode listResponse = null;
@@ -225,7 +224,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             else
             {
-                Debug.LogWarning($"[MCPClient:{ServerName}] tools/list returned no tools. Response: {listResponse?.ToJson() ?? "null"}");
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] tools/list returned no tools. Response: {listResponse?.ToJson() ?? "null"}");
             }
 
             // --- Discover resources (if supported) ---
@@ -253,7 +252,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         }
                     }
                 }
-                Debug.Log($"[MCPClient:{ServerName}] Resources: {Resources.Count}");
+                AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Resources: {Resources.Count}");
             }
 
             // --- Discover prompts (if supported) ---
@@ -295,12 +294,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         }
                     }
                 }
-                Debug.Log($"[MCPClient:{ServerName}] Prompts: {Prompts.Count}");
+                AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Prompts: {Prompts.Count}");
             }
 
             IsConnected = true;
             LastError = null;
-            Debug.Log($"[MCPClient:{ServerName}] Connected. {Tools.Count} tools, {Resources.Count} resources, {Prompts.Count} prompts.");
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] Connected. {Tools.Count} tools, {Resources.Count} resources, {Prompts.Count} prompts.");
         }
 
         /// <summary>Call an MCP tool and return the result text.</summary>
@@ -523,7 +522,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             if (_process == null || _process.HasExited)
             {
-                Debug.LogWarning($"[MCPClient:{ServerName}] SendLine: process is null or exited, cannot send.");
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] SendLine: process is null or exited, cannot send.");
                 return;
             }
             try
@@ -532,7 +531,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 if (!IsConnected)
                 {
                     var preview = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
-                    Debug.Log($"[MCPClient:{ServerName}] STDIN> {preview}");
+                    AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] STDIN> {preview}");
                 }
                 // Write on background thread to avoid blocking
                 var proc = _process;
@@ -546,13 +545,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogError($"[MCPClient:{serverName}] SendLine write error: {ex.Message}");
+                        AgentLogger.Error(LogTag.MCP, $"[{serverName}] SendLine write error: {ex.Message}");
                     }
                 });
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[MCPClient:{ServerName}] SendLine outer error: {ex.Message}");
+                AgentLogger.Error(LogTag.MCP, $"[{ServerName}] SendLine outer error: {ex.Message}");
             }
         }
 
@@ -582,7 +581,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         var node = JNode.Parse(line);
                         if (node == null || node.Type == JNode.JType.Null)
                         {
-                            Debug.LogWarning($"[MCPClient:{ServerName}] Failed to parse line: {line.Substring(0, Math.Min(200, line.Length))}");
+                            AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] Failed to parse line: {line.Substring(0, Math.Min(200, line.Length))}");
                             continue;
                         }
                         if (node["id"].AsInt == id)
@@ -603,11 +602,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                                     Params = node["params"],
                                 });
                             }
-                            Debug.Log($"[MCPClient:{ServerName}] Notification queued: {method}");
+                            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Notification queued: {method}");
                         }
                         else
                         {
-                            Debug.Log($"[MCPClient:{ServerName}] Non-matching response (waiting for id={id}): id={node["id"].AsInt}");
+                            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Non-matching response (waiting for id={id}): id={node["id"].AsInt}");
                         }
                     }
                 }
@@ -621,9 +620,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     lock (_lock) stderr = _stderrBuilder.ToString();
                     int exitCode = -1;
                     try { if (_process != null && _process.HasExited) exitCode = _process.ExitCode; } catch { }
-                    Debug.LogError($"[MCPClient:{ServerName}] Process died while waiting for id={id}. stdoutDone={done}, exitCode={exitCode}");
+                    AgentLogger.Error(LogTag.MCP, $"[{ServerName}] Process died while waiting for id={id}. stdoutDone={done}, exitCode={exitCode}");
                     if (!string.IsNullOrEmpty(stderr))
-                        Debug.LogError($"[MCPClient:{ServerName}] STDERR:\n{stderr}");
+                        AgentLogger.Error(LogTag.MCP, $"[{ServerName}] STDERR:\n{stderr}");
                     callback?.Invoke(null);
                     yield break;
                 }
@@ -633,9 +632,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             string stderrTimeout;
             lock (_lock) stderrTimeout = _stderrBuilder.ToString();
-            Debug.LogWarning($"[MCPClient:{ServerName}] Response timeout for id={id} after {timeoutSeconds}s");
+            AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] Response timeout for id={id} after {timeoutSeconds}s");
             if (!string.IsNullOrEmpty(stderrTimeout))
-                Debug.LogWarning($"[MCPClient:{ServerName}] STDERR at timeout:\n{stderrTimeout}");
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] STDERR at timeout:\n{stderrTimeout}");
             callback?.Invoke(null);
         }
 

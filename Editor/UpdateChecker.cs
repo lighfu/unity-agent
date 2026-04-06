@@ -131,7 +131,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             if (_versionRequest.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogWarning($"[UnityAgent] Update check failed: {_versionRequest.error}");
+                AgentLogger.Warning(LogTag.Update, $"Update check failed: {_versionRequest.error}");
                 _versionRequest.Dispose();
                 _versionRequest = null;
 
@@ -164,7 +164,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[UnityAgent] Failed to parse version info: {e.Message}");
+                AgentLogger.Warning(LogTag.Update, $"Failed to parse version info: {e.Message}");
                 var cb2 = _manualCheckCallback;
                 _manualCheckCallback = null;
                 _manualUpdateCallback = null;
@@ -181,7 +181,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             if (string.IsNullOrEmpty(latestVersion.version))
             {
-                Debug.LogWarning("[UnityAgent] Server returned empty version.");
+                AgentLogger.Warning(LogTag.Update, "Server returned empty version.");
                 var cb3 = _manualCheckCallback;
                 _manualCheckCallback = null;
                 _manualUpdateCallback = null;
@@ -199,7 +199,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[UnityAgent] Failed to parse version: {e.Message}");
+                AgentLogger.Warning(LogTag.Update, $"Failed to parse version: {e.Message}");
                 var cb3 = _manualCheckCallback;
                 _manualCheckCallback = null;
                 _manualUpdateCallback = null;

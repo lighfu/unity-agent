@@ -33,17 +33,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             Shutdown();
 
             var configs = GetServerConfigs();
-            Debug.Log($"[MCPManager] Initialize: {configs?.Length ?? 0} configs loaded");
+            AgentLogger.Info(LogTag.MCP, $"Initialize: {configs?.Length ?? 0} configs loaded");
             if (configs == null || configs.Length == 0)
             {
-                Debug.Log("[MCPManager] No configs found, skipping initialization.");
+                AgentLogger.Debug(LogTag.MCP, "No configs found, skipping initialization.");
                 _initialized = true;
                 yield break;
             }
 
             foreach (var cfg in configs)
             {
-                Debug.Log($"[MCPManager] Config: name={cfg.name}, cmd={cfg.command}, enabled={cfg.enabled}, args=[{string.Join(",", cfg.args ?? Array.Empty<string>())}]");
+                AgentLogger.Debug(LogTag.MCP, $"Config: name={cfg.name}, cmd={cfg.command}, enabled={cfg.enabled}, args=[{string.Join(",", cfg.args ?? Array.Empty<string>())}]");
                 if (!cfg.enabled) continue;
                 if (string.IsNullOrEmpty(cfg.command)) continue;
 
@@ -63,12 +63,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 yield return client.Connect();
 
                 if (!client.IsConnected)
-                    Debug.LogWarning($"[MCPManager] Failed to connect to MCP server: {cfg.name}");
+                    AgentLogger.Warning(LogTag.MCP, $"Failed to connect to MCP server: {cfg.name}");
             }
 
             _initialized = true;
             int totalTools = _clients.Sum(c => c.Tools.Count);
-            Debug.Log($"[MCPManager] Initialized. {_clients.Count(c => c.IsConnected)} servers, {totalTools} MCP tools.");
+            AgentLogger.Info(LogTag.MCP, $"Initialized. {_clients.Count(c => c.IsConnected)} servers, {totalTools} MCP tools.");
         }
 
         /// <summary>Reinitialize MCP (e.g., after settings change).</summary>
@@ -104,7 +104,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 var client = _clients[i];
                 if (client.IsConnected && !client.IsAlive)
                 {
-                    Debug.LogWarning($"[MCPManager] Server '{client.ServerName}' process died. Attempting reconnect...");
+                    AgentLogger.Warning(LogTag.MCP, $"Server '{client.ServerName}' process died. Attempting reconnect...");
                     client.Dispose();
                     deadClients.Add(i);
                 }
@@ -132,9 +132,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
                 _clients[idx] = newClient;
                 if (newClient.IsConnected)
-                    Debug.Log($"[MCPManager] Reconnected '{cfg.name}' ({newClient.Tools.Count} tools)");
+                    AgentLogger.Info(LogTag.MCP, $"Reconnected '{cfg.name}' ({newClient.Tools.Count} tools)");
                 else
-                    Debug.LogWarning($"[MCPManager] Reconnect failed for '{cfg.name}': {newClient.LastError}");
+                    AgentLogger.Warning(LogTag.MCP, $"Reconnect failed for '{cfg.name}': {newClient.LastError}");
             }
         }
 
@@ -261,11 +261,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
                 foreach (var notif in notifications)
                 {
-                    Debug.Log($"[MCPManager] Notification from {client.ServerName}: {notif.Method}");
+                    AgentLogger.Info(LogTag.MCP, $"Notification from {client.ServerName}: {notif.Method}");
 
                     if (notif.Method == "notifications/tools/list_changed")
                     {
-                        Debug.Log($"[MCPManager] Tools changed on {client.ServerName}, will re-discover on next query.");
+                        AgentLogger.Info(LogTag.MCP, $"Tools changed on {client.ServerName}, will re-discover on next query.");
                         client.Tools.Clear();
                         _initialized = false;
                     }
@@ -448,7 +448,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[MCPManager] Failed to parse MCP config: {ex.Message}");
+                AgentLogger.Warning(LogTag.MCP, $"Failed to parse MCP config: {ex.Message}");
                 return Array.Empty<MCPServerConfig>();
             }
         }
