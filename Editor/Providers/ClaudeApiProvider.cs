@@ -118,13 +118,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
             // ── HTTP request with SSE streaming and retry ──
             float retryDelay = 1.0f;
+            string lastRateLimitBody = null;
 
             for (int attempt = 0; attempt <= MaxRetries; attempt++)
             {
                 if (attempt > 0)
                 {
                     string waitMsg = $"Claude API rate limit (429). Retrying in {retryDelay}s... ({attempt}/{MaxRetries})";
-                    Debug.LogWarning($"[ClaudeApiProvider] {waitMsg}");
+                    AgentLogger.Warning(LogTag.Provider,
+                        $"{waitMsg}\n  Model: {_modelName}\n  Response: {lastRateLimitBody ?? "(empty)"}");
                     onStatus?.Invoke(waitMsg);
                     double t0 = EditorApplication.timeSinceStartup;
                     while (EditorApplication.timeSinceStartup - t0 < retryDelay)
@@ -181,17 +183,30 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     }
                     else if (req.responseCode == 429 && attempt < MaxRetries)
                     {
+                        lastRateLimitBody = handler.GetBufferedText();
+                        if (string.IsNullOrEmpty(lastRateLimitBody))
+                            lastRateLimitBody = req.downloadHandler?.text;
+                        string retryAfter = req.GetResponseHeader("Retry-After");
+                        if (!string.IsNullOrEmpty(retryAfter))
+                            AgentLogger.Info(LogTag.Provider, $"Retry-After header: {retryAfter}");
                         continue;
                     }
                     else
                     {
                         string body = handler.GetBufferedText();
                         if (string.IsNullOrEmpty(body)) body = req.downloadHandler?.text ?? "";
+                        string errorDetail = $"Claude API エラー (HTTP {req.responseCode}): {req.error}\nModel: {_modelName}\nResponse: {body}";
+                        AgentLogger.Error(LogTag.Provider, errorDetail);
                         onError?.Invoke($"Claude API エラー (HTTP {req.responseCode}): {req.error}\n{body}");
                         yield break;
                     }
                 }
             }
+
+            // 全リトライ失敗
+            string exhaustedMsg = $"Rate limit (429) - Max retries ({MaxRetries}) exceeded.\nModel: {_modelName}\nLast response: {lastRateLimitBody ?? "(empty)"}";
+            AgentLogger.Error(LogTag.Provider, exhaustedMsg);
+            onError?.Invoke($"Error: {exhaustedMsg}");
         }
 
         // ─── SSE event processing ───
