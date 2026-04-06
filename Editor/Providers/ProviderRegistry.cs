@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using AjisaiFlow.UnityAgent.Editor;
 using AjisaiFlow.UnityAgent.Editor.Interfaces;
 using AjisaiFlow.UnityAgent.Editor.Providers.Gemini;
 using UnityEngine;
@@ -675,6 +676,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public static ILLMProvider CreateProvider(LLMProviderType type, ProviderConfig cfg,
             bool useThinking, int thinkingBudget, int effortLevel)
         {
+            AgentLogger.Info(LogTag.Provider, $"CreateProvider: type={type}, model={cfg.ModelName}, thinking={useThinking}, budget={thinkingBudget}, effort={effortLevel}");
             var features = new GeminiFeatures
             {
                 GoogleSearch = cfg.GeminiGoogleSearch,

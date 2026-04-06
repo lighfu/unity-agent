@@ -666,6 +666,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             var provider = ProviderRegistry.CreateProvider(_providerType, cfg, _useThinking, _thinkingBudget, _effortLevel);
             _agent = new UnityAgentCore(provider);
             _agent.MaxContextTokens = ResolveCurrentMaxContextTokens();
+            AgentLogger.Info(LogTag.UI, $"Agent initialized: provider={_providerType}, model={cfg.ModelName}, maxContext={_agent.MaxContextTokens}");
         }
 
         /// <summary>現在のプロバイダー/モデルに基づく実効コンテキスト上限を返す。</summary>

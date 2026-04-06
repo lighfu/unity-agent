@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using AjisaiFlow.UnityAgent.Editor;
 using AjisaiFlow.UnityAgent.Editor.Interfaces;
 using AjisaiFlow.UnityAgent.Editor.Providers.Gemini;
 
@@ -39,16 +40,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 if (mode == GeminiConnectionMode.VertexAI_Express)
                 {
                     apiVersion = "v1beta1";
-                    Debug.Log("[GeminiProvider] system_instruction サポートのため API Version を v1beta1 に自動変更");
+                    AgentLogger.Warning(LogTag.Provider, "[Gemini] API Version を v1beta1 に自動変更 (system_instruction サポートのため)");
                 }
                 else if (mode == GeminiConnectionMode.GoogleAI)
                 {
                     apiVersion = "v1beta";
-                    Debug.Log("[GeminiProvider] system_instruction サポートのため API Version を v1beta に自動変更");
+                    AgentLogger.Warning(LogTag.Provider, "[Gemini] API Version を v1beta に自動変更 (system_instruction サポートのため)");
                 }
             }
 
             _client = new GeminiClient(apiKey, mode, modelName, apiVersion, customEndpoint, projectId, location);
+            string effortStr = effortLevel >= 0 && effortLevel < EffortNames.Length ? EffortNames[effortLevel] : "off";
+            AgentLogger.Info(LogTag.Provider, $"[Gemini] Initialized: model={_modelName}, provider={_providerType}, mode={mode}, apiVersion={apiVersion}, thinking={(_thinkingBudget > 0 ? $"{_thinkingBudget}" : "off")}, effort={effortStr}, features=[search={features.GoogleSearch}, code={features.CodeExecution}, url={features.UrlContext}]");
         }
 
         private bool SupportsThinking => _capability.SupportsThinking;
@@ -57,7 +60,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         public IEnumerator CallLLM(IEnumerable<Message> history, Action<string> onSuccess, Action<string> onError, Action<string> onStatus = null, Action<string> onDebugLog = null, Action<string> onPartialResponse = null)
         {
-            Debug.Log("[GeminiProvider] CallLLM Started");
+            AgentLogger.Debug(LogTag.Provider, $"[Gemini] CallLLM: model={_modelName}, streaming={_client.SupportsStreaming}");
 
             string json = BuildRequestJson(history);
 
@@ -112,7 +115,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Action<string> onStreamError = error =>
             {
                 hasError = true;
-                Debug.LogError($"[GeminiProvider] Stream Error: {error}");
+                AgentLogger.Error(LogTag.Provider, $"[Gemini] Stream Error: model={_modelName}\n{error}");
                 onError?.Invoke(error);
             };
 
@@ -187,7 +190,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
             Action<string> handleError = error =>
             {
-                Debug.LogError($"[GeminiProvider] Error: {error}");
+                AgentLogger.Error(LogTag.Provider, $"[Gemini] Error: model={_modelName}\n{error}");
                 onError?.Invoke(error);
             };
 

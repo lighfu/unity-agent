@@ -5,7 +5,7 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEditor;
-using AjisaiFlow.UnityAgent.Editor.Providers.Gemini;
+using AjisaiFlow.UnityAgent.Editor;
 
 namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
 {
@@ -42,6 +42,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
             _aborted = true;
             if (_activeRequest != null && !_activeRequest.isDone)
             {
+                AgentLogger.Info(LogTag.Provider, $"[Gemini] Aborting request: model={_modelName}");
                 _activeRequest.Abort();
             }
             _activeRequest = null;
@@ -138,7 +139,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                         {
                             parseError = $"Failed to parse response: {ex.Message}\nRaw: {responseJson}";
                         }
-                        if (parseError != null) { onError?.Invoke(parseError); yield break; }
+                        if (parseError != null) { AgentLogger.Error(LogTag.Provider, $"[Gemini] {parseError}"); onError?.Invoke(parseError); yield break; }
                         // Yield after heavy parsing to prevent editor freeze
                         yield return null;
                         onSuccess?.Invoke(parsed);
@@ -146,15 +147,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                     }
                     else if (request.responseCode == 429)
                     {
+                        string rateLimitBody = request.downloadHandler?.text ?? "";
                         currentRetry++;
                         if (currentRetry > maxRetries)
                         {
-                            onError?.Invoke($"Error: Too Many Requests (429) - Max retries exceeded.\nResponse: {request.downloadHandler.text}");
+                            string msg = $"Error: Too Many Requests (429) - Max retries exceeded.\nModel: {_modelName}\nResponse: {rateLimitBody}";
+                            AgentLogger.Error(LogTag.Provider, $"[Gemini] {msg}");
+                            onError?.Invoke(msg);
                             yield break;
                         }
 
                         string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        AgentLogger.Warning(LogTag.Provider, waitMsg);
+                        AgentLogger.Warning(LogTag.Provider, $"[Gemini] {waitMsg}\n  Model: {_modelName}\n  Response: {rateLimitBody}");
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = UnityEditor.EditorApplication.timeSinceStartup;
@@ -169,7 +173,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                     }
                     else
                     {
-                        onError?.Invoke($"Error: {request.error} (Code: {request.responseCode})\nResponse: {request.downloadHandler.text}");
+                        string errorBody = request.downloadHandler?.text ?? "";
+                        string errorDetail = $"Error: {request.error} (Code: {request.responseCode})\nModel: {_modelName}\nResponse: {errorBody}";
+                        AgentLogger.Error(LogTag.Provider, $"[Gemini] {errorDetail}");
+                        onError?.Invoke(errorDetail);
                         yield break;
                     }
                 }
@@ -229,7 +236,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                             }
                             catch (Exception ex)
                             {
-                                onDebugLog?.Invoke($"[STREAM] Failed to parse chunk: {ex.Message}\nRaw: {chunkJson}");
+                                AgentLogger.Warning(LogTag.Provider, $"[Gemini] Failed to parse stream chunk: {ex.Message}\nRaw: {chunkJson}");
                             }
                         }
                         yield return null;
@@ -248,7 +255,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                         }
                         catch (Exception ex)
                         {
-                            onDebugLog?.Invoke($"[STREAM] Failed to parse final chunk: {ex.Message}");
+                            AgentLogger.Warning(LogTag.Provider, $"[Gemini] Failed to parse final chunk: {ex.Message}");
                         }
                     }
 
@@ -259,15 +266,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                     }
                     else if (request.responseCode == 429)
                     {
+                        string rateLimitBody = handler.GetBufferedText();
+                        if (string.IsNullOrEmpty(rateLimitBody))
+                            rateLimitBody = request.downloadHandler?.text ?? "";
                         currentRetry++;
                         if (currentRetry > maxRetries)
                         {
-                            onError?.Invoke($"Error: Too Many Requests (429) - Max retries exceeded.");
+                            string msg = $"Error: Too Many Requests (429) - Max retries exceeded.\nModel: {_modelName}\nResponse: {rateLimitBody}";
+                            AgentLogger.Error(LogTag.Provider, $"[Gemini] {msg}");
+                            onError?.Invoke(msg);
                             yield break;
                         }
 
                         string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        AgentLogger.Warning(LogTag.Provider, waitMsg);
+                        AgentLogger.Warning(LogTag.Provider, $"[Gemini] {waitMsg}\n  Model: {_modelName}\n  Response: {rateLimitBody}");
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = EditorApplication.timeSinceStartup;
@@ -289,7 +301,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                         string errorBody = handler.GetBufferedText();
                         if (string.IsNullOrEmpty(errorBody))
                             errorBody = request.downloadHandler?.text ?? "";
-                        onError?.Invoke($"Error: {request.error} (Code: {request.responseCode})\n{errorBody}");
+                        string errorDetail = $"Error: {request.error} (Code: {request.responseCode})\nModel: {_modelName}\n{errorBody}";
+                        AgentLogger.Error(LogTag.Provider, $"[Gemini] {errorDetail}");
+                        onError?.Invoke(errorDetail);
                         yield break;
                     }
                 }

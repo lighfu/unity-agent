@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using AjisaiFlow.UnityAgent.Editor;
 using AjisaiFlow.UnityAgent.Editor.Interfaces;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -110,9 +111,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                             yield break;
                         }
 
+                        string responseBody = request.downloadHandler?.text ?? "";
                         string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        onDebugLog?.Invoke($"[IMAGE RETRY] Attempt {currentRetry}/{maxRetries}, delay: {delay}s");
-                        Debug.LogWarning($"[OpenAIImageProvider] {waitMsg}");
+                        AgentLogger.Warning(LogTag.Provider, $"[OpenAI Image] {waitMsg}\n  Model: {_modelName}\n  Response: {responseBody}");
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = UnityEditor.EditorApplication.timeSinceStartup;
@@ -127,8 +128,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     }
                     else
                     {
-                        onDebugLog?.Invoke($"[IMAGE ERROR] {request.error} (Code: {request.responseCode})");
-                        onError?.Invoke($"{request.error} (Code: {request.responseCode})\n{request.downloadHandler.text}");
+                        string errorBody = request.downloadHandler?.text ?? "";
+                        AgentLogger.Error(LogTag.Provider, $"[OpenAI Image] Error: {request.error} (Code: {request.responseCode})\nModel: {_modelName}\nResponse: {errorBody}");
+                        onError?.Invoke($"{request.error} (Code: {request.responseCode})\n{errorBody}");
                         yield break;
                     }
                 }

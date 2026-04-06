@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Text;
+using AjisaiFlow.UnityAgent.Editor;
 using AjisaiFlow.UnityAgent.Editor.Interfaces;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -123,9 +124,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                             yield break;
                         }
 
+                        string responseBody = request.downloadHandler?.text ?? "";
                         string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        onDebugLog?.Invoke($"[IMAGE RETRY] Attempt {currentRetry}/{maxRetries}, delay: {delay}s");
-                        Debug.LogWarning($"[GeminiImageProvider] {waitMsg}");
+                        AgentLogger.Warning(LogTag.Provider, $"[Gemini Image] {waitMsg}\n  Model: {_imageModelName}\n  Response: {responseBody}");
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = UnityEditor.EditorApplication.timeSinceStartup;
@@ -140,8 +141,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                     }
                     else
                     {
-                        onDebugLog?.Invoke($"[IMAGE ERROR] {request.error} (Code: {request.responseCode})");
-                        onError?.Invoke($"{request.error} (Code: {request.responseCode})\n{request.downloadHandler.text}");
+                        string errorBody = request.downloadHandler?.text ?? "";
+                        AgentLogger.Error(LogTag.Provider, $"[Gemini Image] Error: {request.error} (Code: {request.responseCode})\nModel: {_imageModelName}\nResponse: {errorBody}");
+                        onError?.Invoke($"{request.error} (Code: {request.responseCode})\n{errorBody}");
                         yield break;
                     }
                 }

@@ -27,7 +27,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             var req = _activeRequest;
             if (req != null)
             {
-                try { req.Abort(); } catch { /* ignore */ }
+                AgentLogger.Info(LogTag.Provider, $"[Claude] Aborting request: model={_modelName}");
+                try { req.Abort(); }
+                catch (Exception ex) { AgentLogger.Warning(LogTag.Provider, $"[Claude] Abort exception: {ex.Message}"); }
                 _activeRequest = null;
             }
         }
@@ -51,6 +53,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     _capability.ThinkingBudgetMin,
                     _capability.ThinkingBudgetMax > 0 ? _capability.ThinkingBudgetMax : thinkingBudget)
                 : 0;
+            AgentLogger.Info(LogTag.Provider, $"[Claude] Initialized: model={_modelName}, thinking={(_thinkingBudget > 0 ? $"{_thinkingBudget} tokens" : "off")}, outputLimit={_capability.OutputTokenLimit}");
         }
 
         // ─── ILLMProvider ───
@@ -114,7 +117,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             }
 
             string requestJson = BuildRequestJson(systemPrompt, msgs);
-            onDebugLog?.Invoke($"[ClaudeApiProvider] POST {Endpoint} model={_modelName}");
+            AgentLogger.Debug(LogTag.Provider, $"[Claude] POST {Endpoint} model={_modelName}, messages={msgs.Count}, thinking={_thinkingBudget}\nPayload: {requestJson}");
 
             // ── HTTP request with SSE streaming and retry ──
             float retryDelay = 1.0f;
@@ -156,7 +159,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                     while (!op.isDone)
                     {
-                        if (_aborted) { _activeRequest = null; yield break; }
+                        if (_aborted) { AgentLogger.Info(LogTag.Provider, $"[Claude] Request aborted by user: model={_modelName}"); _activeRequest = null; yield break; }
                         while (handler.TryDequeue(out string ev))
                             ProcessEvent(ev, acc, thinkingAcc, onPartialResponse, onDebugLog);
                         yield return null;
@@ -171,13 +174,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                         string result = acc.ToString();
                         if (string.IsNullOrEmpty(result))
                         {
-                            onError?.Invoke("Claude API から空の応答を受け取りました。");
+                            string rawForLog = handler.GetBufferedText();
+                            AgentLogger.Error(LogTag.Provider, $"[Claude] Empty response. HTTP {req.responseCode}, model={_modelName}, buffered={rawForLog?.Length ?? 0} chars\nRaw: {rawForLog}");
+                            onError?.Invoke($"Claude API から空の応答を受け取りました。\nHTTP {req.responseCode}");
                             yield break;
                         }
                         // Wrap thinking content in <Thinking> tags for UI extraction
                         if (thinkingAcc.Length > 0)
                             result = $"<Thinking>\n{thinkingAcc}\n</Thinking>\n{result}";
-                        onDebugLog?.Invoke($"[ClaudeApiProvider] Response received ({result.Length} chars)");
+                        AgentLogger.Info(LogTag.Provider, $"[Claude] Success: model={_modelName}, {result.Length} chars, thinking={thinkingAcc.Length} chars");
                         onSuccess?.Invoke(result);
                         yield break;
                     }

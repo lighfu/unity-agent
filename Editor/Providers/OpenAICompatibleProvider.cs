@@ -22,7 +22,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             var req = _activeRequest;
             if (req != null)
             {
-                try { req.Abort(); } catch { /* ignore */ }
+                AgentLogger.Info(LogTag.Provider, $"[OpenAI] Aborting request: model={_modelName}");
+                try { req.Abort(); }
+                catch (Exception ex) { AgentLogger.Warning(LogTag.Provider, $"[OpenAI] Abort exception: {ex.Message}"); }
                 _activeRequest = null;
             }
         }
@@ -45,6 +47,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             _effortLevel = effortLevel;
             _providerType = providerType;
             _capability = ModelCapabilityRegistry.GetCapability(modelName, providerType);
+            AgentLogger.Info(LogTag.Provider, $"[OpenAI] Initialized: model={_modelName}, provider={_providerType}, reasoning={_capability.SupportsThinking}, effort={(_effortLevel >= 0 && _effortLevel < EffortNames.Length ? EffortNames[_effortLevel] : "off")}, outputLimit={_capability.OutputTokenLimit}");
         }
 
         /// <summary>推論モデルかどうか。reasoning_effort を送信する。</summary>
@@ -166,7 +169,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                     while (!op.isDone)
                     {
-                        if (_aborted) { _activeRequest = null; yield break; }
+                        if (_aborted) { AgentLogger.Info(LogTag.Provider, $"[OpenAI] Request aborted by user: model={_modelName}"); _activeRequest = null; yield break; }
                         while (handler.TryDequeue(out string ev))
                             ProcessEvent(ev, acc, onPartialResponse);
                         yield return null;
@@ -193,11 +196,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                         if (string.IsNullOrEmpty(result))
                         {
-                            onError?.Invoke("OpenAI Compatible: 空の応答を受け取りました。");
+                            string rawForLog = handler.GetBufferedText();
+                            AgentLogger.Error(LogTag.Provider, $"[OpenAI] Empty response. HTTP {req.responseCode}, model={_modelName}, buffered={rawForLog?.Length ?? 0} chars\nRaw: {rawForLog}");
+                            onError?.Invoke($"OpenAI Compatible: 空の応答を受け取りました。\nHTTP {req.responseCode}");
                             yield break;
                         }
 
-                        AgentLogger.Info(LogTag.Provider, $"Success ({result.Length} chars)");
+                        AgentLogger.Info(LogTag.Provider, $"[OpenAI] Success: model={_modelName}, {result.Length} chars");
                         onSuccess?.Invoke(result);
                         yield break;
                     }

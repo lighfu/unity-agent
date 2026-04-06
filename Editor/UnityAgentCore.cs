@@ -76,6 +76,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             if (_isProcessing)
             {
+                AgentLogger.Info(LogTag.Core, $"Cancel requested. Coroutines={_activeCoroutines.Count}");
                 _isProcessing = false;
                 // Abort in-flight HTTP request
                 _provider.Abort();
