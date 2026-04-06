@@ -458,6 +458,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 400000, 128000, true, 0, 0, true);
             Reg(d, "gpt-5.2-pro", "GPT-5.2 Pro",
                 400000, 128000, true, 0, 0, true);
+            Reg(d, "gpt-5.4", "GPT-5.4",
+                400000, 128000, true, 0, 0, true);
 
             // ── Codex CLI ──
             Reg(d, "gpt-5.3-codex", "GPT-5.3 Codex",

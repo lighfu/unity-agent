@@ -268,7 +268,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     if (part.imageBytes != null && part.imageBytes.Length > 0)
                     {
                         string base64 = Convert.ToBase64String(part.imageBytes);
-                        sb.Append($"{{\"inlineData\": {{\"mimeType\": \"{part.imageMimeType}\", \"data\": \"{base64}\"}}}}");
+                        string mime = string.IsNullOrEmpty(part.imageMimeType) ? "image/png" : part.imageMimeType;
+                        sb.Append($"{{\"inlineData\": {{\"mimeType\": \"{mime}\", \"data\": \"{base64}\"}}}}");
                     }
                     else
                     {

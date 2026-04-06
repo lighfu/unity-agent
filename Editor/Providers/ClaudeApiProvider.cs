@@ -95,7 +95,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     if (part.imageBytes != null)
                     {
                         imageBytes = part.imageBytes;
-                        mimeType = part.imageMimeType;
+                        mimeType = string.IsNullOrEmpty(part.imageMimeType) ? "image/png" : part.imageMimeType;
                     }
                 }
 

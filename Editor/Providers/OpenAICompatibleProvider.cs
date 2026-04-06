@@ -32,6 +32,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         private string _modelName;
         private int _effortLevel; // -1=off, 0=low, 1=medium, 2=high
         private ModelCapability _capability;
+        private LLMProviderType _providerType;
 
         private static readonly string[] EffortNames = { "low", "medium", "high" };
         private const int MaxRetries = 5;
@@ -42,6 +43,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             _baseUrl = baseUrl.TrimEnd('/');
             _modelName = modelName;
             _effortLevel = effortLevel;
+            _providerType = providerType;
             _capability = ModelCapabilityRegistry.GetCapability(modelName, providerType);
         }
 
@@ -81,7 +83,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                         if (part.imageBytes != null)
                         {
                             string base64 = Convert.ToBase64String(part.imageBytes);
-                            sb.Append($"{{\"type\": \"image_url\", \"image_url\": {{\"url\": \"data:{part.imageMimeType};base64,{base64}\"}}}}");
+                            string mime = string.IsNullOrEmpty(part.imageMimeType) ? "image/png" : part.imageMimeType;
+                            sb.Append($"{{\"type\": \"image_url\", \"image_url\": {{\"url\": \"data:{mime};base64,{base64}\"}}}}");
                         }
                         else
                         {
@@ -104,10 +107,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 sb.Append($", \"reasoning_effort\": \"{EffortNames[_effortLevel]}\"");
             }
 
-            // max_tokens
+            // max_tokens / max_completion_tokens
+            // OpenAI の新しいモデル (o-series, gpt-5 系) は max_completion_tokens を要求する
             if (_capability.OutputTokenLimit > 0)
             {
-                sb.Append($", \"max_tokens\": {_capability.OutputTokenLimit}");
+                string tokenParamName = _providerType == LLMProviderType.OpenAI
+                    ? "max_completion_tokens"
+                    : "max_tokens";
+                sb.Append($", \"{tokenParamName}\": {_capability.OutputTokenLimit}");
             }
 
             // Enable streaming

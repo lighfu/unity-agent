@@ -207,10 +207,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             "Haiku 4.5  (claude-haiku-4-5-20251001)",
         };
 
-        static readonly string[] OpenAIModelPresets = { "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "o4-mini", "o3" };
+        static readonly string[] OpenAIModelPresets = { "gpt-5.4", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "o4-mini", "o3" };
         static readonly string[] OpenAIModelDisplayNames =
         {
-            "GPT-4.1  (gpt-4.1)", "GPT-4.1 mini  (gpt-4.1-mini)",
+            "GPT-5.4  (gpt-5.4)", "GPT-4.1  (gpt-4.1)", "GPT-4.1 mini  (gpt-4.1-mini)",
             "GPT-4o  (gpt-4o)", "o4-mini  (o4-mini)", "o3  (o3)",
         };
 
