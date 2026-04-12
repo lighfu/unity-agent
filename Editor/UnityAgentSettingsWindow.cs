@@ -775,6 +775,13 @@ namespace AjisaiFlow.UnityAgent.Editor
             var desc = ProviderRegistry.Get(type);
             var cfg = _configs[type];
 
+            // MCP Server プロバイダーは LLM 呼び出しを行わないので、情報表示のみ
+            if (type == LLMProviderType.MCPServer)
+            {
+                BuildMCPServerProviderInfo(parent, desc);
+                return;
+            }
+
             switch (desc.SettingsKind)
             {
                 case ProviderSettingsKind.Gemini:
@@ -802,6 +809,41 @@ namespace AjisaiFlow.UnityAgent.Editor
                     BuildClipboardSettings(parent, desc);
                     break;
             }
+        }
+
+        // ─── MCP Server provider info ───
+
+        private void BuildMCPServerProviderInfo(VisualElement parent, ProviderDescriptor desc)
+        {
+            AddSectionLabel(parent, desc.SectionTitle, M(desc.DescriptionKey));
+
+            bool serverRunning = MCP.AgentMCPServer.Shared != null && MCP.AgentMCPServer.Shared.IsRunning;
+            string endpoint = serverRunning
+                ? MCP.AgentMCPServer.Shared.Endpoint
+                : $"http://localhost:{AgentSettings.MCPServerPort}/mcp";
+
+            var statusText = serverRunning
+                ? $"● Running — {endpoint}"
+                : M("○ 停止中 — MCP タブで有効化してください");
+            var statusLabel = new MD3Text(statusText,
+                MD3TextStyle.LabelLarge,
+                color: serverRunning ? _theme.Primary : _theme.OnSurfaceVariant);
+            statusLabel.style.marginLeft = 12;
+            statusLabel.style.marginRight = 12;
+            statusLabel.style.marginTop = 8;
+            parent.Add(statusLabel);
+
+            var hint = new MD3Text(
+                M("このモードを選択すると UnityAgent はチャット入力を受け付けません。"
+                  + " 外部エージェントからの MCP 経由のツール呼び出しのみを処理します。"
+                  + " AskUser 等のユーザー対話 (メッシュ選択、確認ダイアログ) は引き続き動作します。"),
+                MD3TextStyle.BodySmall,
+                color: _theme.OnSurfaceVariant);
+            hint.style.marginLeft = 12;
+            hint.style.marginRight = 12;
+            hint.style.marginTop = 8;
+            hint.style.whiteSpace = WhiteSpace.Normal;
+            parent.Add(hint);
         }
 
         // ─── Gemini ───
@@ -1458,6 +1500,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _mcpLoaded = true;
             }
 
+            // ── MCP Server (UnityAgent 自身を MCP サーバーとして公開) ──
+            BuildMCPServerSection(parent);
+            AddDivider(parent);
+
             AddSectionLabel(parent, "MCP " + M("サーバー設定"),
                 M("MCP (Model Context Protocol) サーバーを設定して、AIエージェントに外部ツールを追加します。"));
 
@@ -1678,6 +1724,174 @@ namespace AjisaiFlow.UnityAgent.Editor
 
                 parent.Add(logFoldout);
             }
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  MCP Server (UnityAgent を MCP サーバーとして他エージェントに公開)
+        // ═══════════════════════════════════════════════════════
+
+        private void BuildMCPServerSection(VisualElement parent)
+        {
+            AddSectionLabel(parent, "UnityAgent " + M("を MCP サーバーとして公開"),
+                M("他のエージェント (Claude Code, Cursor 等) から HTTP 経由で UnityAgent のツールを呼び出せるようにします。"));
+
+            bool running = AgentMCPServer.Shared.IsRunning;
+            var exposeRisk = AgentSettings.MCPServerExposeRisk;
+
+            // Enabled switch
+            AddSwitchRow(parent, AgentSettings.MCPServerEnabled,
+                enabled => enabled
+                    ? M("有効 — 他のエージェントからアクセスできます")
+                    : M("無効"),
+                newVal =>
+                {
+                    AgentSettings.MCPServerEnabled = newVal;
+                    if (newVal)
+                    {
+                        AgentSettings.EnsureMCPServerToken();
+                        AgentMCPServer.StartShared();
+                    }
+                    else
+                    {
+                        AgentMCPServer.StopShared();
+                    }
+                    EditorApplication.delayCall += RebuildContentArea;
+                    return AgentSettings.MCPServerEnabled;
+                });
+
+            // Port
+            var portField = new MD3TextField(M("ポート"));
+            portField.Value = AgentSettings.MCPServerPort.ToString();
+            portField.style.marginLeft = 12;
+            portField.style.marginRight = 12;
+            portField.style.marginTop = 8;
+            portField.changed += v =>
+            {
+                if (int.TryParse(v, out int port) && port > 0 && port < 65536)
+                    AgentSettings.MCPServerPort = port;
+            };
+            parent.Add(portField);
+
+            // Risk selector
+            var riskOptions = new[] { "Safe", "Caution (Recommended)", "Dangerous" };
+            int riskIdx = Mathf.Clamp((int)exposeRisk, 0, 2);
+            var riskDropdown = new MD3Dropdown(M("公開するツールのリスク上限"), riskOptions, riskIdx);
+            riskDropdown.style.marginLeft = 12;
+            riskDropdown.style.marginRight = 12;
+            riskDropdown.style.marginTop = 8;
+            riskDropdown.changed += idx =>
+            {
+                AgentSettings.MCPServerExposeRisk = (AjisaiFlow.UnityAgent.SDK.ToolRisk)idx;
+            };
+            parent.Add(riskDropdown);
+
+            // Token row
+            string token = AgentSettings.MCPServerToken;
+            if (string.IsNullOrEmpty(token)) token = "(not generated yet)";
+            var tokenLabel = new MD3Text(M("トークン") + ": " + MaskToken(token),
+                MD3TextStyle.BodySmall, color: _theme.OnSurfaceVariant);
+            tokenLabel.style.marginLeft = 12;
+            tokenLabel.style.marginRight = 12;
+            tokenLabel.style.marginTop = 12;
+            parent.Add(tokenLabel);
+
+            var tokenRow = new MD3Row(8);
+            tokenRow.style.marginLeft = 12;
+            tokenRow.style.marginRight = 12;
+            tokenRow.style.marginTop = 4;
+
+            var copyBtn = new MD3Button(M("トークンをコピー"), MD3ButtonStyle.Tonal, size: MD3ButtonSize.Small);
+            copyBtn.clicked += () =>
+            {
+                string t = AgentSettings.EnsureMCPServerToken();
+                EditorGUIUtility.systemCopyBuffer = t;
+                ShowSnackbar(M("トークンをクリップボードにコピーしました"));
+            };
+            tokenRow.Add(copyBtn);
+
+            var regenBtn = new MD3Button(M("再生成"), MD3ButtonStyle.Outlined, size: MD3ButtonSize.Small);
+            regenBtn.clicked += () =>
+            {
+                if (EditorUtility.DisplayDialog(
+                    M("トークンを再生成"),
+                    M("トークンを再生成すると既存の外部エージェントは再接続が必要になります。続行しますか?"),
+                    M("OK"), M("キャンセル")))
+                {
+                    AgentSettings.RegenerateMCPServerToken();
+                    if (AgentMCPServer.Shared.IsRunning)
+                    {
+                        AgentMCPServer.StopShared();
+                        AgentMCPServer.StartShared();
+                    }
+                    RebuildContentArea();
+                }
+            };
+            tokenRow.Add(regenBtn);
+            parent.Add(tokenRow);
+
+            // Status
+            var statusText = running
+                ? $"● Running — {AgentMCPServer.Shared.Endpoint}  (calls: {AgentMCPServer.Shared.TotalCallsServed})"
+                : "○ Stopped";
+            var statusLabel = new MD3Text(statusText, MD3TextStyle.LabelLarge,
+                color: running ? _theme.Primary : _theme.OnSurfaceVariant);
+            statusLabel.style.marginLeft = 12;
+            statusLabel.style.marginRight = 12;
+            statusLabel.style.marginTop = 12;
+            parent.Add(statusLabel);
+
+            // Client config snippet
+            if (running)
+            {
+                string snippet =
+                    "{\n" +
+                    "  \"mcpServers\": {\n" +
+                    "    \"unity-agent\": {\n" +
+                    "      \"type\": \"http\",\n" +
+                    "      \"url\": \"" + AgentMCPServer.Shared.Endpoint + "\",\n" +
+                    "      \"headers\": { \"Authorization\": \"Bearer " + AgentSettings.MCPServerToken + "\" }\n" +
+                    "    }\n" +
+                    "  }\n" +
+                    "}";
+
+                var snippetFoldout = new MD3Foldout(M("クライアント設定例 (claude_desktop_config.json)"), false);
+                snippetFoldout.style.marginLeft = 4;
+                snippetFoldout.style.marginRight = 4;
+                snippetFoldout.style.marginTop = 8;
+
+                var snippetLabel = new Label(snippet);
+                snippetLabel.style.fontSize = 11;
+                snippetLabel.style.color = _theme.OnSurfaceVariant;
+                snippetLabel.style.backgroundColor = _theme.SurfaceContainerLowest;
+                snippetLabel.style.paddingLeft = 8;
+                snippetLabel.style.paddingRight = 8;
+                snippetLabel.style.paddingTop = 6;
+                snippetLabel.style.paddingBottom = 6;
+                snippetLabel.style.borderTopLeftRadius = 6;
+                snippetLabel.style.borderTopRightRadius = 6;
+                snippetLabel.style.borderBottomLeftRadius = 6;
+                snippetLabel.style.borderBottomRightRadius = 6;
+                snippetLabel.style.whiteSpace = WhiteSpace.Normal;
+                snippetLabel.enableRichText = false;
+                snippetFoldout.Content.Add(snippetLabel);
+
+                var copySnipBtn = new MD3Button(M("設定をコピー"), MD3ButtonStyle.Text, size: MD3ButtonSize.Small);
+                copySnipBtn.clicked += () =>
+                {
+                    EditorGUIUtility.systemCopyBuffer = snippet;
+                    ShowSnackbar(M("設定をコピーしました"));
+                };
+                snippetFoldout.Content.Add(copySnipBtn);
+
+                parent.Add(snippetFoldout);
+            }
+        }
+
+        private static string MaskToken(string token)
+        {
+            if (string.IsNullOrEmpty(token)) return "(empty)";
+            if (token.Length <= 12) return new string('•', token.Length);
+            return token.Substring(0, 4) + new string('•', 8) + token.Substring(token.Length - 4);
         }
 
         private void BuildMCPServerEntry(VisualElement parent, int index)

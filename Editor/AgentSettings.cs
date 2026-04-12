@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using AjisaiFlow.MD3SDK.Editor;
+using AjisaiFlow.UnityAgent.SDK;
 using UnityEditor;
 using UnityEngine;
 
@@ -15,6 +16,11 @@ namespace AjisaiFlow.UnityAgent.Editor
         private const int DefaultWebServerPort = 6080;
         private const string WebServerUsernameKey = "UnityAgent_WebServerUsername";
         private const string WebServerPasswordKey = "UnityAgent_WebServerPassword";
+        private const string MCPServerEnabledKey = "UnityAgent_MCPServerEnabled";
+        private const string MCPServerPortKey = "UnityAgent_MCPServerPort";
+        private const int DefaultMCPServerPort = 17932;
+        private const string MCPServerTokenKey = "UnityAgent_MCPServerToken";
+        private const string MCPServerExposeRiskKey = "UnityAgent_MCPServerExposeRisk";
         private const string ConfirmToolsKey = "UnityAgent_ConfirmTools";
         private const string DisabledSkillsKey = "UnityAgent_DisabledSkills";
         private const string DisabledToolsKey = "UnityAgent_DisabledTools";
@@ -273,6 +279,65 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             get => SettingsStore.GetString(WebServerPasswordKey, "");
             set => SettingsStore.SetString(WebServerPasswordKey, value);
+        }
+
+        // ─── MCP Server (外部エージェントに Unity ツールを公開) ───
+
+        /// <summary>
+        /// UnityAgent を MCP サーバーとして起動するか。
+        /// Editor 起動時に UnityAgentWindow が参照し自動起動する。
+        /// </summary>
+        public static bool MCPServerEnabled
+        {
+            get => SettingsStore.GetBool(MCPServerEnabledKey, false);
+            set => SettingsStore.SetBool(MCPServerEnabledKey, value);
+        }
+
+        public static int MCPServerPort
+        {
+            get => SettingsStore.GetInt(MCPServerPortKey, DefaultMCPServerPort);
+            set => SettingsStore.SetInt(MCPServerPortKey, value);
+        }
+
+        /// <summary>
+        /// Bearer 認証用トークン。未設定の場合は <see cref="EnsureMCPServerToken"/> が自動生成する。
+        /// </summary>
+        public static string MCPServerToken
+        {
+            get => SettingsStore.GetString(MCPServerTokenKey, "");
+            set => SettingsStore.SetString(MCPServerTokenKey, value ?? "");
+        }
+
+        /// <summary>
+        /// 外部エージェントへ公開するツールのリスク上限。
+        /// デフォルトは Caution (Safe + Caution)。Dangerous はユーザーが明示的に変更した場合のみ。
+        /// </summary>
+        public static ToolRisk MCPServerExposeRisk
+        {
+            get => (ToolRisk)SettingsStore.GetInt(MCPServerExposeRiskKey, (int)ToolRisk.Caution);
+            set => SettingsStore.SetInt(MCPServerExposeRiskKey, (int)value);
+        }
+
+        /// <summary>
+        /// トークンを自動生成 (未設定時) し、現在値を返す。
+        /// </summary>
+        public static string EnsureMCPServerToken()
+        {
+            string current = MCPServerToken;
+            if (!string.IsNullOrEmpty(current)) return current;
+            string generated = System.Guid.NewGuid().ToString("N");
+            MCPServerToken = generated;
+            return generated;
+        }
+
+        /// <summary>
+        /// トークンを強制再生成する。
+        /// </summary>
+        public static string RegenerateMCPServerToken()
+        {
+            string generated = System.Guid.NewGuid().ToString("N");
+            MCPServerToken = generated;
+            return generated;
         }
 
         /// <summary>

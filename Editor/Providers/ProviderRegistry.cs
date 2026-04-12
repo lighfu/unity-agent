@@ -13,12 +13,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
     /// <summary>
     /// LLM プロバイダー種別。int 値順序は既存永続化と完全一致。
+    /// 新しいプロバイダーは必ず末尾に追加すること (既存保存値の破壊を防ぐため)。
     /// </summary>
     internal enum LLMProviderType
     {
         Gemini, OpenAI_Compatible, Claude_CLI, Gemini_CLI, Clipboard,
         Claude_API, OpenAI, DeepSeek, Groq, Ollama, xAI_Grok, Mistral, Perplexity,
         Gemini_Web, Vertex_AI, Codex_CLI,
+        /// <summary>
+        /// 外部 MCP クライアント (Claude Code, Cursor 等) が UnityAgent の会話/ツール実行を
+        /// 主導するモード。UnityAgent は LLM を呼ばず、UI 側で対話を受け取るだけ。
+        /// </summary>
+        MCPServer,
     }
 
     /// <summary>
@@ -171,6 +177,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             "Web Browser (Gemini / ChatGPT / Copilot)",
             "Vertex AI",
             "Codex CLI",
+            "MCP Server (External Agent)",
         };
 
         // ─── Model preset arrays ───
@@ -533,6 +540,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     SettingsKeyCliPath = "UnityAgent_CodexCliPath",
                     SettingsKeyModelName = "UnityAgent_CodexCliModelName",
                 },
+                [LLMProviderType.MCPServer] = new ProviderDescriptor
+                {
+                    DisplayName = "MCP Server (External Agent)", ShortName = "MCP Server",
+                    SettingsKind = ProviderSettingsKind.Clipboard, // 設定 UI は不要だが互換のため Clipboard kind を流用
+                    ModelPresets = null, ModelDisplayNames = null,
+                    DefaultModel = "",
+                    ThinkingMode = ThinkingMode.None,
+                    SupportsModelSelection = false,
+                    SectionTitle = "MCP Server",
+                    DescriptionKey = "外部エージェント (Claude Code, Cursor 等) が MCP 経由で UnityAgent を操作します。UnityAgent 側のチャット入力は無効化されますが、メッシュ選択などの UI インタラクションは外部エージェントからの要求に応じて引き続き動作します。",
+                },
             };
         }
 
@@ -714,6 +732,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                 case LLMProviderType.Clipboard:
                     return new ClipboardProvider();
+
+                case LLMProviderType.MCPServer:
+                    return new MCPServerProvider();
 
                 case LLMProviderType.Claude_API:
                     return new ClaudeApiProvider(cfg.ApiKey, cfg.ModelName,

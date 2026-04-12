@@ -193,6 +193,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             LoadSettings();
             InitializeAgent();
             CollectRecentQueries();
+
+            // MCP Server からのツール呼び出しを chat に表示する
+            MCP.AgentMCPServer.OnCallStart += HandleMCPCallStart;
+            MCP.AgentMCPServer.OnCallFinish += HandleMCPCallFinish;
+            MCP.AgentMCPServer.OnUserChoiceRequested += HandleMCPUserChoiceRequested;
         }
 
         private void CreateGUI()
@@ -424,6 +429,65 @@ namespace AjisaiFlow.UnityAgent.Editor
             _webServer = null;
             if (_chatHistory.Count > 0)
                 ChatHistoryManager.Save(_chatHistory);
+
+            MCP.AgentMCPServer.OnCallStart -= HandleMCPCallStart;
+            MCP.AgentMCPServer.OnCallFinish -= HandleMCPCallFinish;
+            MCP.AgentMCPServer.OnUserChoiceRequested -= HandleMCPUserChoiceRequested;
+        }
+
+        /// <summary>外部エージェントがツールを呼び始めたとき、chat に Info エントリを追加する。</summary>
+        private void HandleMCPCallStart(string toolName, string argsJson)
+        {
+            // コンパクトに: 引数は 120 文字まで
+            string args = argsJson ?? "";
+            if (args.Length > 120) args = args.Substring(0, 120) + "...";
+            string text = $"[MCP] {toolName}({args})";
+            var entry = ChatEntry.CreateInfo(text);
+            _chatHistory.Add(entry);
+            _chatPanel?.AppendEntry(entry);
+            _shouldScrollToBottom = true;
+        }
+
+        /// <summary>外部エージェントへ応答が返ったとき、chat に結果/エラーを表示する。</summary>
+        private void HandleMCPCallFinish(string toolName, string result, bool isError)
+        {
+            string snippet = result ?? "";
+            if (snippet.Length > 400) snippet = snippet.Substring(0, 400) + "...";
+            string prefix = isError ? "[MCP Error]" : "[MCP Result]";
+            var entry = isError
+                ? ChatEntry.CreateError($"{prefix} {toolName}: {snippet}")
+                : ChatEntry.CreateInfo($"{prefix} {toolName}: {snippet}");
+            _chatHistory.Add(entry);
+            _chatPanel?.AppendEntry(entry);
+            _shouldScrollToBottom = true;
+        }
+
+        /// <summary>MCP 経由のツールが AskUser を呼んだとき、Choice エントリを chat に追加する。</summary>
+        private void HandleMCPUserChoiceRequested()
+        {
+            MCP.AgentMCPServer.TraceLog($"  Window.HandleMCPUserChoiceRequested called: pending={UserChoiceState.IsPending}, q={UserChoiceState.Question}, opts={(UserChoiceState.Options!=null?UserChoiceState.Options.Length:-1)}, panel={(_chatPanel!=null)}, historyCount={_chatHistory.Count}");
+            if (!UserChoiceState.IsPending) return;
+
+            // Welcome パネルが表示されていれば隠して chat パネルを前面に
+            if (_welcomePanel != null) _welcomePanel.style.display = DisplayStyle.None;
+            if (_chatPanel != null) _chatPanel.style.display = DisplayStyle.Flex;
+
+            var choiceEntry = ChatEntry.CreateChoice(
+                UserChoiceState.Question,
+                UserChoiceState.Options,
+                UserChoiceState.Importance);
+            _chatHistory.Add(choiceEntry);
+
+            // 次フレームに遅延させて UIElements のレイアウト更新を確実にする
+            rootVisualElement.schedule.Execute(() =>
+            {
+                _chatPanel?.AppendEntry(choiceEntry);
+                _shouldScrollToBottom = true;
+                MCP.AgentMCPServer.TraceLog($"  Choice entry appended via schedule: historyCount={_chatHistory.Count}");
+                Repaint();
+            }).StartingIn(1);
+
+            _fullLog.AppendLine($"[MCP CHOICE] {UserChoiceState.Question}");
         }
 
         private void Update()
@@ -529,7 +593,12 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             // Update processing state (AskUser 中はユーザー入力を許可)
             bool userCanInput = UserChoiceState.IsPending;
-            _inputBar?.SetProcessing(IsProcessing && !userCanInput);
+            bool mcpProviderMode = _providerType == LLMProviderType.MCPServer;
+            // MCP Server モードでは LLM への送信は無効化するが、AskUser 応答用の入力は許可する。
+            bool disableInput = mcpProviderMode
+                ? !userCanInput
+                : (IsProcessing && !userCanInput);
+            _inputBar?.SetProcessing(disableInput);
 
             // Update thinking indicator
             bool waitingForUser = UserChoiceState.IsPending
@@ -1109,6 +1178,18 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             bool hasAttachment = _pendingAttachmentBytes != null;
             if (string.IsNullOrEmpty(_userQuery) && !hasAttachment) return;
+
+            // MCP Server モードでは LLM を呼ばない。AskUser 回答のみ許可する。
+            if (_providerType == LLMProviderType.MCPServer && !UserChoiceState.IsPending)
+            {
+                var info = ChatEntry.CreateInfo(M("MCP Server モードでは外部エージェントが会話を主導します。入力は無効です。"));
+                _chatHistory.Add(info);
+                _chatPanel?.AppendEntry(info);
+                _userQuery = "";
+                _inputBar?.ClearText();
+                _shouldScrollToBottom = true;
+                return;
+            }
 
             // AskUser 中はカスタム回答として処理
             if (UserChoiceState.IsPending && !string.IsNullOrEmpty(_userQuery))
