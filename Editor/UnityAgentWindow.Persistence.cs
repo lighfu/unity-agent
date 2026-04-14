@@ -418,7 +418,13 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         /// <summary>
         /// CreateGUI の最後で呼ばれ、reload 復元時に進行中だった LLM 呼び出しを自動再発行する。
-        /// 同セッション内では <see cref="MaxAutoRetryPerSession"/> 回までに制限。
+        ///
+        /// **発火条件 (すべて満たす場合のみリトライ):**
+        /// - <see cref="_pendingAutoResume"/> = true (snapshot に wasProcessing が記録されていた)
+        /// - LLM 履歴がある
+        /// - **ユーザー入力待ちダイアログが pending でない** (UserChoice / ToolConfirm / BatchToolConfirm)
+        ///   → ユーザーが選択待ちだった場合は LLM はその応答を待っているので、勝手に再発行してはいけない
+        /// - 同セッションのリトライ回数が <see cref="MaxAutoRetryPerSession"/> 未満
         /// </summary>
         internal void TryAutoResumeAfterReload()
         {
@@ -426,10 +432,27 @@ namespace AjisaiFlow.UnityAgent.Editor
             _pendingAutoResume = false;
 
             if (_agent == null || !_agent.CanResume()) return;
+
+            // ユーザー入力待ちのダイアログが pending なら自動リトライしない。
+            // CP2 (TransientStatePersistence) で各 *State は SessionState 経由で復元されているので、
+            // ここで参照すれば reload 直前の pending 状態が分かる。
+            if (UserChoiceState.IsPending || ToolConfirmState.IsPending || BatchToolConfirmState.IsPending)
+            {
+                AgentLogger.Info(LogTag.UI,
+                    $"Auto-resume skipped: user-input dialog pending " +
+                    $"(UserChoice={UserChoiceState.IsPending}, ToolConfirm={ToolConfirmState.IsPending}, " +
+                    $"BatchConfirm={BatchToolConfirmState.IsPending}).");
+                // _agent._isProcessing が true のままでは次の SendMessage がブロックされるため
+                // ここで Cancel() してフラグだけ落とす。履歴は維持される。
+                _agent.Cancel();
+                return;
+            }
+
             if (_autoRetryCount >= MaxAutoRetryPerSession)
             {
                 AgentLogger.Warning(LogTag.UI, "Auto-retry limit reached; not resuming.");
                 AppendInfoEntry(M("自動リトライ上限に達しました。手動で再送信してください。"));
+                _agent.Cancel();
                 return;
             }
             _autoRetryCount++;
@@ -439,69 +462,30 @@ namespace AjisaiFlow.UnityAgent.Editor
             EditorApplication.delayCall += () =>
             {
                 if (_agent == null) return;
+
+                // SendMessage と同じ UI コールバックセットを構築する。
+                // これにより loading indicator、streaming UI、ツール実行ダイアログがすべて通常通り動作する。
+                _currentDebugTarget = null;
+                _earlyDebugLogs = AgentSettings.DebugMode ? new List<string>() : null;
+                _requestStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+                var callbacks = BuildAgentCallbacks("(reload resume)");
                 var routine = _agent.ResumeAfterReload(
-                    onReplyReceived: (response, success) =>
-                    {
-                        OnAutoResumeReply(response, success);
-                    },
-                    onStatus: status => _currentToolStatus = status ?? "",
-                    onDebugLog: log => AgentLogger.Debug(LogTag.Core, log),
-                    onPartialResponse: partial => HandlePartialResponseFromResume(partial)
+                    onReplyReceived: callbacks.OnReply,
+                    onStatus: callbacks.OnStatus,
+                    onDebugLog: callbacks.OnDebugLog,
+                    onPartialResponse: callbacks.OnPartial
                 );
                 var handle = EditorCoroutineUtility.StartCoroutineOwnerless(routine);
                 _agent.SetRootCoroutine(handle);
+
+                _inputBar?.SetProcessing(true);
             };
-        }
-
-        private void OnAutoResumeReply(string response, bool success)
-        {
-            if (!success)
-            {
-                AppendErrorEntry(M("自動リトライに失敗しました。再送信してください。") + "\n" + (response ?? ""));
-                return;
-            }
-            // 成功時は通常の応答ハンドラに任せる (HandleResponse 内で _streamingEntry が更新される)。
-            // 本メソッドは特に追加処理をしない。
-        }
-
-        private void HandlePartialResponseFromResume(string partial)
-        {
-            // 通常経路と同じく SetStreamingEntry でポーリング更新する。
-            // partial == null は新規ストリーミングセッション開始の合図。
-            if (partial == null)
-            {
-                _streamingEntry = ChatEntry.CreateAgent("");
-                _chatHistory.Add(_streamingEntry);
-                _chatPanel?.SetStreamingEntry(_streamingEntry);
-                _shouldScrollToBottom = true;
-                return;
-            }
-
-            if (_streamingEntry == null)
-            {
-                _streamingEntry = ChatEntry.CreateAgent(partial);
-                _chatHistory.Add(_streamingEntry);
-                _chatPanel?.SetStreamingEntry(_streamingEntry);
-            }
-            else
-            {
-                _streamingEntry.text = partial;
-                _streamingEntry.cachedRichText = null;
-            }
-            _shouldScrollToBottom = true;
         }
 
         private void AppendInfoEntry(string text)
         {
             var entry = ChatEntry.CreateInfo(text);
-            _chatHistory.Add(entry);
-            _chatPanel?.AppendEntry(entry);
-            _shouldScrollToBottom = true;
-        }
-
-        private void AppendErrorEntry(string text)
-        {
-            var entry = ChatEntry.CreateError(text);
             _chatHistory.Add(entry);
             _chatPanel?.AppendEntry(entry);
             _shouldScrollToBottom = true;

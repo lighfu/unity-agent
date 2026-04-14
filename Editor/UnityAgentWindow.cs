@@ -1280,9 +1280,33 @@ namespace AjisaiFlow.UnityAgent.Editor
             _earlyDebugLogs = AgentSettings.DebugMode ? new List<string>() : null;
             _requestStopwatch = System.Diagnostics.Stopwatch.StartNew();
 
+            var callbacks = BuildAgentCallbacks(query);
             var rootHandle = EditorCoroutineUtility.StartCoroutineOwnerless(
-                _agent.ProcessUserQuery(query,
-                (response, isFinal) =>
+                _agent.ProcessUserQuery(query, callbacks.OnReply, callbacks.OnStatus, callbacks.OnDebugLog, callbacks.OnPartial));
+            _agent.SetRootCoroutine(rootHandle);
+
+            _inputBar?.SetProcessing(true);
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  Agent callback set — used by both SendMessage and the
+        //  domain-reload auto-resume path so they share identical
+        //  UI plumbing (loading indicator, streaming, tool dialogs).
+        // ═══════════════════════════════════════════════════════
+
+        internal struct AgentCallbacks
+        {
+            public Action<string, bool> OnReply;
+            public Action<string> OnStatus;
+            public Action<string> OnDebugLog;
+            public Action<string> OnPartial;
+        }
+
+        internal AgentCallbacks BuildAgentCallbacks(string query)
+        {
+            return new AgentCallbacks
+            {
+                OnReply = (response, isFinal) =>
                 {
                     if (isFinal)
                     {
@@ -1333,11 +1357,13 @@ namespace AjisaiFlow.UnityAgent.Editor
                             _chatPanel?.AppendEntry(errorEntry);
                             _fullLog.AppendLine($"[ERROR] {response}");
                             _chatPanel?.ClearActivity();
+                            _inputBar?.SetProcessing(false);
                         }
                     }
                     _shouldScrollToBottom = true;
                 },
-                status =>
+
+                OnStatus = status =>
                 {
                     if (status == "__BATCH_TOOL_CONFIRM__")
                     {
@@ -1477,7 +1503,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                         _currentToolStatus = status;
                     _shouldScrollToBottom = true;
                 },
-                debugLog =>
+
+                OnDebugLog = debugLog =>
                 {
                     _fullLog.AppendLine(debugLog);
                     if (AgentSettings.DebugMode)
@@ -1493,7 +1520,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                         }
                     }
                 },
-                partialText =>
+
+                OnPartial = partialText =>
                 {
                     if (partialText == null)
                     {
@@ -1521,10 +1549,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                     }
                     _shouldScrollToBottom = true;
                 }
-            ));
-            _agent.SetRootCoroutine(rootHandle);
-
-            _inputBar?.SetProcessing(true);
+            };
         }
 
         // ═══════════════════════════════════════════════════════

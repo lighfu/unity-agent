@@ -457,20 +457,34 @@ namespace AjisaiFlow.UnityAgent.Editor
         private IEnumerator ExecuteToolsAsync(string text, Action<string> onStatus, List<string> results)
         {
             // Try bracketed format first: [MethodName(arg1, arg2)]
-            // Use non-greedy .*? to avoid matching across multiple tool calls on the same line
-            var matches = System.Text.RegularExpressions.Regex.Matches(text, @"\[(\w+)\(((?:[^'""()]*|'[^']*'|""[^""]*"")*)\)\]");
+            // The argument-list grammar (inside the inner non-capturing group) accepts in priority order:
+            //   1. """...""" — triple-quoted raw multi-line string (no escape processing)
+            //      Pattern: """(?:[^"]|"(?!""))*""" — matches anything not containing 3 consecutive quotes
+            //   2. [^'"()]* — bare characters
+            //   3. '...' — single-quoted string
+            //   4. "..." — double-quoted string
+            // Triple-quoted MUST come first so the matcher does not consume it as a sequence of empty "" tokens.
+            const string ArgsPattern = @"(?:""""""(?:[^""]|""(?!""""))*""""""|[^'""()]*|'[^']*'|""[^""]*"")*";
+
+            var matches = System.Text.RegularExpressions.Regex.Matches(
+                text, $@"\[(\w+)\(({ArgsPattern})\)\]",
+                System.Text.RegularExpressions.RegexOptions.Singleline);
 
             if (matches.Count == 0)
             {
                 // Fallback: [MCP/server.MethodName(args)] or [prefix.MethodName(args)] format
                 // Captures just the final method name after the last dot or slash
-                matches = System.Text.RegularExpressions.Regex.Matches(text, @"\[[\w/]+[./](\w+)\(((?:[^'""()]*|'[^']*'|""[^""]*"")*)\)\]");
+                matches = System.Text.RegularExpressions.Regex.Matches(
+                    text, $@"\[[\w/]+[./](\w+)\(({ArgsPattern})\)\]",
+                    System.Text.RegularExpressions.RegexOptions.Singleline);
             }
 
             if (matches.Count == 0)
             {
                 // Fallback: [Category: MethodName(args)] format (some models add a label prefix)
-                matches = System.Text.RegularExpressions.Regex.Matches(text, @"\[\w+:\s*(\w+)\(((?:[^'""()]*|'[^']*'|""[^""]*"")*)\)\]");
+                matches = System.Text.RegularExpressions.Regex.Matches(
+                    text, $@"\[\w+:\s*(\w+)\(({ArgsPattern})\)\]",
+                    System.Text.RegularExpressions.RegexOptions.Singleline);
             }
 
             if (matches.Count == 0)
@@ -681,7 +695,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                                     // Only treat as named arg if key is a valid identifier (no spaces/special chars)
                                     if (System.Text.RegularExpressions.Regex.IsMatch(possibleName, @"^\w+$"))
                                     {
-                                        string valueAfterEq = rawArg.Substring(eqIdx + 1).Trim().Trim('\'', '"');
+                                        string valueAfterEq = UnquoteAndUnescape(rawArg.Substring(eqIdx + 1));
 
                                         int namedIdx = -1;
                                         for (int i = 0; i < parameterInfos.Length; i++)
@@ -724,7 +738,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
                                 if (positionalIdx < parameterInfos.Length)
                                 {
-                                    string arg = rawArg.Trim('\'', '"');
+                                    string arg = UnquoteAndUnescape(rawArg);
                                     try
                                     {
                                         typedArgs[positionalIdx] = Convert.ChangeType(arg, parameterInfos[positionalIdx].ParameterType);
@@ -1042,8 +1056,71 @@ namespace AjisaiFlow.UnityAgent.Editor
         }
 
         /// <summary>
+        /// Decode a raw argument token produced by SplitArguments into a plain string.
+        ///
+        /// Supported forms:
+        /// - <c>"""...content..."""</c> — raw multi-line string; content is returned verbatim with NO
+        ///   escape processing. Use this for file contents that contain quotes, backslashes, or newlines.
+        /// - <c>"..."</c> or <c>'...'</c> — conventional quoted string; standard escape sequences
+        ///   (\", \', \\, \n, \r, \t, \0, \b, \f, \/) are processed.
+        /// - Unquoted tokens are returned as-is (trimmed).
+        ///
+        /// This is the inverse of what the model emits when it passes string literals inside [Tool(args)] calls.
+        /// </summary>
+        private static string UnquoteAndUnescape(string rawArg)
+        {
+            if (rawArg == null) return null;
+            string s = rawArg.Trim();
+            if (s.Length < 2) return s;
+
+            // Raw triple-quoted string: strip """ from both ends, return inner content verbatim.
+            if (s.Length >= 6 && s.StartsWith("\"\"\"", StringComparison.Ordinal)
+                && s.EndsWith("\"\"\"", StringComparison.Ordinal))
+            {
+                return s.Substring(3, s.Length - 6);
+            }
+
+            char first = s[0];
+            char last = s[s.Length - 1];
+            bool isQuoted = (first == '"' && last == '"') || (first == '\'' && last == '\'');
+            if (!isQuoted) return s;
+
+            string inner = s.Substring(1, s.Length - 2);
+            var sb = new StringBuilder(inner.Length);
+            for (int i = 0; i < inner.Length; i++)
+            {
+                char c = inner[i];
+                if (c == '\\' && i + 1 < inner.Length)
+                {
+                    char next = inner[i + 1];
+                    switch (next)
+                    {
+                        case '"':  sb.Append('"');  i++; continue;
+                        case '\'': sb.Append('\''); i++; continue;
+                        case '\\': sb.Append('\\'); i++; continue;
+                        case '/':  sb.Append('/');  i++; continue;
+                        case 'n':  sb.Append('\n'); i++; continue;
+                        case 'r':  sb.Append('\r'); i++; continue;
+                        case 't':  sb.Append('\t'); i++; continue;
+                        case '0':  sb.Append('\0'); i++; continue;
+                        case 'b':  sb.Append('\b'); i++; continue;
+                        case 'f':  sb.Append('\f'); i++; continue;
+                        default:   sb.Append(c); continue;
+                    }
+                }
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// Split tool arguments respecting quoted strings.
         /// e.g. "'path', '0.1,0.2,0.3', 'tint'" → ["'path'", "'0.1,0.2,0.3'", "'tint'"]
+        ///
+        /// Supported quoting styles:
+        /// - 'single' / "double" — conventional quoted strings (honors \-escapes for embedded quotes)
+        /// - """triple-quoted""" — raw multi-line string (NO escape processing, any content including
+        ///   newlines and embedded quotes is taken verbatim until the next """)
         /// </summary>
         private static string[] SplitArguments(string argsString)
         {
@@ -1054,12 +1131,52 @@ namespace AjisaiFlow.UnityAgent.Editor
             var current = new StringBuilder();
             bool inSingleQuote = false;
             bool inDoubleQuote = false;
+            bool inTripleQuote = false;
             int bracketDepth = 0;
             int braceDepth = 0;
 
             for (int i = 0; i < argsString.Length; i++)
             {
                 char c = argsString[i];
+
+                // Inside a triple-quoted raw string: copy everything verbatim until we meet `"""`.
+                // No escape processing, no comma splitting, no bracket tracking.
+                if (inTripleQuote)
+                {
+                    if (c == '"' && i + 2 < argsString.Length && argsString[i + 1] == '"' && argsString[i + 2] == '"')
+                    {
+                        current.Append("\"\"\"");
+                        inTripleQuote = false;
+                        i += 2;
+                        continue;
+                    }
+                    current.Append(c);
+                    continue;
+                }
+
+                // Detect opening triple-quote before any other quote handling.
+                if (!inSingleQuote && !inDoubleQuote
+                    && c == '"' && i + 2 < argsString.Length
+                    && argsString[i + 1] == '"' && argsString[i + 2] == '"')
+                {
+                    current.Append("\"\"\"");
+                    inTripleQuote = true;
+                    i += 2;
+                    continue;
+                }
+
+                // Inside a quoted string, honor backslash escapes so that \" and \' do not
+                // prematurely terminate the string and so that \\ does not confuse the
+                // quote-state tracker. We copy both the backslash and the escaped char
+                // verbatim here — the actual escape processing happens later in
+                // UnquoteAndUnescape when the individual argument is decoded.
+                if ((inSingleQuote || inDoubleQuote) && c == '\\' && i + 1 < argsString.Length)
+                {
+                    current.Append(c);
+                    current.Append(argsString[i + 1]);
+                    i++;
+                    continue;
+                }
                 if (c == '\'' && !inDoubleQuote)
                 {
                     inSingleQuote = !inSingleQuote;
@@ -1173,6 +1290,27 @@ namespace AjisaiFlow.UnityAgent.Editor
             sb.AppendLine("You are an AI Agent for Unity Editor. You can manipulate the project using tools.");
             sb.AppendLine("Use [MethodName(arg1, arg2)] to call tools. Use SearchTools(\"keyword\") to find tools and see parameters.");
             sb.AppendLine("Use AskUser(question, option1, option2, ...) to present choices. option1 and option2 are REQUIRED (minimum 2 options). The user can also ignore the options and type a free-text response in the input field. Use importance='warning' for side effects, 'critical' for destructive operations.");
+            sb.AppendLine("\n<string_literal_syntax>");
+            sb.AppendLine("STRING LITERALS IN TOOL ARGUMENTS — two forms are available:");
+            sb.AppendLine("");
+            sb.AppendLine("1. Regular quoted strings: \"text\" or 'text'");
+            sb.AppendLine("   - Use standard escapes for special chars: \\\" (double quote), \\' (single quote), \\\\ (backslash), \\n (newline), \\r, \\t");
+            sb.AppendLine("   - Good for short, single-line values.");
+            sb.AppendLine("   - Example: [WriteFile(\"Assets/foo.txt\", \"hello\\nworld\")]");
+            sb.AppendLine("");
+            sb.AppendLine("2. **Triple-quoted raw strings: \"\"\"text\"\"\"** (RECOMMENDED for file content / multi-line text)");
+            sb.AppendLine("   - NO escape processing. Content is taken verbatim, including real newlines, quotes, and backslashes.");
+            sb.AppendLine("   - Ends at the next \"\"\" sequence — so you CANNOT put \"\"\" inside a triple-quoted string.");
+            sb.AppendLine("   - Use this for writing C# scripts, shaders, JSON, etc. so you do not have to escape every \" or \\.");
+            sb.AppendLine("   - Example:");
+            sb.AppendLine("     [WriteFile(\"Assets/HelloWorld.cs\", \"\"\"using UnityEngine;");
+            sb.AppendLine("     public class HelloWorld : MonoBehaviour");
+            sb.AppendLine("     {");
+            sb.AppendLine("         void Start() { Debug.Log(\"こんにちは世界\"); }");
+            sb.AppendLine("     }\"\"\")]");
+            sb.AppendLine("");
+            sb.AppendLine("Prefer triple-quoted strings whenever a value contains quotes, backslashes, or newlines. This avoids the common pitfall of double-escaping that produces literal \\\" or \\n in output files.");
+            sb.AppendLine("</string_literal_syntax>");
             sb.AppendLine("\n<argument_rules>");
             sb.AppendLine("STRICT ARGUMENT REQUIREMENTS:");
             sb.AppendLine("- Parameters WITHOUT a default value are REQUIRED. You MUST provide them. Omitting required arguments causes an error.");
