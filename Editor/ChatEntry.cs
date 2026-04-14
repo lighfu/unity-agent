@@ -55,6 +55,13 @@ namespace AjisaiFlow.UnityAgent.Editor
         // Image preview (for scene captures etc.)
         public Texture2D imagePreview;
 
+        // Persisted (downscaled) image bytes — populated only when restoring from a session snapshot.
+        // ChatEntryView reads `imagePreview` first; if null and `imagePreviewBytes` is set, the view
+        // lazily decodes a Texture2D and assigns it back to `imagePreview` so subsequent renders stay cheap.
+        public byte[] imagePreviewBytes;
+        public int imagePreviewWidth;
+        public int imagePreviewHeight;
+
         // Choice fields
         public string[] choiceOptions;
         public string choiceImportance; // "info", "warning", "critical"
@@ -80,6 +87,32 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (debugLogs == null) debugLogs = new List<string>();
             debugLogs.Add(log);
             cachedDebugRich = null;
+        }
+
+        /// <summary>
+        /// imagePreview を必要なら復元する。session snapshot から復元された ChatEntry は
+        /// imagePreview == null だが imagePreviewBytes が埋まっている。最初に表示する直前に
+        /// このメソッドを呼ぶことで Texture2D を遅延生成する。
+        /// </summary>
+        public Texture2D EnsureImagePreview()
+        {
+            if (imagePreview != null) return imagePreview;
+            if (imagePreviewBytes == null || imagePreviewBytes.Length == 0) return null;
+            try
+            {
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (tex.LoadImage(imagePreviewBytes))
+                {
+                    imagePreview = tex;
+                    return imagePreview;
+                }
+                UnityEngine.Object.DestroyImmediate(tex);
+            }
+            catch
+            {
+                // fall through, leave imagePreview null
+            }
+            return null;
         }
 
         // Markdown→RichText cache (invalidated by setting to null)

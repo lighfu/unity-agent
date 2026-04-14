@@ -149,6 +149,109 @@ namespace AjisaiFlow.UnityAgent.Editor
             _provider = provider;
         }
 
+        // ═══════════════════════════════════════════════════════
+        //  Snapshot API — persists LLM conversation across domain reload.
+        //  Pairs with Editor/Persistence/ChatSessionPersistence.
+        // ═══════════════════════════════════════════════════════
+
+        /// <summary>LLM 履歴の参照を返す (snapshot 取得用、変更しないこと)。</summary>
+        public IReadOnlyList<Message> GetHistory() => _history;
+
+        /// <summary>LLM 履歴を直接置き換える。snapshot 復元時のみ使う。</summary>
+        public void RestoreHistory(List<Message> history)
+        {
+            _history = history ?? new List<Message>();
+        }
+
+        /// <summary>セッショントークン累積を直接設定する。snapshot 復元時のみ使う。</summary>
+        public void RestoreSessionStats(int total, int input, int output, int lastPrompt, int undoCount)
+        {
+            _sessionTotalTokens = total;
+            _sessionInputTokens = input;
+            _sessionOutputTokens = output;
+            _lastPromptTokens = lastPrompt;
+            _sessionUndoCount = undoCount;
+        }
+
+        /// <summary>
+        /// 自動リトライ可能な状態かを判定する。<see cref="_history"/> の末尾を見て:
+        /// - 末尾が user → そのまま再発行可能
+        /// - 末尾が model/tool → 不完全なツールループの可能性。末尾の不完全 model ターンを
+        ///   pop してから再発行する必要がある
+        /// </summary>
+        public bool CanResume()
+        {
+            return _history.Count > 0;
+        }
+
+        /// <summary>
+        /// 末尾の不完全な assistant/tool ターンを巻き戻して直近の user ターンまで戻す。
+        /// 自動リトライ前に呼ぶ。
+        /// </summary>
+        public void RewindToLastUserTurn()
+        {
+            for (int i = _history.Count - 1; i >= 0; i--)
+            {
+                if (_history[i].role == "user")
+                {
+                    int removeFrom = i + 1;
+                    if (removeFrom < _history.Count)
+                        _history.RemoveRange(removeFrom, _history.Count - removeFrom);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
+        /// reload 後に進行中だった LLM 呼び出しを再開する。<see cref="ProcessQueryInternal"/> と同じ
+        /// パスで _provider.CallLLM を再発行するが、user message は履歴に追加しない (既に履歴にあるため)。
+        /// </summary>
+        public IEnumerator ResumeAfterReload(
+            Action<string, bool> onReplyReceived,
+            Action<string> onStatus = null,
+            Action<string> onDebugLog = null,
+            Action<string> onPartialResponse = null)
+        {
+            if (_isProcessing)
+            {
+                onDebugLog?.Invoke("[UnityAgentCore] ResumeAfterReload: already processing, skipping.");
+                yield break;
+            }
+            if (_history.Count == 0)
+            {
+                onDebugLog?.Invoke("[UnityAgentCore] ResumeAfterReload: empty history, nothing to resume.");
+                yield break;
+            }
+
+            RewindToLastUserTurn();
+
+            _isProcessing = true;
+            _toolLoopCount = 0;
+            ToolConfirmState.SessionSkipAll = false;
+
+            onPartialResponse?.Invoke(null);
+
+            yield return _provider.CallLLM(
+                _history,
+                response =>
+                {
+                    if (!_isProcessing) return;
+                    var h = EditorCoroutineUtility.StartCoroutineOwnerless(
+                        HandleResponse(response, onReplyReceived, onStatus, onDebugLog, onPartialResponse));
+                    _activeCoroutines.RemoveAll(x => x.Stopped);
+                    _activeCoroutines.Add(h);
+                },
+                error =>
+                {
+                    _isProcessing = false;
+                    onReplyReceived?.Invoke($"Error: {error}", false);
+                },
+                onStatus,
+                onDebugLog,
+                onPartialResponse
+            );
+        }
+
         /// <summary>ルートコルーチンハンドルを設定する。Cancel() で停止するため。</summary>
         public void SetRootCoroutine(EditorCoroutineHandle handle) => _rootCoroutine = handle;
 

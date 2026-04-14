@@ -78,9 +78,10 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 displayText = displayText.Substring(5);
 
             // 画像プレビュー
-            if (entry.imagePreview != null)
+            var userImg = entry.EnsureImagePreview();
+            if (userImg != null)
             {
-                var img = new Image { image = entry.imagePreview };
+                var img = new Image { image = userImg };
                 img.style.width = 120;
                 img.style.height = 90;
                 img.style.borderTopLeftRadius = 8;
@@ -242,9 +243,10 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             view._rawText = text;
 
             // 画像プレビュー (SceneView キャプチャ等)
-            if (entry.imagePreview != null)
+            var infoImg = entry.EnsureImagePreview();
+            if (infoImg != null)
             {
-                var img = new Image { image = entry.imagePreview };
+                var img = new Image { image = infoImg };
                 img.style.width = 160;
                 img.style.height = 120;
                 img.style.borderTopLeftRadius = 8;

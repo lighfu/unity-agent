@@ -194,6 +194,12 @@ namespace AjisaiFlow.UnityAgent.Editor
             InitializeAgent();
             CollectRecentQueries();
 
+            // Domain reload を跨ぐセッション復元 (UnityAgentWindow.Persistence.cs)。
+            // 順序: InitializeAgent で _agent を作ってから TryLoadSnapshot で _agent._history に書き戻す。
+            // CollectRecentQueries の後に呼ぶことで snapshot 側の recentQueries が優先される。
+            TryLoadSnapshot();
+            RegisterPersistenceHooks();
+
             // MCP Server からのツール呼び出しを chat に表示する
             MCP.AgentMCPServer.OnCallStart += HandleMCPCallStart;
             MCP.AgentMCPServer.OnCallFinish += HandleMCPCallFinish;
@@ -233,6 +239,10 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             // Post-update changelog dialog (shown once per version)
             ShowChangelogDialogIfNeeded();
+
+            // Reload 由来で復元された場合は、ここでパネル再構築完了後に自動リトライを発火する。
+            // (UnityAgentWindow.Persistence.cs)
+            TryAutoResumeAfterReload();
         }
 
         private void BuildLayout()
@@ -429,6 +439,13 @@ namespace AjisaiFlow.UnityAgent.Editor
             _webServer = null;
             if (_chatHistory.Count > 0)
                 ChatHistoryManager.Save(_chatHistory);
+
+            // Domain reload で OnDisable が呼ばれた場合は snapshot を残す (次回 OnEnable で復元)。
+            // ユーザーが Window を閉じた場合は snapshot を削除して新規セッションから始める。
+            // 判別フラグは UnityAgentWindow.Persistence.cs の HandleBeforeAssemblyReload で立てる。
+            if (!_reloadInProgress)
+                Persistence.ChatSessionPersistence.Clear();
+            UnregisterPersistenceHooks();
 
             MCP.AgentMCPServer.OnCallStart -= HandleMCPCallStart;
             MCP.AgentMCPServer.OnCallFinish -= HandleMCPCallFinish;
