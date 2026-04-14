@@ -53,7 +53,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// <summary>推論モデルかどうか。reasoning_effort を送信する。</summary>
         private bool IsReasoningModel => _capability.SupportsThinking;
 
-        public IEnumerator CallLLM(IEnumerable<Message> history, Action<string> onSuccess, Action<string> onError, Action<string> onStatus = null, Action<string> onDebugLog = null, Action<string> onPartialResponse = null)
+        public IEnumerator CallLLM(IEnumerable<Message> history, Action<string> onSuccess, Action<string> onError, Action<string> onStatus = null, Action<string> onDebugLog = null, Action<string> onPartialResponse = null, Action<ChatStreamEvent> onStreamEvent = null)
         {
             _aborted = false;
             _activeRequest = null;
@@ -171,14 +171,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     {
                         if (_aborted) { AgentLogger.Info(LogTag.Provider, $"[OpenAI] Request aborted by user: model={_modelName}"); _activeRequest = null; yield break; }
                         while (handler.TryDequeue(out string ev))
-                            ProcessEvent(ev, acc, onPartialResponse);
+                            ProcessEvent(ev, acc, onPartialResponse, onStreamEvent);
                         yield return null;
                     }
                     _activeRequest = null;
 
                     // Drain remaining events
                     while (handler.TryDequeue(out string ev))
-                        ProcessEvent(ev, acc, onPartialResponse);
+                        ProcessEvent(ev, acc, onPartialResponse, onStreamEvent);
 
                     if (req.result == UnityWebRequest.Result.Success)
                     {
@@ -237,9 +237,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         // ─── SSE event processing ───
 
-        private static void ProcessEvent(string data, StringBuilder acc, Action<string> onPartialResponse)
+        private static void ProcessEvent(string data, StringBuilder acc, Action<string> onPartialResponse,
+            Action<ChatStreamEvent> onStreamEvent)
         {
             if (string.IsNullOrEmpty(data) || data == "[DONE]") return;
+
+            // Try reasoning_content first (DeepSeek R1 等): {"choices":[{"delta":{"reasoning_content":"..."}}]}
+            string reasoning = ExtractDeltaField(data, "reasoning_content");
+            if (!string.IsNullOrEmpty(reasoning))
+                onStreamEvent?.Invoke(new ChatStreamEvent(StreamEventKind.Thinking, reasoning));
 
             // Extract delta content from: {"choices":[{"delta":{"content":"..."}}]}
             string content = ExtractDeltaContent(data);
@@ -247,7 +253,49 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             {
                 acc.Append(content);
                 onPartialResponse?.Invoke(acc.ToString());
+                onStreamEvent?.Invoke(new ChatStreamEvent(StreamEventKind.Text, content));
             }
+        }
+
+        /// <summary>
+        /// SSE delta から指定フィールドを抽出する (ExtractDeltaContent の汎用版)。
+        /// </summary>
+        private static string ExtractDeltaField(string json, string fieldName)
+        {
+            int deltaIdx = json.IndexOf("\"delta\"", StringComparison.Ordinal);
+            if (deltaIdx < 0) return null;
+
+            string needle = "\"" + fieldName + "\"";
+            int fieldIdx = json.IndexOf(needle, deltaIdx, StringComparison.Ordinal);
+            if (fieldIdx < 0) return null;
+
+            int i = fieldIdx + needle.Length;
+            while (i < json.Length && (json[i] == ' ' || json[i] == ':')) i++;
+            if (i >= json.Length || json[i] == 'n') return null;
+            if (json[i] != '"') return null;
+            i++;
+
+            var sb = new StringBuilder();
+            while (i < json.Length)
+            {
+                char c = json[i];
+                if (c == '\\' && i + 1 < json.Length)
+                {
+                    switch (json[i + 1])
+                    {
+                        case '"': sb.Append('"'); break;
+                        case '\\': sb.Append('\\'); break;
+                        case 'n': sb.Append('\n'); break;
+                        case 'r': sb.Append('\r'); break;
+                        case 't': sb.Append('\t'); break;
+                        default: sb.Append(json[i + 1]); break;
+                    }
+                    i += 2;
+                }
+                else if (c == '"') return sb.ToString();
+                else { sb.Append(c); i++; }
+            }
+            return null;
         }
 
         /// <summary>

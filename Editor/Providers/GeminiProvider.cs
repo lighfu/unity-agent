@@ -58,7 +58,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         public void Abort() => _client.Abort();
 
-        public IEnumerator CallLLM(IEnumerable<Message> history, Action<string> onSuccess, Action<string> onError, Action<string> onStatus = null, Action<string> onDebugLog = null, Action<string> onPartialResponse = null)
+        public IEnumerator CallLLM(IEnumerable<Message> history, Action<string> onSuccess, Action<string> onError, Action<string> onStatus = null, Action<string> onDebugLog = null, Action<string> onPartialResponse = null, Action<ChatStreamEvent> onStreamEvent = null)
         {
             AgentLogger.Debug(LogTag.Provider, $"[Gemini] CallLLM: model={_modelName}, streaming={_client.SupportsStreaming}");
 
@@ -66,7 +66,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
             if (_client.SupportsStreaming)
             {
-                yield return CallLLMStreaming(json, onSuccess, onError, onStatus, onDebugLog, onPartialResponse);
+                yield return CallLLMStreaming(json, onSuccess, onError, onStatus, onDebugLog, onPartialResponse, onStreamEvent);
             }
             else
             {
@@ -74,7 +74,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             }
         }
 
-        private IEnumerator CallLLMStreaming(string json, Action<string> onSuccess, Action<string> onError, Action<string> onStatus, Action<string> onDebugLog, Action<string> onPartialResponse)
+        private IEnumerator CallLLMStreaming(string json, Action<string> onSuccess, Action<string> onError, Action<string> onStatus, Action<string> onDebugLog, Action<string> onPartialResponse, Action<ChatStreamEvent> onStreamEvent)
         {
             var textAccumulator = new StringBuilder();
             var thoughtAccumulator = new StringBuilder();
@@ -92,12 +92,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                         foreach (var part in candidate.content.parts)
                         {
                             if (part.thought)
+                            {
                                 thoughtAccumulator.Append(part.text);
+                                if (!string.IsNullOrEmpty(part.text))
+                                    onStreamEvent?.Invoke(new ChatStreamEvent(StreamEventKind.Thinking, part.text));
+                            }
                             else
                             {
                                 string special = FormatSpecialPart(part);
-                                if (special != null) textAccumulator.Append(special);
-                                else if (part.text != null) textAccumulator.Append(part.text);
+                                if (special != null)
+                                {
+                                    textAccumulator.Append(special);
+                                    onStreamEvent?.Invoke(new ChatStreamEvent(StreamEventKind.Text, special));
+                                }
+                                else if (part.text != null)
+                                {
+                                    textAccumulator.Append(part.text);
+                                    onStreamEvent?.Invoke(new ChatStreamEvent(StreamEventKind.Text, part.text));
+                                }
                             }
                         }
                     }

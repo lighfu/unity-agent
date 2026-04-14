@@ -132,6 +132,18 @@ namespace AjisaiFlow.UnityAgent.Editor
                     requestDurationTicks = e.requestDuration.HasValue ? e.requestDuration.Value.Ticks : -1,
                     imagePreview = ImageDownscaler.Encode(e.imagePreview),
                     results = SerializeResults(e.results),
+
+                    // ToolCall fields (schema v2)
+                    toolCallId = e.toolCallId ?? "",
+                    toolName = e.toolName ?? "",
+                    toolArgsRaw = e.toolArgsRaw ?? "",
+                    toolResult = e.toolResult ?? "",
+                    toolStatus = (int)e.toolStatus,
+                    toolStartedUtcIso = e.toolStartedUtc == default
+                        ? ""
+                        : e.toolStartedUtc.ToString("o"),
+                    toolDurationMs = e.toolDurationMs,
+                    toolCategory = e.toolCategory ?? "",
                 };
             }
             return arr;
@@ -317,7 +329,21 @@ namespace AjisaiFlow.UnityAgent.Editor
                     batchResolved = s.batchResolved,
                     isClipboard = s.isClipboard,
                     debugFoldout = s.debugFoldout,
+
+                    // ToolCall fields (schema v2)
+                    toolCallId = s.toolCallId ?? "",
+                    toolName = s.toolName ?? "",
+                    toolArgsRaw = s.toolArgsRaw ?? "",
+                    toolResult = s.toolResult ?? "",
+                    toolStatus = (ToolCallStatus)s.toolStatus,
+                    toolDurationMs = s.toolDurationMs,
+                    toolCategory = s.toolCategory ?? "",
                 };
+
+                if (!string.IsNullOrEmpty(s.toolStartedUtcIso) &&
+                    DateTime.TryParse(s.toolStartedUtcIso, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var toolStart))
+                    entry.toolStartedUtc = toolStart.ToUniversalTime();
 
                 if (DateTime.TryParse(s.timestamp, null,
                         System.Globalization.DateTimeStyles.RoundtripKind, out var ts))

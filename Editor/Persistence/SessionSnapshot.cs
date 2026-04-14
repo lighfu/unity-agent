@@ -14,7 +14,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Persistence
     [Serializable]
     public class SessionSnapshot
     {
-        public int version = 1;
+        public int version = 2;
 
         /// <summary>ISO 8601 UTC. 古すぎるスナップショットの破棄判定にも使える。</summary>
         public string savedAt = "";
@@ -74,6 +74,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Persistence
 
         public ImageSnapshot imagePreview = new ImageSnapshot();
         public ResultItemSnapshot[] results = Array.Empty<ResultItemSnapshot>();
+
+        // ── ToolCall entry fields (schema v2+) ──
+        public string toolCallId = "";
+        public string toolName = "";
+        public string toolArgsRaw = "";
+        public string toolResult = "";
+        public int toolStatus;                // ChatEntry.ToolCallStatus (int)
+        public string toolStartedUtcIso = ""; // ISO 8601 UTC
+        public long toolDurationMs;
+        public string toolCategory = "";
     }
 
     [Serializable]

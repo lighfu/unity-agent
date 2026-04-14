@@ -43,7 +43,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Action<string> onError,
             Action<string> onStatus = null,
             Action<string> onDebugLog = null,
-            Action<string> onPartialResponse = null)
+            Action<string> onPartialResponse = null,
+            Action<ChatStreamEvent> onStreamEvent = null)
         {
             _aborted = false;
             _activeProcess = null;

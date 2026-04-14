@@ -22,6 +22,13 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         Label _textLabel;
         string _rawText;
 
+        // Streaming thinking support (agent bubble only)
+        VisualElement _agentBubble;
+        MD3Theme _agentTheme;
+        MD3Foldout _thinkingFoldout;
+        Label _thinkingLabel;
+        int _renderedThinkingLen;
+
         ChatEntryView() { }
 
         /// <summary>ChatEntry からビューを生成するファクトリ。</summary>
@@ -77,13 +84,76 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         /// <summary>ストリーミング中のコンテンツ更新。</summary>
         public void UpdateContent(ChatEntry entry)
         {
-            if (_textLabel == null) return;
-            string newText = entry.text ?? "";
-            if (newText != _rawText)
+            if (_textLabel != null)
             {
-                _rawText = newText;
-                _textLabel.text = MarkdownToRichText(newText);
+                string newText = entry.text ?? "";
+                if (newText != _rawText)
+                {
+                    _rawText = newText;
+                    _textLabel.text = MarkdownToRichText(newText);
+                }
             }
+
+            // Live thinking stream
+            string thinking = entry.thinkingText ?? "";
+            if (thinking.Length != _renderedThinkingLen && _agentBubble != null)
+            {
+                _renderedThinkingLen = thinking.Length;
+                if (!string.IsNullOrEmpty(thinking))
+                {
+                    EnsureThinkingFoldout(entry, _agentTheme);
+                    if (_thinkingLabel != null)
+                        _thinkingLabel.text = thinking;
+                    if (_thinkingFoldout != null)
+                    {
+                        int lineCount = CountLines(thinking);
+                        _thinkingFoldout.Label =
+                            $"\U0001F9E0  {M("思考過程")} ({lineCount} {M("行")})";
+                        // Auto-expand while streaming
+                        if (!_thinkingFoldout.Expanded)
+                            _thinkingFoldout.Expanded = true;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 必要なら空の Thinking foldout をバブル先頭に作成する。live thinking 用。
+        /// </summary>
+        void EnsureThinkingFoldout(ChatEntry entry, MD3Theme theme)
+        {
+            if (_thinkingFoldout != null || _agentBubble == null || theme == null) return;
+
+            _thinkingFoldout = new MD3Foldout(
+                $"\U0001F9E0  {M("思考過程")} (0 {M("行")})",
+                true);
+
+            var thinkBg = new VisualElement();
+            var outlineColor = theme.OutlineVariant.a > 0.1f
+                ? theme.OutlineVariant
+                : new Color(1f, 1f, 1f, 0.08f);
+            thinkBg.style.backgroundColor = new Color(outlineColor.r, outlineColor.g, outlineColor.b, 0.05f);
+            thinkBg.style.paddingLeft = 8;
+            thinkBg.style.paddingRight = 8;
+            thinkBg.style.paddingTop = 6;
+            thinkBg.style.paddingBottom = 6;
+            thinkBg.style.borderTopLeftRadius = 6;
+            thinkBg.style.borderTopRightRadius = 6;
+            thinkBg.style.borderBottomLeftRadius = 6;
+            thinkBg.style.borderBottomRightRadius = 6;
+
+            _thinkingLabel = new Label(entry.thinkingText ?? "");
+            _thinkingLabel.style.color = theme.OnSurfaceVariant;
+            _thinkingLabel.style.fontSize = 11;
+            _thinkingLabel.style.whiteSpace = WhiteSpace.Normal;
+            _thinkingLabel.style.opacity = 0.85f;
+            _thinkingLabel.style.unityFontStyleAndWeight = FontStyle.Italic;
+            _thinkingLabel.selection.isSelectable = true;
+            thinkBg.Add(_thinkingLabel);
+            _thinkingFoldout.Content.Add(thinkBg);
+
+            // Insert at top of bubble
+            _agentBubble.Insert(0, _thinkingFoldout);
         }
 
         // ══════════════════════════════════════════════
@@ -164,24 +234,46 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             view.style.marginBottom = 8;
 
             var bubble = new MD3Card(null, null, MD3CardStyle.Filled);
-            bubble.style.backgroundColor = theme.SurfaceContainerHigh;
+            var bubbleBg = theme.SurfaceContainerHigh.a > 0.1f
+                ? theme.SurfaceContainerHigh
+                : new Color(0.16f, 0.15f, 0.18f, 1f);
+            bubble.style.backgroundColor = bubbleBg;
             bubble.style.borderTopLeftRadius = 4;
             bubble.style.borderTopRightRadius = 16;
             bubble.style.borderBottomLeftRadius = 16;
             bubble.style.borderBottomRightRadius = 16;
             bubble.style.maxWidth = new StyleLength(new Length(90, LengthUnit.Percent));
+            // Subtle 1px outline for elevation
+            var outlineColor = theme.OutlineVariant.a > 0.1f
+                ? theme.OutlineVariant
+                : new Color(1f, 1f, 1f, 0.08f);
+            bubble.style.borderLeftWidth = 1;
+            bubble.style.borderRightWidth = 1;
+            bubble.style.borderTopWidth = 1;
+            bubble.style.borderBottomWidth = 1;
+            bubble.style.borderLeftColor = outlineColor;
+            bubble.style.borderRightColor = outlineColor;
+            bubble.style.borderTopColor = outlineColor;
+            bubble.style.borderBottomColor = outlineColor;
 
-            // Thinking 折りたたみ
+            // Bind bubble + theme for live thinking stream updates
+            view._agentBubble = bubble;
+            view._agentTheme = theme;
+
+            // Thinking foldout (brain icon + line count)
             if (!string.IsNullOrEmpty(entry.thinkingText))
             {
-                var thinkFold = new MD3Foldout(M("思考プロセス"), false);
-                var thinkLabel = new Label(entry.thinkingText);
-                thinkLabel.style.color = theme.OnSurfaceVariant;
-                thinkLabel.style.fontSize = 12;
-                thinkLabel.style.whiteSpace = WhiteSpace.Normal;
-                thinkLabel.style.opacity = 0.7f;
-                thinkFold.Content.Add(thinkLabel);
-                bubble.Add(thinkFold);
+                view.EnsureThinkingFoldout(entry, theme);
+                if (view._thinkingLabel != null)
+                    view._thinkingLabel.text = entry.thinkingText;
+                if (view._thinkingFoldout != null)
+                {
+                    int lineCount = CountLines(entry.thinkingText);
+                    view._thinkingFoldout.Label =
+                        $"\U0001F9E0  {M("思考過程")} ({lineCount} {M("行")})";
+                    view._thinkingFoldout.Expanded = false;
+                }
+                view._renderedThinkingLen = entry.thinkingText.Length;
             }
 
             // メイン テキスト
@@ -191,6 +283,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             label.style.color = theme.OnSurface;
             label.style.fontSize = 14;
             label.style.whiteSpace = WhiteSpace.Normal;
+            label.selection.isSelectable = true;
             bubble.Add(label);
 
             view._textLabel = label;
@@ -247,8 +340,74 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 view.OnCopy?.Invoke(entry.text);
             });
 
+            // Hover overlay: copy button + relative timestamp
+            AttachHoverOverlay(view, bubble, entry, theme);
+
             view.Add(bubble);
             return view;
+        }
+
+        /// <summary>
+        /// Agent バブルに hover 時だけ表示される copy ボタン + 相対時刻ラベルを追加する。
+        /// </summary>
+        static void AttachHoverOverlay(ChatEntryView view, VisualElement bubble, ChatEntry entry, MD3Theme theme)
+        {
+            var overlay = new VisualElement();
+            overlay.style.position = Position.Absolute;
+            overlay.style.top = 4;
+            overlay.style.right = 4;
+            overlay.style.flexDirection = FlexDirection.Row;
+            overlay.style.alignItems = Align.Center;
+            overlay.style.display = DisplayStyle.None;
+            overlay.pickingMode = PickingMode.Position;
+
+            var timestampLabel = new Label(FormatRelativeTime(entry.timestamp));
+            timestampLabel.style.fontSize = 10;
+            timestampLabel.style.color = theme.OnSurfaceVariant;
+            timestampLabel.style.opacity = 0.6f;
+            timestampLabel.style.marginRight = 6;
+            overlay.Add(timestampLabel);
+
+            var copyBtn = new MD3IconButton(MD3Icon.ContentCopy, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
+            copyBtn.tooltip = M("本文をコピー");
+            copyBtn.clicked += () =>
+            {
+                UnityEditor.EditorGUIUtility.systemCopyBuffer = entry.text ?? "";
+            };
+            overlay.Add(copyBtn);
+
+            bubble.Add(overlay);
+
+            // Enter/leave — refresh timestamp on enter so it stays accurate
+            bubble.RegisterCallback<MouseEnterEvent>(_ =>
+            {
+                timestampLabel.text = FormatRelativeTime(entry.timestamp);
+                overlay.style.display = DisplayStyle.Flex;
+            });
+            bubble.RegisterCallback<MouseLeaveEvent>(_ =>
+            {
+                overlay.style.display = DisplayStyle.None;
+            });
+        }
+
+        static string FormatRelativeTime(System.DateTime ts)
+        {
+            if (ts == default) return "";
+            var diff = System.DateTime.Now - ts;
+            if (diff.TotalSeconds < 5) return M("たった今");
+            if (diff.TotalSeconds < 60) return string.Format(M("{0}秒前"), (int)diff.TotalSeconds);
+            if (diff.TotalMinutes < 60) return string.Format(M("{0}分前"), (int)diff.TotalMinutes);
+            if (diff.TotalHours < 24) return string.Format(M("{0}時間前"), (int)diff.TotalHours);
+            return ts.ToString("MM/dd HH:mm");
+        }
+
+        static int CountLines(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            int count = 1;
+            for (int i = 0; i < text.Length; i++)
+                if (text[i] == '\n') count++;
+            return count;
         }
 
         // ══════════════════════════════════════════════
@@ -550,7 +709,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         // ══════════════════════════════════════════════
 
         static readonly Regex CodeBlockRegex = new Regex(
-            @"```[\w]*\r?\n([\s\S]*?)```", RegexOptions.Compiled);
+            @"```(\w*)\r?\n([\s\S]*?)```", RegexOptions.Compiled);
         static readonly Regex InlineCodeRegex = new Regex(
             @"`([^`\n]+)`", RegexOptions.Compiled);
         static readonly Regex BoldRegex = new Regex(
@@ -570,7 +729,12 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             md = CodeBlockRegex.Replace(md, m =>
             {
                 int idx = codeBlocks.Count;
-                codeBlocks.Add($"<color={codeColor}>{EscapeRichText(m.Groups[1].Value.TrimEnd())}</color>");
+                string lang = m.Groups[1].Value;
+                string body = m.Groups[2].Value.TrimEnd();
+                string highlighted = string.IsNullOrEmpty(lang)
+                    ? $"<color={codeColor}>{EscapeRichText(body)}</color>"
+                    : CodeSyntaxHighlighter.Highlight(body, lang);
+                codeBlocks.Add(highlighted);
                 return $"\x00CB{idx}\x00";
             });
 

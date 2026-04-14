@@ -34,7 +34,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Action<string> onError,
             Action<string> onStatus = null,
             Action<string> onDebugLog = null,
-            Action<string> onPartialResponse = null)
+            Action<string> onPartialResponse = null,
+            Action<ChatStreamEvent> onStreamEvent = null)
         {
             // MCP Server プロバイダー選択中は UnityAgent 側のチャット入力が禁止されるため、
             // 本来ここに到達してはいけない。安全のためユーザーへ案内を返して終了する。

@@ -1293,7 +1293,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             var callbacks = BuildAgentCallbacks(query);
             var rootHandle = EditorCoroutineUtility.StartCoroutineOwnerless(
-                _agent.ProcessUserQuery(query, callbacks.OnReply, callbacks.OnStatus, callbacks.OnDebugLog, callbacks.OnPartial));
+                _agent.ProcessUserQuery(query, callbacks.OnReply, callbacks.OnStatus, callbacks.OnDebugLog, callbacks.OnPartial, callbacks.OnStreamEvent));
             _agent.SetRootCoroutine(rootHandle);
 
             _inputBar?.SetProcessing(true);
@@ -1311,6 +1311,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             public Action<string> OnStatus;
             public Action<string> OnDebugLog;
             public Action<string> OnPartial;
+            public Action<Interfaces.ChatStreamEvent> OnStreamEvent;
         }
 
         internal AgentCallbacks BuildAgentCallbacks(string query)
@@ -1627,6 +1628,31 @@ namespace AjisaiFlow.UnityAgent.Editor
                     {
                         _streamingEntry.text = partialText;
                     }
+                    _shouldScrollToBottom = true;
+                },
+
+                OnStreamEvent = ev =>
+                {
+                    // Structured streaming from providers (Claude API SSE etc).
+                    // Text events are already handled via OnPartial (provider fires both);
+                    // here we only need to pipe Thinking chunks into the streaming entry.
+                    if (ev.Kind != Interfaces.StreamEventKind.Thinking) return;
+                    if (string.IsNullOrEmpty(ev.Chunk)) return;
+
+                    if (_streamingEntry == null)
+                    {
+                        _chatPanel?.ClearActivity();
+                        _streamingEntry = ChatEntry.CreateAgent("");
+                        _chatHistory.Add(_streamingEntry);
+                        _lastAgentEntryIndex = _chatHistory.Count - 1;
+                        _currentDebugTarget = _streamingEntry;
+                        _chatPanel?.SetStreamingEntry(_streamingEntry);
+                    }
+
+                    _streamingEntry.thinkingText =
+                        (_streamingEntry.thinkingText ?? "") + ev.Chunk;
+                    _streamingEntry.cachedThinkingRich = null;
+                    _chatPanel?.NotifyStreamingThinkingUpdated();
                     _shouldScrollToBottom = true;
                 }
             };

@@ -210,7 +210,8 @@ namespace AjisaiFlow.UnityAgent.Editor
             Action<string, bool> onReplyReceived,
             Action<string> onStatus = null,
             Action<string> onDebugLog = null,
-            Action<string> onPartialResponse = null)
+            Action<string> onPartialResponse = null,
+            Action<Interfaces.ChatStreamEvent> onStreamEvent = null)
         {
             if (_isProcessing)
             {
@@ -237,7 +238,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 {
                     if (!_isProcessing) return;
                     var h = EditorCoroutineUtility.StartCoroutineOwnerless(
-                        HandleResponse(response, onReplyReceived, onStatus, onDebugLog, onPartialResponse));
+                        HandleResponse(response, onReplyReceived, onStatus, onDebugLog, onPartialResponse, onStreamEvent));
                     _activeCoroutines.RemoveAll(x => x.Stopped);
                     _activeCoroutines.Add(h);
                 },
@@ -248,14 +249,15 @@ namespace AjisaiFlow.UnityAgent.Editor
                 },
                 onStatus,
                 onDebugLog,
-                onPartialResponse
+                onPartialResponse,
+                onStreamEvent
             );
         }
 
         /// <summary>ルートコルーチンハンドルを設定する。Cancel() で停止するため。</summary>
         public void SetRootCoroutine(EditorCoroutineHandle handle) => _rootCoroutine = handle;
 
-        public IEnumerator ProcessUserQuery(string userMessage, Action<string, bool> onReplyReceived, Action<string> onStatus = null, Action<string> onDebugLog = null, Action<string> onPartialResponse = null)
+        public IEnumerator ProcessUserQuery(string userMessage, Action<string, bool> onReplyReceived, Action<string> onStatus = null, Action<string> onDebugLog = null, Action<string> onPartialResponse = null, Action<Interfaces.ChatStreamEvent> onStreamEvent = null)
         {
             if (_isProcessing)
             {
@@ -266,10 +268,10 @@ namespace AjisaiFlow.UnityAgent.Editor
             _isProcessing = true;
             _toolLoopCount = 0;
             ToolConfirmState.SessionSkipAll = false;
-            yield return ProcessQueryInternal(userMessage, onReplyReceived, onStatus, onDebugLog, onPartialResponse);
+            yield return ProcessQueryInternal(userMessage, onReplyReceived, onStatus, onDebugLog, onPartialResponse, onStreamEvent);
         }
 
-        private IEnumerator ProcessQueryInternal(string userMessage, Action<string, bool> onReplyReceived, Action<string> onStatus, Action<string> onDebugLog, Action<string> onPartialResponse)
+        private IEnumerator ProcessQueryInternal(string userMessage, Action<string, bool> onReplyReceived, Action<string> onStatus, Action<string> onDebugLog, Action<string> onPartialResponse, Action<Interfaces.ChatStreamEvent> onStreamEvent = null)
         {
             onDebugLog?.Invoke($"[UnityAgentCore] ProcessQueryInternal: {userMessage}");
 
@@ -326,7 +328,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                     if (!_isProcessing) return; // Cancelled
 
                     // Handle response (check for tool calls) — track handle for cancellation
-                    var h = EditorCoroutineUtility.StartCoroutineOwnerless(HandleResponse(response, onReplyReceived, onStatus, onDebugLog, onPartialResponse));
+                    var h = EditorCoroutineUtility.StartCoroutineOwnerless(HandleResponse(response, onReplyReceived, onStatus, onDebugLog, onPartialResponse, onStreamEvent));
                     _activeCoroutines.RemoveAll(x => x.Stopped);
                     _activeCoroutines.Add(h);
                 },
@@ -337,11 +339,12 @@ namespace AjisaiFlow.UnityAgent.Editor
                 },
                 onStatus,
                 onDebugLog,
-                onPartialResponse
+                onPartialResponse,
+                onStreamEvent
             );
         }
 
-        private IEnumerator HandleResponse(string responseText, Action<string, bool> onReplyReceived, Action<string> onStatus, Action<string> onDebugLog, Action<string> onPartialResponse)
+        private IEnumerator HandleResponse(string responseText, Action<string, bool> onReplyReceived, Action<string> onStatus, Action<string> onDebugLog, Action<string> onPartialResponse, Action<Interfaces.ChatStreamEvent> onStreamEvent = null)
         {
             if (!_isProcessing) yield break;
 
@@ -434,7 +437,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
                 else if (_isProcessing && (_lastPromptTokens == 0 || _lastPromptTokens < maxTokens))
                 {
-                    yield return ProcessQueryInternal($"Tool Outputs:\n{combinedResult}", onReplyReceived, onStatus, onDebugLog, onPartialResponse);
+                    yield return ProcessQueryInternal($"Tool Outputs:\n{combinedResult}", onReplyReceived, onStatus, onDebugLog, onPartialResponse, onStreamEvent);
                 }
                 else if (_isProcessing)
                 {

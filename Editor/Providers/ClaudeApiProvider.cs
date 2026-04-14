@@ -64,7 +64,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Action<string> onError,
             Action<string> onStatus = null,
             Action<string> onDebugLog = null,
-            Action<string> onPartialResponse = null)
+            Action<string> onPartialResponse = null,
+            Action<ChatStreamEvent> onStreamEvent = null)
         {
             _aborted = false;
             _activeRequest = null;
@@ -161,13 +162,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     {
                         if (_aborted) { AgentLogger.Info(LogTag.Provider, $"[Claude] Request aborted by user: model={_modelName}"); _activeRequest = null; yield break; }
                         while (handler.TryDequeue(out string ev))
-                            ProcessEvent(ev, acc, thinkingAcc, onPartialResponse, onDebugLog);
+                            ProcessEvent(ev, acc, thinkingAcc, onPartialResponse, onStreamEvent, onDebugLog);
                         yield return null;
                     }
                     _activeRequest = null;
 
                     while (handler.TryDequeue(out string ev))
-                        ProcessEvent(ev, acc, thinkingAcc, onPartialResponse, onDebugLog);
+                        ProcessEvent(ev, acc, thinkingAcc, onPartialResponse, onStreamEvent, onDebugLog);
 
                     if (req.result == UnityWebRequest.Result.Success)
                     {
@@ -217,7 +218,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         // ─── SSE event processing ───
 
         private static void ProcessEvent(string data, StringBuilder acc, StringBuilder thinkingAcc,
-            Action<string> onPartialResponse, Action<string> onDebugLog)
+            Action<string> onPartialResponse,
+            Action<ChatStreamEvent> onStreamEvent,
+            Action<string> onDebugLog)
         {
             if (string.IsNullOrEmpty(data) || data == "[DONE]") return;
 
@@ -231,7 +234,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 {
                     string thinking = ExtractStringAfter(data, "thinking", deltaStart);
                     if (!string.IsNullOrEmpty(thinking))
+                    {
                         thinkingAcc.Append(thinking);
+                        onStreamEvent?.Invoke(new ChatStreamEvent(StreamEventKind.Thinking, thinking));
+                    }
                 }
                 else if (deltaType == "text_delta")
                 {
@@ -240,6 +246,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     {
                         acc.Append(text);
                         onPartialResponse?.Invoke(acc.ToString());
+                        onStreamEvent?.Invoke(new ChatStreamEvent(StreamEventKind.Text, text));
                     }
                 }
             }

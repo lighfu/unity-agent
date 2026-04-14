@@ -83,11 +83,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Persistence
                 var snap = JsonUtility.FromJson<SessionSnapshot>(json);
                 if (snap == null) return null;
 
-                // 将来のスキーマ互換: version mismatch は破棄ではなく warn
-                if (snap.version > 1)
+                // ── schema migrations ──
+                if (snap.version < 2)
+                {
+                    // Back up the v1 file before overwriting on next save.
+                    try
+                    {
+                        string backup = path + ".v1.bak";
+                        if (!File.Exists(backup)) File.Copy(path, backup);
+                    }
+                    catch { /* best-effort */ }
+
+                    ChatHistoryMigrator.UpgradeV1ToV2(snap);
+                    snap.version = 2;
+                    Debug.Log("[UnityAgent] Migrated CurrentSession.json v1 → v2 (ToolCall entries).");
+                }
+
+                if (snap.version > 2)
                 {
                     Debug.LogWarning(
-                        $"[UnityAgent] CurrentSession.json version {snap.version} is newer than supported (1). " +
+                        $"[UnityAgent] CurrentSession.json version {snap.version} is newer than supported (2). " +
                         "Loading best-effort.");
                 }
 

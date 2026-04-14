@@ -21,6 +21,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         ChatEntryView _streamingView;
         ChatEntry _streamingEntry;
         int _streamingTextLen;
+        int _streamingThinkingLen;
 
         // Info グループ折りたたみ状態
         readonly Dictionary<int, bool> _toolGroupFoldouts = new Dictionary<int, bool>();
@@ -183,6 +184,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             StopStreaming();
             _streamingEntry = entry;
             _streamingTextLen = entry.text?.Length ?? 0;
+            _streamingThinkingLen = entry.thinkingText?.Length ?? 0;
 
             var view = ChatEntryView.Create(entry, _theme);
             _content.Add(view);
@@ -196,12 +198,24 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                     return;
                 }
                 int newLen = _streamingEntry.text?.Length ?? 0;
-                if (newLen != _streamingTextLen)
+                int newThinkingLen = _streamingEntry.thinkingText?.Length ?? 0;
+                if (newLen != _streamingTextLen || newThinkingLen != _streamingThinkingLen)
                 {
                     _streamingTextLen = newLen;
+                    _streamingThinkingLen = newThinkingLen;
                     _streamingView?.UpdateContent(_streamingEntry);
                 }
             }).Every(50);
+        }
+
+        /// <summary>
+        /// OnStreamEvent(Thinking) から即時更新を促すシグナル。
+        /// ポーリングも並行で動いているが、ユーザー応答性のため即時更新したいときに呼ぶ。
+        /// </summary>
+        public void NotifyStreamingThinkingUpdated()
+        {
+            if (_streamingEntry == null || _streamingView == null) return;
+            _streamingView.UpdateContent(_streamingEntry);
         }
 
         /// <summary>ストリーミング完了。ポーリングを停止し、最終テキストで更新。</summary>
