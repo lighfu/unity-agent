@@ -189,6 +189,12 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 			b.unityConn = nil
 			b.unityWriter = nil
 		}
+		// Reset lastActivity on disconnect so the idle-quit grace period starts fresh from
+		// the moment Unity went away — not from when it first connected. Without this, a
+		// long-lived Unity session followed by a domain reload would cause the bridge to
+		// quit immediately because lastActivity was set when Unity originally connected
+		// (potentially many minutes ago) and the watchdog sees `now - lastActivity > grace`.
+		b.lastActivity = time.Now()
 		b.mu.Unlock()
 		log.Printf("[bridge] unity connection closed")
 	}()
@@ -202,6 +208,11 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 		if len(line) == 0 {
 			continue
 		}
+		// Each successful message keeps lastActivity recent, so a long-lived connection
+		// also "earns" a fresh grace period at the moment it eventually disconnects.
+		b.mu.Lock()
+		b.lastActivity = time.Now()
+		b.mu.Unlock()
 		var msg wireMsg
 		if err := json.Unmarshal(line, &msg); err != nil {
 			log.Printf("[bridge] unity sent malformed JSON: %v", err)
