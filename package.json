@@ -14,7 +14,7 @@
     "url": "https://github.com/lighfu/unity-agent.git"
   },
   "vpmDependencies": {
-    "com.ajisaiflow.unityagent.sdk": ">=0.7.1",
+    "com.ajisaiflow.unityagent.sdk": ">=0.7.2",
     "net.ajisaiflow.md3sdk": ">=0.7.1"
   },
   "keywords": [
