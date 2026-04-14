@@ -116,6 +116,24 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
         }
 
+        // Fix 1 (v0.8.1): transient provider status filter
+        // Provider レイヤーの進捗メッセージ (URL/retry/connect) をアクティビティパネル
+        // に流すだけにして永続化を避けるための prefix リスト。
+        private static readonly string[] TransientStatusPrefixes = {
+            "Streaming from:", "Requesting to:", "Rate limit",
+            "Connecting to", "Starting ", "Claude CLI ", "Gemini CLI ",
+            "Codex CLI ", "Web ブラウザで応答を生成中",
+        };
+
+        private static bool IsTransientProviderStatus(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            for (int i = 0; i < TransientStatusPrefixes.Length; i++)
+                if (s.StartsWith(TransientStatusPrefixes[i], StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+
         private static readonly Regex CodeBlockRegex = new Regex(
             @"```[\w]*\r?\n([\s\S]*?)```", RegexOptions.Compiled);
         private static readonly Regex InlineCodeRegex = new Regex(
@@ -539,7 +557,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                         for (int ci = _chatHistory.Count - 2; ci >= 0; ci--)
                         {
                             if (_chatHistory[ci].type == ChatEntry.EntryType.Choice
-                                && _chatHistory[ci].choiceSelectedIndex < 0
+                                && _chatHistory[ci].choiceSelectedIndex == -1
                                 && !_chatHistory[ci].isToolConfirm)
                             {
                                 _chatHistory[ci].choiceSelectedIndex = 0;
@@ -1228,10 +1246,11 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _fullLog.AppendLine($"[USER] {customAnswer}");
 
                 // 未回答の Choice エントリを解決済みにする
+                // (choiceSelectedIndex == -1 のみ。-2 はドメインリロードによるキャンセル扱い)
                 for (int ci = _chatHistory.Count - 2; ci >= 0; ci--)
                 {
                     if (_chatHistory[ci].type == ChatEntry.EntryType.Choice
-                        && _chatHistory[ci].choiceSelectedIndex < 0
+                        && _chatHistory[ci].choiceSelectedIndex == -1
                         && !_chatHistory[ci].isToolConfirm)
                     {
                         _chatHistory[ci].choiceSelectedIndex = 0;
@@ -1480,6 +1499,17 @@ namespace AjisaiFlow.UnityAgent.Editor
                     {
                         _chatPanel?.UpdateActivity(null, status, null);
                         _fullLog.AppendLine($"[CLI RESULT] {status}");
+                        _shouldScrollToBottom = true;
+                        return;
+                    }
+
+                    // ── Transient provider status (Fix 1 v0.8.1) ──
+                    // プロバイダの進捗メッセージ (URL/retry/connect) は永続化せず
+                    // アクティビティパネルにだけ表示する。reload 後に履歴に残らない。
+                    if (IsTransientProviderStatus(status))
+                    {
+                        _chatPanel?.UpdateActivity(null, status, null);
+                        _fullLog.AppendLine($"[PROVIDER] {status}");
                         _shouldScrollToBottom = true;
                         return;
                     }

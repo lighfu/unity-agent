@@ -508,6 +508,8 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             if (entry.choiceOptions != null)
             {
                 bool isResolved = entry.choiceSelectedIndex >= 0;
+                bool isCancelled = entry.choiceSelectedIndex == -2; // v0.8.1 sentinel
+                bool disableAll = isResolved || isCancelled;
                 var btnRow = new MD3Row();
                 btnRow.style.flexWrap = Wrap.Wrap;
 
@@ -524,13 +526,10 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                     btn.style.marginRight = 6;
                     btn.style.marginBottom = 4;
 
-                    if (isResolved)
+                    if (disableAll)
                     {
                         btn.SetEnabled(false);
-                        if (selected)
-                            btn.style.opacity = 1f;
-                        else
-                            btn.style.opacity = 0.4f;
+                        btn.style.opacity = selected ? 1f : 0.4f;
                     }
                     else
                     {
@@ -552,6 +551,17 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 }
 
                 view.Add(btnRow);
+
+                if (isCancelled)
+                {
+                    var cancelLabel = new Label(M("前回の選択は中断されました"));
+                    cancelLabel.style.fontSize = 11;
+                    cancelLabel.style.color = theme.OnSurfaceVariant;
+                    cancelLabel.style.opacity = 0.7f;
+                    cancelLabel.style.marginTop = 4;
+                    cancelLabel.style.unityFontStyleAndWeight = FontStyle.Italic;
+                    view.Add(cancelLabel);
+                }
             }
 
             return view;

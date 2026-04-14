@@ -72,7 +72,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             var snap = new SessionSnapshot
             {
-                version = 1,
+                version = 2,
                 wasProcessing = _agent != null && _agent.IsProcessing,
                 providerType = (int)_providerType,
                 modelName = _configs != null && _configs.ContainsKey(_providerType)
@@ -112,6 +112,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             for (int i = 0; i < history.Count; i++)
             {
                 var e = history[i];
+                // Fix 6 (v0.8.1): ensure serialized agent text has no <Thinking> wrapper.
+                // ExtractThinking normally runs in OnReply(isFinal), but if reload happens
+                // mid-stream the partial text could still contain the wrapper.
+                if (e.type == ChatEntry.EntryType.Agent && !string.IsNullOrEmpty(e.text) &&
+                    e.text.IndexOf("<Thinking>", StringComparison.Ordinal) >= 0)
+                {
+                    NormalizeAgentTextInPlace(e);
+                }
                 arr[i] = new ChatEntrySnapshot
                 {
                     type = (int)e.type,
@@ -250,6 +258,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             try
             {
                 _chatHistory = DeserializeChatHistory(snap.chatHistory);
+                SyncToolCallSeqAfterRestore(_chatHistory);
                 _userQuery = snap.userQuery ?? "";
                 _currentToolStatus = snap.currentToolStatus ?? "";
                 _showHistory = snap.showHistory;
@@ -403,9 +412,82 @@ namespace AjisaiFlow.UnityAgent.Editor
                     }
                 }
 
+                // Fix 2 (v0.8.1): Running ToolCall entries are stuck forever after reload.
+                // Convert them to Cancelled so the card shows a clean terminal state.
+                if (entry.type == ChatEntry.EntryType.ToolCall &&
+                    entry.toolStatus == ToolCallStatus.Running)
+                {
+                    entry.toolStatus = ToolCallStatus.Cancelled;
+                    if (string.IsNullOrEmpty(entry.toolResult))
+                        entry.toolResult = M("ドメインリロードにより中断されました");
+                    if (entry.toolDurationMs <= 0 && entry.toolStartedUtc != default)
+                        entry.toolDurationMs = (long)(DateTime.UtcNow - entry.toolStartedUtc).TotalMilliseconds;
+                }
+
                 list.Add(entry);
             }
+
+            // Fix 3 (v0.8.1): most-recent unresolved Choice gets cancelled.
+            // After reload UserChoiceState is reset, so pending buttons would do nothing.
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var e = list[i];
+                if (e.type != ChatEntry.EntryType.Choice) continue;
+                bool resolved = e.isBatchToolConfirm
+                    ? e.batchResolved
+                    : (e.choiceSelectedIndex >= 0);
+                if (resolved) break;
+                e.choiceSelectedIndex = ChatEntryCancelledSentinel;
+                if (e.isBatchToolConfirm) e.batchResolved = true;
+                break;
+            }
+
             return list;
+        }
+
+        /// <summary>
+        /// <see cref="ChatEntry.choiceSelectedIndex"/> の sentinel 値:
+        /// -1 = pending, &gt;=0 = selected index, -2 = cancelled by domain reload.
+        /// </summary>
+        internal const int ChatEntryCancelledSentinel = -2;
+
+        /// <summary>
+        /// Fix 5 (v0.8.1): restore 後に _toolCallSeq を復元済み ToolCall id の最大値に合わせる。
+        /// 同じ tc-N が再利用されて古い stuck カードと新しい呼び出しが衝突するのを防ぐ。
+        /// </summary>
+        private void SyncToolCallSeqAfterRestore(List<ChatEntry> history)
+        {
+            int maxSeq = 0;
+            if (history == null) { _toolCallSeq = 0; return; }
+            foreach (var e in history)
+            {
+                if (e == null || e.type != ChatEntry.EntryType.ToolCall) continue;
+                string id = e.toolCallId;
+                if (string.IsNullOrEmpty(id) || !id.StartsWith("tc-", StringComparison.Ordinal)) continue;
+                if (int.TryParse(id.Substring(3), out int n) && n > maxSeq) maxSeq = n;
+            }
+            _toolCallSeq = maxSeq;
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex PersistThinkingRegex =
+            new System.Text.RegularExpressions.Regex(
+                @"<Thinking>\s*([\s\S]*?)\s*</Thinking>\s*",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static void NormalizeAgentTextInPlace(ChatEntry entry)
+        {
+            if (entry == null || string.IsNullOrEmpty(entry.text)) return;
+            var match = PersistThinkingRegex.Match(entry.text);
+            if (!match.Success) return;
+
+            string thinking = match.Groups[1].Value.Trim();
+            string cleaned = entry.text.Substring(0, match.Index) +
+                             entry.text.Substring(match.Index + match.Length);
+            entry.text = cleaned.TrimStart('\n', '\r');
+
+            // Preserve any existing live-streamed thinking, otherwise adopt.
+            if (string.IsNullOrEmpty(entry.thinkingText))
+                entry.thinkingText = thinking;
         }
 
         private static List<Message> DeserializeLlmHistory(LlmMessageSnapshot[] arr)
