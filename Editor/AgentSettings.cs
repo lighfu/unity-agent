@@ -7,6 +7,17 @@ using UnityEngine;
 
 namespace AjisaiFlow.UnityAgent.Editor
 {
+    /// <summary>
+    /// MCP サーバーの動作モード。詳細は <see cref="AgentSettings.MCPServerMode"/> 参照。
+    /// </summary>
+    public enum MCPServerMode
+    {
+        /// <summary>Editor 内で HTTP listener を直接動かす (legacy、domain reload で死ぬ)。</summary>
+        InProc = 0,
+        /// <summary>別プロセスの bridge binary が HTTP を持つ (recommended、reload を生き残る)。</summary>
+        Bridge = 1,
+    }
+
     public static class AgentSettings
     {
         private const string ConfirmDestructiveKey = "UnityAgent_ConfirmDestructive";
@@ -21,6 +32,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private const int DefaultMCPServerPort = 17932;
         private const string MCPServerTokenKey = "UnityAgent_MCPServerToken";
         private const string MCPServerExposeRiskKey = "UnityAgent_MCPServerExposeRisk";
+        private const string MCPServerModeKey = "UnityAgent_MCPServerMode";
         private const string ConfirmToolsKey = "UnityAgent_ConfirmTools";
         private const string DisabledSkillsKey = "UnityAgent_DisabledSkills";
         private const string DisabledToolsKey = "UnityAgent_DisabledTools";
@@ -338,6 +350,67 @@ namespace AjisaiFlow.UnityAgent.Editor
             string generated = System.Guid.NewGuid().ToString("N");
             MCPServerToken = generated;
             return generated;
+        }
+
+        /// <summary>
+        /// MCP サーバーの動作モード。
+        /// - <see cref="MCPServerMode.InProc"/>: Unity Editor 内で <see cref="MCP.AgentMCPServer"/> が直接 HTTP listener を起動 (legacy)
+        /// - <see cref="MCPServerMode.Bridge"/>: 別プロセスの Go binary が HTTP を持ち、Unity は TCP クライアントとして接続 (recommended; reload を生き残る)
+        /// </summary>
+        public static MCPServerMode MCPServerMode
+        {
+            get => (MCPServerMode)SettingsStore.GetInt(MCPServerModeKey, (int)AjisaiFlow.UnityAgent.Editor.MCPServerMode.InProc);
+            set => SettingsStore.SetInt(MCPServerModeKey, (int)value);
+        }
+
+        /// <summary>
+        /// Bridge モード時に Unity ↔ bridge 間 TCP に使う内部ポート。
+        /// プロジェクトパスから FNV-1a で派生させて衝突しにくい数値にする。
+        /// </summary>
+        public static int MCPBridgeInternalPort
+        {
+            get
+            {
+                int port = SettingsStore.GetInt("UnityAgent_MCPBridgeInternalPort", 0);
+                if (port > 0) return port;
+                int derived = DeriveBridgePort(17000, 1000) + 1; // odd number for internal
+                SettingsStore.SetInt("UnityAgent_MCPBridgeInternalPort", derived);
+                return derived;
+            }
+        }
+
+        /// <summary>
+        /// MCP クライアントが叩く公開ポート。プロジェクトパスから派生 (内部ポート - 1)。
+        /// </summary>
+        public static int MCPBridgePublicPort
+        {
+            get
+            {
+                int port = SettingsStore.GetInt("UnityAgent_MCPBridgePublicPort", 0);
+                if (port > 0) return port;
+                int derived = DeriveBridgePort(17000, 1000); // even number for public
+                SettingsStore.SetInt("UnityAgent_MCPBridgePublicPort", derived);
+                return derived;
+            }
+        }
+
+        /// <summary>
+        /// プロジェクトパスを FNV-1a でハッシュして 0..range-1 を base に加算。
+        /// 同プロジェクトでは常に同じ値、異プロジェクトでは衝突しにくい。
+        /// </summary>
+        private static int DeriveBridgePort(int basePort, int range)
+        {
+            string seed;
+            try { seed = System.IO.Path.GetFullPath(UnityEngine.Application.dataPath); }
+            catch { seed = "unityagent"; }
+
+            uint hash = 2166136261u;
+            foreach (char c in seed)
+            {
+                hash ^= c;
+                hash *= 16777619u;
+            }
+            return basePort + (int)(hash % (uint)range) * 2; // *2 to leave room for paired internal port
         }
 
         /// <summary>

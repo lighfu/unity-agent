@@ -779,6 +779,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
     /// <summary>
     /// HTTP スレッドとメインスレッド間で受け渡されるツール呼び出しのコンテキスト。
+    /// InProc モード (HTTP listener) と Bridge モード (TCP client) の両方から共用する。
     /// </summary>
     internal sealed class PendingCall
     {
@@ -797,6 +798,19 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public int ErrorCode { get; private set; } = -32000;
         public bool Cancelled { get; private set; }
 
+        /// <summary>
+        /// Bridge モードで使う識別子。bridge 内部の pending id を持ち回り、結果送信時に
+        /// レスポンスメッセージへタグ付けするために <see cref="AgentMCPBridgeClient"/> が参照する。
+        /// InProc モードでは null。
+        /// </summary>
+        public string BridgePendingId;
+
+        /// <summary>
+        /// 完了通知コールバック (Bridge モード専用)。InProc モードは <see cref="Wait"/> でブロックするが、
+        /// Bridge モードは push 方式で結果を bridge に書き戻す。
+        /// </summary>
+        public Action<PendingCall> OnComplete;
+
         readonly ManualResetEventSlim _done = new ManualResetEventSlim(false);
 
         public PendingCall(string toolName, JNode arguments)
@@ -810,6 +824,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             ResultText = text ?? "";
             AgentMCPServer.RaiseCallFinish(ToolName, ResultText, false);
             _done.Set();
+            try { OnComplete?.Invoke(this); } catch { }
         }
 
         public void SetError(string message, string data = null, int code = -32000)
@@ -819,6 +834,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             ErrorCode = code;
             AgentMCPServer.RaiseCallFinish(ToolName, Error, true);
             _done.Set();
+            try { OnComplete?.Invoke(this); } catch { }
         }
 
         public bool Wait(int timeoutMs) => _done.Wait(timeoutMs);
