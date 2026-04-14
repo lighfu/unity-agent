@@ -58,12 +58,26 @@ namespace AjisaiFlow.UnityAgent.Editor
             _updateBanner.style.right = 16;
             _updateBanner.style.maxWidth = 400;
 
+            // 背景・文字色はカスタムテーマで `ErrorContainer` / `OnErrorContainer` が
+            // 未設定 (alpha=0) だと完全に透明になり通知が見えなくなる。
+            // 確実に定義されている SurfaceContainerHigh / OnSurface を主体にし、
+            // それでも透明な場合はハードコードフォールバックを使う。
+            Color bgColor = _theme.SurfaceContainerHigh.a > 0.1f
+                ? _theme.SurfaceContainerHigh
+                : new Color(0.16f, 0.15f, 0.18f, 1f); // dark gray fallback
+            Color fgColor = _theme.OnSurface.a > 0.1f
+                ? _theme.OnSurface
+                : new Color(0.92f, 0.88f, 0.91f, 1f); // light text fallback
+            Color accentColor = _theme.Primary.a > 0.1f
+                ? _theme.Primary
+                : new Color(0.82f, 0.74f, 1f, 1f); // purple fallback
+
             var card = new MD3Column(gap: MD3Spacing.XS);
             card.Padding(MD3Spacing.M);
             card.Radius(MD3Radius.L);
-            card.style.backgroundColor = _theme.ErrorContainer;
+            card.style.backgroundColor = bgColor;
             card.style.borderLeftWidth = 4;
-            card.style.borderLeftColor = _theme.Error;
+            card.style.borderLeftColor = accentColor;
 
             // Close button
             var closeBtn = new MD3IconButton(
@@ -83,22 +97,22 @@ namespace AjisaiFlow.UnityAgent.Editor
             var iconRow = new MD3Row(gap: MD3Spacing.S);
             iconRow.style.alignItems = Align.Center;
             var icon = MD3Icon.Create(MD3Icon.SystemUpdate, 28f);
-            icon.style.color = _theme.Error;
+            icon.style.color = accentColor;
             iconRow.Add(icon);
             iconRow.Add(new MD3Text(
                 M("新しいバージョンが利用可能です"),
-                MD3TextStyle.TitleSmall, _theme.OnErrorContainer));
+                MD3TextStyle.TitleSmall, fgColor));
             card.Add(iconRow);
 
             // Version comparison
             card.Add(new MD3Text(
                 $"v{UpdateChecker.CurrentVersion} → v{latest.version}",
-                MD3TextStyle.Body, _theme.OnErrorContainer));
+                MD3TextStyle.Body, fgColor));
 
             // Instruction
             card.Add(new MD3Text(
                 string.Format(M("ALCOM/VCC のプロジェクトのパッケージ管理から Unity AI Agent を v{0} に更新してください。"), latest.version),
-                MD3TextStyle.BodySmall, _theme.OnErrorContainer));
+                MD3TextStyle.BodySmall, fgColor));
 
             // Changelog
             if (!string.IsNullOrEmpty(latest.changelog))
@@ -106,7 +120,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 card.Add(new MD3Divider());
                 var changelogLabel = new MD3Text(
                     $"{M("更新内容")}:\n{latest.changelog}",
-                    MD3TextStyle.BodySmall, _theme.OnErrorContainer);
+                    MD3TextStyle.BodySmall, fgColor);
                 changelogLabel.style.whiteSpace = WhiteSpace.Normal;
                 card.Add(changelogLabel);
             }
