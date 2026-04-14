@@ -1749,28 +1749,92 @@ namespace AjisaiFlow.UnityAgent.Editor
                     if (newVal)
                     {
                         AgentSettings.EnsureMCPServerToken();
-                        AgentMCPServer.StartShared();
+                        if (AgentSettings.MCPServerMode == MCPServerMode.InProc)
+                            AgentMCPServer.StartShared();
+                        // Bridge モードはここでは spawn しない (Bootstrap が delayCall で行う)
                     }
                     else
                     {
                         AgentMCPServer.StopShared();
+                        AgentMCPBridgeClient.Shared.Disconnect("user_disabled");
                     }
                     EditorApplication.delayCall += RebuildContentArea;
                     return AgentSettings.MCPServerEnabled;
                 });
 
-            // Port
-            var portField = new MD3TextField(M("ポート"));
-            portField.Value = AgentSettings.MCPServerPort.ToString();
-            portField.style.marginLeft = 12;
-            portField.style.marginRight = 12;
-            portField.style.marginTop = 8;
-            portField.changed += v =>
+            // Server Mode (InProc / Bridge)
+            var modeOptions = new[]
             {
-                if (int.TryParse(v, out int port) && port > 0 && port < 65536)
-                    AgentSettings.MCPServerPort = port;
+                "InProc — Editor 内で HTTP listener (legacy)",
+                "Bridge — 別プロセス (推奨、reload を生き残る)",
             };
-            parent.Add(portField);
+            int modeIdx = (int)AgentSettings.MCPServerMode;
+            var modeDropdown = new MD3Dropdown(M("サーバーモード"), modeOptions, modeIdx);
+            modeDropdown.style.marginLeft = 12;
+            modeDropdown.style.marginRight = 12;
+            modeDropdown.style.marginTop = 8;
+            modeDropdown.changed += idx =>
+            {
+                var newMode = (MCPServerMode)idx;
+                if (newMode == AgentSettings.MCPServerMode) return;
+
+                // Stop both before switching
+                if (AgentMCPServer.Shared.IsRunning)
+                    AgentMCPServer.StopShared();
+                AgentMCPBridgeClient.Shared.Disconnect("mode_change");
+
+                AgentSettings.MCPServerMode = newMode;
+
+                // Restart in new mode if enabled
+                if (AgentSettings.MCPServerEnabled)
+                {
+                    if (newMode == MCPServerMode.InProc)
+                    {
+                        AgentMCPServer.StartShared();
+                    }
+                    else
+                    {
+                        ShowSnackbar(M("Bridge モードに切替えました。Unity を再起動するか reload するとブリッジが起動します。"));
+                    }
+                }
+                EditorApplication.delayCall += RebuildContentArea;
+            };
+            parent.Add(modeDropdown);
+
+            // Port (InProc only — Bridge derives ports from project hash)
+            if (AgentSettings.MCPServerMode == MCPServerMode.InProc)
+            {
+                var portField = new MD3TextField(M("ポート"));
+                portField.Value = AgentSettings.MCPServerPort.ToString();
+                portField.style.marginLeft = 12;
+                portField.style.marginRight = 12;
+                portField.style.marginTop = 8;
+                portField.changed += v =>
+                {
+                    if (int.TryParse(v, out int port) && port > 0 && port < 65536)
+                        AgentSettings.MCPServerPort = port;
+                };
+                parent.Add(portField);
+            }
+            else
+            {
+                // Bridge mode: show derived ports as read-only info
+                var bridgeInfo = new MD3Text(
+                    $"{M("Bridge ポート")}: public={AgentSettings.MCPBridgePublicPort}, internal={AgentSettings.MCPBridgeInternalPort}",
+                    MD3TextStyle.BodySmall, color: _theme.OnSurfaceVariant);
+                bridgeInfo.style.marginLeft = 12;
+                bridgeInfo.style.marginRight = 12;
+                bridgeInfo.style.marginTop = 8;
+                parent.Add(bridgeInfo);
+
+                var bridgeNote = new MD3Text(
+                    M("ポートはプロジェクトパスから自動派生します。Unity 起動時に Library/UnityAgent/Bridge.lock に pid が記録されます。"),
+                    MD3TextStyle.BodySmall, color: _theme.OnSurfaceVariant);
+                bridgeNote.style.marginLeft = 12;
+                bridgeNote.style.marginRight = 12;
+                bridgeNote.style.marginTop = 4;
+                parent.Add(bridgeNote);
+            }
 
             // Risk selector
             var riskOptions = new[] { "Safe", "Caution (Recommended)", "Dangerous" };
@@ -1829,26 +1893,53 @@ namespace AjisaiFlow.UnityAgent.Editor
             tokenRow.Add(regenBtn);
             parent.Add(tokenRow);
 
-            // Status
-            var statusText = running
-                ? $"● Running — {AgentMCPServer.Shared.Endpoint}  (calls: {AgentMCPServer.Shared.TotalCallsServed})"
-                : "○ Stopped";
+            // Status (mode-aware)
+            string statusText;
+            string endpointForSnippet = null;
+            bool isLive;
+            if (AgentSettings.MCPServerMode == MCPServerMode.Bridge)
+            {
+                bool bridgeConnected = AgentMCPBridgeClient.Shared.IsConnected;
+                isLive = bridgeConnected;
+                if (bridgeConnected)
+                {
+                    endpointForSnippet = $"http://127.0.0.1:{AgentSettings.MCPBridgePublicPort}/mcp";
+                    statusText = $"● Bridge connected — {endpointForSnippet}  (internal={AgentSettings.MCPBridgeInternalPort})";
+                }
+                else
+                {
+                    statusText = "○ Bridge not connected (binary may be missing or starting up)";
+                }
+            }
+            else
+            {
+                isLive = running;
+                if (running)
+                {
+                    endpointForSnippet = AgentMCPServer.Shared.Endpoint;
+                    statusText = $"● Running — {endpointForSnippet}  (calls: {AgentMCPServer.Shared.TotalCallsServed})";
+                }
+                else
+                {
+                    statusText = "○ Stopped";
+                }
+            }
             var statusLabel = new MD3Text(statusText, MD3TextStyle.LabelLarge,
-                color: running ? _theme.Primary : _theme.OnSurfaceVariant);
+                color: isLive ? _theme.Primary : _theme.OnSurfaceVariant);
             statusLabel.style.marginLeft = 12;
             statusLabel.style.marginRight = 12;
             statusLabel.style.marginTop = 12;
             parent.Add(statusLabel);
 
             // Client config snippet
-            if (running)
+            if (isLive && !string.IsNullOrEmpty(endpointForSnippet))
             {
                 string snippet =
                     "{\n" +
                     "  \"mcpServers\": {\n" +
                     "    \"unity-agent\": {\n" +
                     "      \"type\": \"http\",\n" +
-                    "      \"url\": \"" + AgentMCPServer.Shared.Endpoint + "\",\n" +
+                    "      \"url\": \"" + endpointForSnippet + "\",\n" +
                     "      \"headers\": { \"Authorization\": \"Bearer " + AgentSettings.MCPServerToken + "\" }\n" +
                     "    }\n" +
                     "  }\n" +
