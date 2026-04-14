@@ -48,6 +48,9 @@ namespace AjisaiFlow.UnityAgent.Editor
         private List<ChatSessionHeader> _historyList;
         private string _currentToolStatus = "";
         private ChatEntry _streamingEntry = null;
+        // In-flight tool call tracking for rich ToolCall cards (Phase 1)
+        private int _toolCallSeq;
+        private string _activeToolCallId;
         private int _lastAgentEntryIndex = -1;
         private AgentWebServer _webServer;
         private double _lastWebCacheTime;
@@ -332,6 +335,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _fullLog.Clear();
                 _currentToolStatus = "";
                 _streamingEntry = null;
+                _activeToolCallId = null;
+                _toolCallSeq = 0;
                 if (_agent != null) _agent.ClearHistory();
                 DiscordWebhookLogger.ResetSession();
 
@@ -379,6 +384,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             {
                 _agent?.Cancel();
                 _streamingEntry = null;
+                if (!string.IsNullOrEmpty(_activeToolCallId))
+                {
+                    _chatPanel?.CompleteToolCall(_activeToolCallId, "Cancelled", true);
+                    _activeToolCallId = null;
+                }
                 _chatPanel.FinalizeStreaming(null);
                 _inputBar.SetProcessing(false);
             };
@@ -1265,6 +1275,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             _inputBar?.ClearText();
             _shouldScrollToBottom = true;
             _currentToolStatus = "";
+            _activeToolCallId = null;
             _autocompleteVisible = false;
             _autocompleteIndex = -1;
 
@@ -1470,6 +1481,75 @@ namespace AjisaiFlow.UnityAgent.Editor
                         _fullLog.AppendLine($"[CLI RESULT] {status}");
                         _shouldScrollToBottom = true;
                         return;
+                    }
+
+                    // ── Rich ToolCall cards (Phase 1) ──
+                    if (AgentSettings.UseRichChatUI && status.StartsWith("Executing Tool:"))
+                    {
+                        _currentToolStatus = status;
+                        // Format: "Executing Tool: ToolName(arg1, arg2, ...)"
+                        string rest = status.Substring("Executing Tool:".Length).Trim();
+                        string toolName = rest;
+                        string argsRaw = "";
+                        int parenIdx = rest.IndexOf('(');
+                        if (parenIdx >= 0)
+                        {
+                            toolName = rest.Substring(0, parenIdx);
+                            argsRaw = rest.Substring(parenIdx);
+                        }
+
+                        _toolCallSeq++;
+                        _activeToolCallId = $"tc-{_toolCallSeq}";
+                        var tcEntry = _chatPanel?.BeginToolCall(_activeToolCallId, toolName, argsRaw, _chatHistory);
+                        _fullLog.AppendLine($"[TOOL CALL START] {toolName}");
+                        _shouldScrollToBottom = true;
+                        return;
+                    }
+
+                    if (AgentSettings.UseRichChatUI &&
+                        (status.StartsWith("[Tool Result]") || status.StartsWith("[Tool Error]")))
+                    {
+                        bool isError = status.StartsWith("[Tool Error]");
+                        string prefix = isError ? "[Tool Error] " : "[Tool Result] ";
+                        string resultText = status.Length > prefix.Length
+                            ? status.Substring(prefix.Length)
+                            : "";
+
+                        if (!string.IsNullOrEmpty(_activeToolCallId))
+                        {
+                            _chatPanel?.CompleteToolCall(_activeToolCallId, resultText, isError);
+                            _activeToolCallId = null;
+                            _fullLog.AppendLine($"[TOOL CALL {(isError ? "ERROR" : "RESULT")}] {resultText}");
+
+                            // Scene view captures still emit an image preview as a standalone Info entry
+                            // so the user can see the thumbnail inline with the conversation.
+                            if (!isError && Tools.SceneViewTools.PendingImageBytes != null &&
+                                (resultText.Contains("Captured") || resultText.Contains("Generated")))
+                            {
+                                var imgEntry = new ChatEntry
+                                {
+                                    type = ChatEntry.EntryType.Info,
+                                    text = "",
+                                    timestamp = DateTime.Now,
+                                };
+                                var tex = new Texture2D(2, 2);
+                                if (tex.LoadImage(Tools.SceneViewTools.PendingImageBytes))
+                                {
+                                    tex.hideFlags = HideFlags.HideAndDontSave;
+                                    imgEntry.imagePreview = tex;
+                                    _chatHistory.Add(imgEntry);
+                                    _chatPanel?.AppendEntry(imgEntry);
+                                }
+                                else
+                                {
+                                    UnityEngine.Object.DestroyImmediate(tex);
+                                }
+                            }
+
+                            _shouldScrollToBottom = true;
+                            return;
+                        }
+                        // Fall through to Info if no active call (shouldn't normally happen)
                     }
 
                     var infoEntry = ChatEntry.CreateInfo(status);

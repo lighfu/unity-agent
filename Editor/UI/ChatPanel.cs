@@ -25,6 +25,17 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         // Info グループ折りたたみ状態
         readonly Dictionary<int, bool> _toolGroupFoldouts = new Dictionary<int, bool>();
 
+        // ToolCall view index (callId → view)
+        readonly Dictionary<string, ChatEntryView> _toolCallViews = new Dictionary<string, ChatEntryView>();
+        readonly Dictionary<string, ChatEntry> _toolCallEntries = new Dictionary<string, ChatEntry>();
+
+        // Running ToolCall card duration ticker
+        IVisualElementScheduledItem _toolCallTicker;
+
+        // Thinking indicator rotating label
+        IVisualElementScheduledItem _thinkingLabelRotator;
+        int _thinkingLabelIndex;
+
         // CLI Activity Panel (live thinking / tool display)
         VisualElement _activityPanel;
         Label _activityThinkingLabel;
@@ -101,6 +112,71 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             AddEntryView(entry);
         }
 
+        /// <summary>
+        /// 新しい ToolCall entry を履歴に追加してカード表示する。Phase 1 では Window が生成した
+        /// callId を使って後続の CompleteToolCall と紐付ける。
+        /// </summary>
+        public ChatEntry BeginToolCall(string callId, string toolName, string argsRaw, List<ChatEntry> history)
+        {
+            var entry = ChatEntry.CreateToolCall(callId, toolName, argsRaw);
+            history?.Add(entry);
+
+            var view = ChatEntryView.Create(entry, _theme);
+            _content.Add(view);
+
+            if (!string.IsNullOrEmpty(callId))
+            {
+                _toolCallViews[callId] = view;
+                _toolCallEntries[callId] = entry;
+            }
+
+            EnsureToolCallTicker();
+            return entry;
+        }
+
+        /// <summary>実行完了した ToolCall を in-place で Success/Error に更新する。</summary>
+        public void CompleteToolCall(string callId, string result, bool isError)
+        {
+            if (string.IsNullOrEmpty(callId)) return;
+
+            if (!_toolCallEntries.TryGetValue(callId, out var entry)) return;
+            entry.CompleteToolCall(result, isError);
+
+            if (_toolCallViews.TryGetValue(callId, out var view) && view != null)
+                view.RefreshToolCall();
+
+            _toolCallEntries.Remove(callId);
+            _toolCallViews.Remove(callId);
+
+            if (_toolCallEntries.Count == 0)
+                StopToolCallTicker();
+        }
+
+        void EnsureToolCallTicker()
+        {
+            if (_toolCallTicker != null) return;
+            _toolCallTicker = schedule.Execute(() =>
+            {
+                if (_toolCallEntries.Count == 0)
+                {
+                    StopToolCallTicker();
+                    return;
+                }
+                // Refresh duration label on running cards
+                foreach (var kv in _toolCallEntries)
+                {
+                    if (_toolCallViews.TryGetValue(kv.Key, out var view) && view != null)
+                        view.RefreshToolCall();
+                }
+            }).Every(200);
+        }
+
+        void StopToolCallTicker()
+        {
+            _toolCallTicker?.Pause();
+            _toolCallTicker = null;
+        }
+
         /// <summary>ストリーミング中のエントリを設定し、ポーリングを開始する。</summary>
         public void SetStreamingEntry(ChatEntry entry)
         {
@@ -148,12 +224,42 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                     indicator.name = "thinking-indicator";
                     _content.Add(indicator);
                 }
+                StartThinkingLabelRotation(indicator);
             }
             else
             {
+                StopThinkingLabelRotation();
                 var indicator = _content.Q<VisualElement>("thinking-indicator");
                 indicator?.RemoveFromHierarchy();
             }
+        }
+
+        static readonly string[] ThinkingLabels =
+        {
+            "考え中...",
+            "接続中...",
+            "応答を待っています...",
+            "処理しています...",
+        };
+
+        void StartThinkingLabelRotation(VisualElement indicator)
+        {
+            StopThinkingLabelRotation();
+            _thinkingLabelIndex = 0;
+            var label = indicator?.Q<Label>("thinking-label");
+            if (label == null) return;
+
+            _thinkingLabelRotator = schedule.Execute(() =>
+            {
+                _thinkingLabelIndex = (_thinkingLabelIndex + 1) % ThinkingLabels.Length;
+                label.text = M(ThinkingLabels[_thinkingLabelIndex]);
+            }).Every(1500);
+        }
+
+        void StopThinkingLabelRotation()
+        {
+            _thinkingLabelRotator?.Pause();
+            _thinkingLabelRotator = null;
         }
 
         /// <summary>ツール実行プログレスバーを更新。</summary>
@@ -189,11 +295,15 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         }
 
         /// <summary>全エントリをクリアする。</summary>
-        public void Clear()
+        public new void Clear()
         {
             StopStreaming();
+            StopToolCallTicker();
+            StopThinkingLabelRotation();
             _content.Clear();
             _toolGroupFoldouts.Clear();
+            _toolCallViews.Clear();
+            _toolCallEntries.Clear();
         }
 
         // ── Private ──
@@ -378,7 +488,9 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             var loading = new MD3Loading(MD3LoadingStyle.Expressive, 128f);
             container.Add(loading);
 
-            var label = new MD3Text(M("考え中..."), MD3TextStyle.Body);
+            var label = new Label(M("考え中..."));
+            label.name = "thinking-label";
+            label.style.fontSize = 14;
             label.style.color = _theme.OnSurfaceVariant;
             label.style.unityTextAlign = TextAnchor.MiddleCenter;
             container.Add(label);

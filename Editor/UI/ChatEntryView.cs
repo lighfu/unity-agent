@@ -33,6 +33,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 case ChatEntry.EntryType.Agent: return CreateAgentView(entry, theme);
                 case ChatEntry.EntryType.Info: return CreateInfoView(entry, theme);
                 case ChatEntry.EntryType.Error: return CreateErrorView(entry, theme);
+                case ChatEntry.EntryType.ToolCall: return CreateToolCallView(entry, theme);
                 case ChatEntry.EntryType.Choice:
                     if (entry.isBatchToolConfirm) return CreateBatchConfirmView(entry, theme);
                     if (entry.isClipboard) return CreateClipboardView(entry, theme);
@@ -40,6 +41,38 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 default: return CreateInfoView(entry, theme);
             }
         }
+
+        /// <summary>
+        /// EntryType.ToolCall 用のラッパー。ToolCallView.Create が返す VisualElement を
+        /// ChatEntryView にホストさせ、後から UpdateState で再描画できるようにする。
+        /// </summary>
+        static ChatEntryView CreateToolCallView(ChatEntry entry, MD3Theme theme)
+        {
+            var view = new ChatEntryView();
+            view.style.marginTop = 4;
+            view.style.marginBottom = 4;
+
+            var card = ToolCallView.Create(entry, theme);
+            view._toolCallRoot = card;
+            view._toolCallEntry = entry;
+            view._toolCallTheme = theme;
+            view.Add(card);
+            return view;
+        }
+
+        /// <summary>
+        /// ToolCall 状態遷移を反映する (Running → Success/Error)。
+        /// ChatPanel.CompleteToolCall から呼ばれる。
+        /// </summary>
+        public void RefreshToolCall()
+        {
+            if (_toolCallRoot != null && _toolCallEntry != null && _toolCallTheme != null)
+                ToolCallView.UpdateState(_toolCallRoot, _toolCallEntry, _toolCallTheme);
+        }
+
+        VisualElement _toolCallRoot;
+        ChatEntry _toolCallEntry;
+        MD3Theme _toolCallTheme;
 
         /// <summary>ストリーミング中のコンテンツ更新。</summary>
         public void UpdateContent(ChatEntry entry)

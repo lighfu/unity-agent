@@ -39,14 +39,26 @@ namespace AjisaiFlow.UnityAgent.Editor
         }
     }
 
+    public enum ToolCallStatus { Running, Success, Error, Cancelled }
+
     public class ChatEntry
     {
-        public enum EntryType { User, Agent, Info, Error, Choice }
+        public enum EntryType { User, Agent, Info, Error, Choice, ToolCall }
 
         public EntryType type;
         public string text;
         public DateTime timestamp;
         public List<ResultItem> results;
+
+        // ── ToolCall fields (Phase 1) ──
+        public string toolCallId;
+        public string toolName;
+        public string toolArgsRaw;
+        public string toolResult;
+        public ToolCallStatus toolStatus = ToolCallStatus.Running;
+        public DateTime toolStartedUtc;
+        public long toolDurationMs;
+        public string toolCategory;
 
         // Thinking text (collapsible in UI)
         public string thinkingText;
@@ -167,6 +179,33 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             return new ChatEntry { type = EntryType.Error, text = text, timestamp = DateTime.Now };
         }
+
+        public static ChatEntry CreateToolCall(string callId, string toolName, string argsRaw)
+        {
+            return new ChatEntry
+            {
+                type = EntryType.ToolCall,
+                toolCallId = callId,
+                toolName = toolName,
+                toolArgsRaw = argsRaw,
+                toolStatus = ToolCallStatus.Running,
+                toolStartedUtc = DateTime.UtcNow,
+                timestamp = DateTime.Now,
+            };
+        }
+
+        public void CompleteToolCall(string result, bool isError)
+        {
+            toolResult = result;
+            toolStatus = isError ? ToolCallStatus.Error : ToolCallStatus.Success;
+            if (toolStartedUtc != default)
+                toolDurationMs = (long)(DateTime.UtcNow - toolStartedUtc).TotalMilliseconds;
+
+            if (!isError && !string.IsNullOrEmpty(result))
+                results = ParseResults(result);
+        }
+
+        internal static List<ResultItem> ParseResultsPublic(string text) => ParseResults(text);
 
         public static ChatEntry CreateChoice(string question, string[] options, string importance)
         {

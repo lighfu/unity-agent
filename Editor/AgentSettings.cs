@@ -249,6 +249,15 @@ namespace AjisaiFlow.UnityAgent.Editor
         }
 
         /// <summary>
+        /// リッチチャット UI (ツール実行カード等) を使うか。false で旧 Info 行表示に戻る escape hatch。
+        /// </summary>
+        public static bool UseRichChatUI
+        {
+            get => SettingsStore.GetBool("UnityAgent_UseRichChatUI", true);
+            set => SettingsStore.SetBool("UnityAgent_UseRichChatUI", value);
+        }
+
+        /// <summary>
         /// true の場合、ローカル以外の HTTP URL への接続も許可する。
         /// デフォルト false（ローカルのみ許可）。
         /// </summary>
