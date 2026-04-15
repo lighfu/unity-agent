@@ -238,7 +238,15 @@ namespace AjisaiFlow.UnityAgent.Editor
                 rootVisualElement.styleSheets.Add(themeSheet);
             if (compSheet != null && !rootVisualElement.styleSheets.Contains(compSheet))
                 rootVisualElement.styleSheets.Add(compSheet);
+
+            // Domain reload 後、MD3FontAutoSetup の delayCall を待たずに FontAsset を
+            // 再生成する。ApplyTo 前に ClearFontCache して fresh な atlas を保証し、
+            // ApplyTo 後に RefreshAllWindows で全 MD3 ウィンドウに同じ FontAsset を
+            // 伝播させることで、リロード直後の UIRStylePainter.DrawTextInfo NullRef
+            // と歯抜けテキストを防ぐ。
+            MD3Theme.ClearFontCache();
             _theme.ApplyTo(rootVisualElement);
+            MD3FontManager.RefreshAllWindows();
 
             rootVisualElement.style.flexGrow = 1;
 

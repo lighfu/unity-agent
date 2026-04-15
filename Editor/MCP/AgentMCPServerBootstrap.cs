@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Sockets;
 using UnityEditor;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -30,7 +31,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             EditorApplication.quitting += StopBeforeReload;
         }
 
-        static void StartIfEnabled()
+        /// <summary>
+        /// 有効化トグルや mode 切替からも呼び出される再入可能なエントリポイント。
+        /// 内部の各層 (<see cref="AgentMCPServer"/>, <see cref="AgentMCPBridgeClient"/>) は
+        /// 既に running であれば no-op なので重ね呼びしても安全。
+        /// </summary>
+        internal static void StartIfEnabled()
         {
             if (!AgentSettings.MCPServerEnabled) return;
 
@@ -64,9 +70,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void StartBridgeMode()
         {
+            if (AgentMCPBridgeClient.Shared.IsConnected) return;
+
             int internalPort = AgentSettings.MCPBridgeInternalPort;
             int publicPort = AgentSettings.MCPBridgePublicPort;
             string token = AgentSettings.EnsureMCPServerToken();
+
+            AgentMCPBridgeClient.Shared.MarkStarting();
 
             try
             {
@@ -74,22 +84,66 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch (Exception ex)
             {
+                AgentMCPBridgeClient.Shared.ClearStarting();
                 Debug.LogWarning($"[UnityAgent] Bridge spawn failed: {ex.Message}");
                 return;
             }
 
-            // bridge が listen 状態になるのを少し待ってから接続
-            EditorApplication.delayCall += () =>
+            // bridge プロセスが listen 状態になるタイミングは不定 (コールドスタート〜数百 ms)。
+            // EditorApplication.update を tick にして ~4 秒までリトライする。
+            ScheduleBridgeConnect(internalPort, token);
+        }
+
+        /// <summary>
+        /// <see cref="AgentMCPBridgeClient.Connect"/> を成功するまで short backoff でリトライする。
+        /// 上限に達したら断念してログを残す。
+        /// </summary>
+        static void ScheduleBridgeConnect(int internalPort, string token)
+        {
+            const int MaxAttempts = 25;      // ~5 秒 (200ms * 25)
+            const double IntervalSec = 0.2;
+
+            int attempts = 0;
+            double nextAt = EditorApplication.timeSinceStartup;
+            EditorApplication.CallbackFunction tick = null;
+            tick = () =>
             {
+                if (AgentMCPBridgeClient.Shared.IsConnected)
+                {
+                    EditorApplication.update -= tick;
+                    return;
+                }
+                if (!AgentSettings.MCPServerEnabled ||
+                    AgentSettings.MCPServerMode != MCPServerMode.Bridge)
+                {
+                    EditorApplication.update -= tick;
+                    AgentMCPBridgeClient.Shared.ClearStarting();
+                    return;
+                }
+
+                if (EditorApplication.timeSinceStartup < nextAt) return;
+                attempts++;
+
                 try
                 {
                     AgentMCPBridgeClient.Shared.Connect(internalPort, token);
+                    EditorApplication.update -= tick;
+                    return;
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[UnityAgent] Bridge client connect failed: {ex.Message}");
+                    if (attempts >= MaxAttempts)
+                    {
+                        EditorApplication.update -= tick;
+                        AgentMCPBridgeClient.Shared.ClearStarting();
+                        Debug.LogWarning(
+                            $"[UnityAgent] Bridge client connect failed after {attempts} attempts: {ex.Message}");
+                        return;
+                    }
+                    nextAt = EditorApplication.timeSinceStartup + IntervalSec;
                 }
             };
+            EditorApplication.update += tick;
         }
 
         /// <summary>
@@ -99,7 +153,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             string lockPath = GetLockFilePath();
 
-            // 既存のロックがあれば pid を確認
+            // 既存のロックがあれば pid を確認し、さらに internal port で実際に listening しているかを probe する
             if (File.Exists(lockPath))
             {
                 try
@@ -110,11 +164,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         try
                         {
                             var existing = Process.GetProcessById(existingPid);
-                            if (!existing.HasExited)
+                            if (!existing.HasExited && IsPortListening(internalPort))
                             {
                                 Debug.Log($"[UnityAgent] Bridge already running (pid={existingPid}), reusing.");
                                 return;
                             }
+                            // pid は存在するが port listen が無い → pid 再利用 or 別プロセス。上書きして spawn。
                         }
                         catch (ArgumentException)
                         {
@@ -219,6 +274,30 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch { }
             return null;
+        }
+
+        /// <summary>
+        /// 127.0.0.1:port が listen 中かどうかを短い timeout で probe する。
+        /// Bridge.lock の pid 再利用判定に使う。
+        /// </summary>
+        static bool IsPortListening(int port)
+        {
+            try
+            {
+                using (var client = new TcpClient())
+                {
+                    var ar = client.BeginConnect("127.0.0.1", port, null, null);
+                    bool ok = ar.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(300));
+                    if (!ok) return false;
+                    try { client.EndConnect(ar); }
+                    catch { return false; }
+                    return client.Connected;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         static string GetLockFilePath()

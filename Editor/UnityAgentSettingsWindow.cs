@@ -1247,6 +1247,41 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
         }
 
+        private double _bridgePollDeadline;
+        private bool? _bridgePollLastConnected;
+        private bool? _bridgePollLastStarting;
+
+        /// <summary>
+        /// Bridge トグル/モード切替直後、UI の status テキストが
+        /// "starting…" → "connected" に自動で遷移するように数秒 polling する。
+        /// </summary>
+        private void SchedulePollBridgeStatus()
+        {
+            _bridgePollDeadline = EditorApplication.timeSinceStartup + 8.0;
+            _bridgePollLastConnected = null;
+            _bridgePollLastStarting = null;
+            EditorApplication.update -= PollBridgeStatus;
+            EditorApplication.update += PollBridgeStatus;
+        }
+
+        private void PollBridgeStatus()
+        {
+            bool connected = AgentMCPBridgeClient.Shared.IsConnected;
+            bool starting = AgentMCPBridgeClient.Shared.IsStarting;
+
+            if (_bridgePollLastConnected != connected || _bridgePollLastStarting != starting)
+            {
+                _bridgePollLastConnected = connected;
+                _bridgePollLastStarting = starting;
+                if (_settingsTabIndex == 4) RebuildContentArea();
+            }
+
+            if (connected || EditorApplication.timeSinceStartup > _bridgePollDeadline)
+            {
+                EditorApplication.update -= PollBridgeStatus;
+            }
+        }
+
         private void PollStoreCheck()
         {
             if (_storeCheckRequest == null || !_storeCheckRequest.isDone) return;
@@ -1749,9 +1784,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                     if (newVal)
                     {
                         AgentSettings.EnsureMCPServerToken();
-                        if (AgentSettings.MCPServerMode == MCPServerMode.InProc)
-                            AgentMCPServer.StartShared();
-                        // Bridge モードはここでは spawn しない (Bootstrap が delayCall で行う)
+                        // InProc / Bridge 共通: Bootstrap のエントリを再呼び出しする。
+                        // Bootstrap は [InitializeOnLoad] 時に一度だけ動くが、UI からの再有効化時にも
+                        // ここから同じ経路を踏ませることで、bridge process spawn + TCP Connect をやり直す。
+                        AgentMCPServerBootstrap.StartIfEnabled();
                     }
                     else
                     {
@@ -1759,6 +1795,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                         AgentMCPBridgeClient.Shared.Disconnect("user_disabled");
                     }
                     EditorApplication.delayCall += RebuildContentArea;
+                    if (newVal && AgentSettings.MCPServerMode == MCPServerMode.Bridge)
+                        SchedulePollBridgeStatus();
                     return AgentSettings.MCPServerEnabled;
                 });
 
@@ -1785,16 +1823,14 @@ namespace AjisaiFlow.UnityAgent.Editor
 
                 AgentSettings.MCPServerMode = newMode;
 
-                // Restart in new mode if enabled
+                // Restart in new mode if enabled — both InProc/Bridge を同じ経路で起動する
                 if (AgentSettings.MCPServerEnabled)
                 {
-                    if (newMode == MCPServerMode.InProc)
+                    AgentMCPServerBootstrap.StartIfEnabled();
+                    if (newMode == MCPServerMode.Bridge)
                     {
-                        AgentMCPServer.StartShared();
-                    }
-                    else
-                    {
-                        ShowSnackbar(M("Bridge モードに切替えました。Unity を再起動するか reload するとブリッジが起動します。"));
+                        ShowSnackbar(M("Bridge モードに切替えました。ブリッジプロセスを起動しています…"));
+                        SchedulePollBridgeStatus();
                     }
                 }
                 EditorApplication.delayCall += RebuildContentArea;
@@ -1900,15 +1936,20 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (AgentSettings.MCPServerMode == MCPServerMode.Bridge)
             {
                 bool bridgeConnected = AgentMCPBridgeClient.Shared.IsConnected;
+                bool bridgeStarting = AgentMCPBridgeClient.Shared.IsStarting;
                 isLive = bridgeConnected;
                 if (bridgeConnected)
                 {
                     endpointForSnippet = $"http://127.0.0.1:{AgentSettings.MCPBridgePublicPort}/mcp";
                     statusText = $"● Bridge connected — {endpointForSnippet}  (internal={AgentSettings.MCPBridgeInternalPort})";
                 }
+                else if (bridgeStarting)
+                {
+                    statusText = $"◐ Bridge starting… (internal={AgentSettings.MCPBridgeInternalPort})";
+                }
                 else
                 {
-                    statusText = "○ Bridge not connected (binary may be missing or starting up)";
+                    statusText = "○ Bridge not connected (binary may be missing or disabled)";
                 }
             }
             else

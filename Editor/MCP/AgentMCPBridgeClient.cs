@@ -45,6 +45,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         Thread _readerThread;
         volatile bool _running;
         volatile bool _connected;
+        volatile bool _starting;
 
         readonly object _queueLock = new object();
         readonly Queue<PendingBridgeCall> _pending = new Queue<PendingBridgeCall>();
@@ -55,7 +56,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         const string ProtocolVersion = "1";
 
         public bool IsConnected => _connected;
+        public bool IsStarting => _starting && !_connected;
         public int Port => _port;
+
+        public void MarkStarting() { _starting = true; }
+        public void ClearStarting() { _starting = false; }
 
         // ─── Lifecycle ───
 
@@ -97,6 +102,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
 
                 _connected = true;
+                _starting = false;
                 AgentLogger.Info(LogTag.MCP, $"[BridgeClient] connected to bridge at 127.0.0.1:{port}");
 
                 _readerThread = new Thread(ReaderLoop)
@@ -150,6 +156,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             _connected = false;
+            _starting = false;
             AgentLogger.Info(LogTag.MCP, $"[BridgeClient] disconnected (reason={reason})");
         }
 
