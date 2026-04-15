@@ -17,9 +17,15 @@ namespace AjisaiFlow.UnityAgent.Editor
         private string _searchKeyword = "";
 
         private List<UVIsland> _currentIslands = new List<UVIsland>();
-        private int _selectedIslandIndex = -1;
+        // Multi-island selection. Empty = "no island selection" (treated as whole-mesh scope).
+        // Ctrl/Shift+click in UV editor or Scene view toggles membership; plain click replaces.
+        private readonly HashSet<int> _selectedIslandIndices = new HashSet<int>();
         private Renderer _activeRenderer;
         private MeshPaintMetadata _currentMetadata;
+
+        // Live preview session for 4 adjustment tabs (Paint / Gradient / HSV / Brightness-Contrast).
+        // Scene Paint (tab 4) runs its own session via ScenePaintState; tab-switch auto-commits.
+        private readonly MeshPaintPreviewSession _session = new MeshPaintPreviewSession();
 
         private bool _isSceneSelectionEnabled = true;
         private bool _use3DConnection = false;
@@ -124,6 +130,12 @@ namespace AjisaiFlow.UnityAgent.Editor
             ScenePaintState.OnColorPicked -= HandleColorPicked;
             if (ScenePaintState.IsActive)
                 ScenePaintState.Deactivate();
+
+            // End preview session. On window close, we can't show a blocking dialog safely
+            // from OnDisable (Unity may be in the middle of domain reload), so auto-commit
+            // any pending preview to avoid data loss.
+            if (_session.IsActive)
+                _session.End(autoCommit: _session.HasUncommittedChanges);
         }
 
         private void HandleColorPicked(Color color)
@@ -182,7 +194,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 Renderer r = _activeRenderer;
                 _activeRenderer = null;
                 PrepareEditor(r);
-                _selectedIslandIndex = -1;
+                _selectedIslandIndices.Clear();
             }
             EditorGUILayout.EndHorizontal();
 
@@ -212,10 +224,46 @@ namespace AjisaiFlow.UnityAgent.Editor
             _editTab = GUILayout.Toolbar(_editTab, TabLabels);
             if (EditorGUI.EndChangeCheck())
             {
-                // Deactivate scene paint when leaving tab 4
+                // Leaving Scene Paint: deactivate stroke session
                 if (_prevEditTab == 4 && _editTab != 4 && ScenePaintState.IsActive)
                     ScenePaintState.Deactivate();
-                _prevEditTab = _editTab;
+
+                // Entering Scene Paint: auto-commit any preview session from 4 adjustment tabs
+                if (_prevEditTab != 4 && _editTab == 4 && _session.IsActive)
+                {
+                    if (_session.HasUncommittedChanges)
+                    {
+                        int choice = EditorUtility.DisplayDialogComplex(
+                            M("未コミットの変更があります"),
+                            M("Scene ペイントに切替える前に、未適用の変更をどうしますか？"),
+                            M("適用"), M("キャンセル"), M("破棄"));
+                        if (choice == 1)
+                        {
+                            // Cancel: revert tab switch, stay on previous tab
+                            _editTab = _prevEditTab;
+                        }
+                        else
+                        {
+                            _session.End(autoCommit: choice == 0);
+                            _prevEditTab = _editTab;
+                        }
+                    }
+                    else
+                    {
+                        _session.End(autoCommit: false);
+                        _prevEditTab = _editTab;
+                    }
+                }
+                else
+                {
+                    // Leaving Scene Paint and re-entering adjustment tabs: start fresh session
+                    if (_prevEditTab == 4 && _editTab != 4 && !_session.IsActive && _activeRenderer != null)
+                    {
+                        _session.Begin(_activeRenderer, _avatarRoot);
+                        ResetAdjustmentParameters();
+                    }
+                    _prevEditTab = _editTab;
+                }
             }
             EditorGUILayout.Space(4);
 
@@ -358,10 +406,56 @@ namespace AjisaiFlow.UnityAgent.Editor
             HandleUVZoomPan(uvRect);
             HandleUVClick(uvRect, mesh);
 
-            if (_selectedIslandIndex >= 0)
-                GUILayout.Label(string.Format(M("選択中: アイランド #{0}"), _selectedIslandIndex), EditorStyles.miniBoldLabel);
+            if (_selectedIslandIndices.Count > 0)
+            {
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Label(string.Format(M("選択中: {0} アイランド ({1})"),
+                    _selectedIslandIndices.Count, FormatIslandIndices(_selectedIslandIndices)),
+                    EditorStyles.miniBoldLabel);
+                if (GUILayout.Button(M("選択解除"), EditorStyles.miniButton, GUILayout.Width(70)))
+                {
+                    _selectedIslandIndices.Clear();
+                    RecomputePreviewForCurrentTab();
+                    Repaint();
+                }
+                EditorGUILayout.EndHorizontal();
+                GUILayout.Label(M("Ctrl/Shift+クリックで追加選択"), EditorStyles.miniLabel);
+            }
 
             EditorGUILayout.EndVertical();
+        }
+
+        private static string FormatIslandIndices(HashSet<int> set)
+        {
+            if (set == null || set.Count == 0) return "";
+            var sorted = new List<int>(set); sorted.Sort();
+            const int maxShow = 8;
+            if (sorted.Count <= maxShow)
+                return "#" + string.Join(", #", sorted);
+            var head = sorted.GetRange(0, maxShow);
+            return "#" + string.Join(", #", head) + string.Format(" +{0}", sorted.Count - maxShow);
+        }
+
+        /// <summary>
+        /// Apply a click-to-select action with modifier-key semantics.
+        /// <paramref name="hitIsland"/> = -1 means "click missed any island".
+        /// <paramref name="additive"/> = true (Ctrl/Shift) toggles membership; false replaces.
+        /// </summary>
+        private void ApplyIslandSelection(int hitIsland, bool additive)
+        {
+            if (additive)
+            {
+                if (hitIsland < 0) return; // missed: do nothing in additive mode
+                if (!_selectedIslandIndices.Add(hitIsland))
+                    _selectedIslandIndices.Remove(hitIsland); // already present → toggle off
+            }
+            else
+            {
+                _selectedIslandIndices.Clear();
+                if (hitIsland >= 0)
+                    _selectedIslandIndices.Add(hitIsland);
+            }
+            RecomputePreviewForCurrentTab();
         }
 
         private Vector2 UVToLocal(Rect rect, Vector2 uv)
@@ -470,20 +564,24 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             GL.End();
 
-            // Selected island highlight
-            if (_selectedIslandIndex >= 0 && _selectedIslandIndex < _currentIslands.Count)
+            // Selected island highlight (multi-select)
+            if (_selectedIslandIndices.Count > 0)
             {
                 GL.Begin(GL.LINES);
                 GL.Color(Color.yellow);
-                foreach (int triIdx in _currentIslands[_selectedIslandIndex].triangleIndices)
+                foreach (int islandIdx in _selectedIslandIndices)
                 {
-                    Vector2 p0 = UVToLocal(rect, uvs[tris[triIdx * 3]]);
-                    Vector2 p1 = UVToLocal(rect, uvs[tris[triIdx * 3 + 1]]);
-                    Vector2 p2 = UVToLocal(rect, uvs[tris[triIdx * 3 + 2]]);
+                    if (islandIdx < 0 || islandIdx >= _currentIslands.Count) continue;
+                    foreach (int triIdx in _currentIslands[islandIdx].triangleIndices)
+                    {
+                        Vector2 p0 = UVToLocal(rect, uvs[tris[triIdx * 3]]);
+                        Vector2 p1 = UVToLocal(rect, uvs[tris[triIdx * 3 + 1]]);
+                        Vector2 p2 = UVToLocal(rect, uvs[tris[triIdx * 3 + 2]]);
 
-                    GL.Vertex3(p0.x, p0.y, 0); GL.Vertex3(p1.x, p1.y, 0);
-                    GL.Vertex3(p1.x, p1.y, 0); GL.Vertex3(p2.x, p2.y, 0);
-                    GL.Vertex3(p2.x, p2.y, 0); GL.Vertex3(p0.x, p0.y, 0);
+                        GL.Vertex3(p0.x, p0.y, 0); GL.Vertex3(p1.x, p1.y, 0);
+                        GL.Vertex3(p1.x, p1.y, 0); GL.Vertex3(p2.x, p2.y, 0);
+                        GL.Vertex3(p2.x, p2.y, 0); GL.Vertex3(p0.x, p0.y, 0);
+                    }
                 }
                 GL.End();
             }
@@ -499,19 +597,22 @@ namespace AjisaiFlow.UnityAgent.Editor
             Vector2[] uvs = mesh.uv;
             int[] tris = mesh.triangles;
 
-            _selectedIslandIndex = -1;
+            int hitIsland = -1;
             for (int i = 0; i < _currentIslands.Count; i++)
             {
                 foreach (int triIdx in _currentIslands[i].triangleIndices)
                 {
                     if (IsPointInTriangle(clickUV, uvs[tris[triIdx * 3]], uvs[tris[triIdx * 3 + 1]], uvs[tris[triIdx * 3 + 2]]))
                     {
-                        _selectedIslandIndex = i;
+                        hitIsland = i;
                         break;
                     }
                 }
-                if (_selectedIslandIndex != -1) break;
+                if (hitIsland != -1) break;
             }
+
+            bool additive = e.control || e.shift || e.command;
+            ApplyIslandSelection(hitIsland, additive);
 
             Repaint();
             e.Use();
@@ -528,10 +629,14 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             EditorGUI.BeginChangeCheck();
             _targetColor = EditorGUILayout.ColorField(M("ペイント色"), _targetColor);
-            if (EditorGUI.EndChangeCheck()) AddColorToHistory(_targetColor);
+            if (EditorGUI.EndChangeCheck())
+            {
+                AddColorToHistory(_targetColor);
+                RecomputePreviewForCurrentTab();
+            }
 
             EditorGUILayout.Space(4);
-            DrawApplyButtons(ApplyPaint);
+            DrawLivePreviewButtons();
             EditorGUILayout.EndVertical();
         }
 
@@ -543,6 +648,8 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             GUILayout.Label(M("グラデーション"), EditorStyles.boldLabel);
+
+            EditorGUI.BeginChangeCheck();
 
             EditorGUI.BeginChangeCheck();
             _gradFrom = EditorGUILayout.ColorField(M("開始色 (From)"), _gradFrom);
@@ -562,8 +669,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             _gradEndT = EditorGUILayout.FloatField(_gradEndT, GUILayout.Width(50));
             EditorGUILayout.EndHorizontal();
 
+            if (EditorGUI.EndChangeCheck())
+                RecomputePreviewForCurrentTab();
+
             EditorGUILayout.Space(4);
-            DrawApplyButtons(ApplyGradient);
+            DrawLivePreviewButtons();
             EditorGUILayout.EndVertical();
         }
 
@@ -576,9 +686,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             GUILayout.Label(M("HSV 調整"), EditorStyles.boldLabel);
 
+            EditorGUI.BeginChangeCheck();
             _hueShift = EditorGUILayout.Slider(M("色相シフト (Hue)"), _hueShift, -180f, 180f);
             _satScale = EditorGUILayout.Slider(M("彩度 (Saturation)"), _satScale, 0f, 3f);
             _valScale = EditorGUILayout.Slider(M("明度 (Value)"), _valScale, 0f, 3f);
+            bool hsvChanged = EditorGUI.EndChangeCheck();
 
             EditorGUILayout.Space(4);
 
@@ -586,10 +698,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (GUILayout.Button(M("リセット"), GUILayout.Width(60)))
             {
                 _hueShift = 0f; _satScale = 1f; _valScale = 1f;
+                hsvChanged = true;
             }
             EditorGUILayout.EndHorizontal();
 
-            DrawApplyButtons(ApplyHSV);
+            if (hsvChanged)
+                RecomputePreviewForCurrentTab();
+
+            DrawLivePreviewButtons();
             EditorGUILayout.EndVertical();
         }
 
@@ -602,8 +718,10 @@ namespace AjisaiFlow.UnityAgent.Editor
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             GUILayout.Label(M("明るさ / コントラスト"), EditorStyles.boldLabel);
 
+            EditorGUI.BeginChangeCheck();
             _brightness = EditorGUILayout.Slider(M("明るさ (Brightness)"), _brightness, -1f, 1f);
             _contrast = EditorGUILayout.Slider(M("コントラスト (Contrast)"), _contrast, -1f, 1f);
+            bool bcChanged = EditorGUI.EndChangeCheck();
 
             EditorGUILayout.Space(4);
 
@@ -611,10 +729,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (GUILayout.Button(M("リセット"), GUILayout.Width(60)))
             {
                 _brightness = 0f; _contrast = 0f;
+                bcChanged = true;
             }
             EditorGUILayout.EndHorizontal();
 
-            DrawApplyButtons(ApplyBrightnessContrast);
+            if (bcChanged)
+                RecomputePreviewForCurrentTab();
+
+            DrawLivePreviewButtons();
             EditorGUILayout.EndVertical();
         }
 
@@ -667,9 +789,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             // Symmetry toggle
             _sceneSymmetry = EditorGUILayout.Toggle(M("対称ペイント (M)"), _sceneSymmetry);
 
-            // Island mask: always available. When ON + island selected → restrict to island. When ON + no island → paint all.
+            // Island mask: always available. When ON + island selected → restrict to islands. When ON + no island → paint all.
             _sceneIslandMask = EditorGUILayout.Toggle(M("アイランドマスク"), _sceneIslandMask);
-            if (_sceneIslandMask && _selectedIslandIndex < 0)
+            if (_sceneIslandMask && _selectedIslandIndices.Count == 0)
                 EditorGUILayout.HelpBox(M("アイランドを選択するとその範囲のみにペイントを制限します。"), MessageType.None);
 
             if (EditorGUI.EndChangeCheck())
@@ -709,10 +831,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             ScenePaintState.IslandMaskEnabled = _sceneIslandMask;
 
             // Build island mask if enabled
-            if (_sceneIslandMask && _selectedIslandIndex >= 0 && _currentIslands != null)
+            if (_sceneIslandMask && _selectedIslandIndices.Count > 0 && _currentIslands != null)
             {
-                var selected = new System.Collections.Generic.HashSet<int> { _selectedIslandIndex };
-                ScenePaintEngine.BuildIslandMask(_currentIslands, selected);
+                ScenePaintEngine.BuildIslandMask(_currentIslands, _selectedIslandIndices);
             }
             else
             {
@@ -728,10 +849,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             ScenePaintState.Activate(_activeRenderer, _avatarRoot);
 
             // Build island mask if enabled
-            if (_sceneIslandMask && _selectedIslandIndex >= 0 && _currentIslands != null)
+            if (_sceneIslandMask && _selectedIslandIndices.Count > 0 && _currentIslands != null)
             {
-                var selected = new System.Collections.Generic.HashSet<int> { _selectedIslandIndex };
-                ScenePaintEngine.BuildIslandMask(_currentIslands, selected);
+                ScenePaintEngine.BuildIslandMask(_currentIslands, _selectedIslandIndices);
             }
 
             SceneView.RepaintAll();
@@ -743,6 +863,8 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private void DrawApplyButtons(System.Action<string> applyAction)
         {
+            // Legacy signature kept for Scene Paint tab / any future callers. New live-preview
+            // tabs use DrawLivePreviewButtons below.
             int checkedCount = _rendererList.Count(d => d.isChecked);
 
             EditorGUILayout.BeginHorizontal();
@@ -757,6 +879,43 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             if (GUILayout.Button(M("適用 (選択アイランドのみ)"), GUILayout.Height(28)))
                 applyAction(GetSelectedIslandIndicesString());
+
+            GUI.enabled = true;
+            EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Unified live-preview Apply / Revert button row used by the four adjustment tabs.
+        /// The preview has already been staged in _session by slider-change handlers; this
+        /// method only flushes it to disk (Apply) or throws it away (Revert).
+        /// </summary>
+        private void DrawLivePreviewButtons()
+        {
+            int checkedCount = _rendererList.Count(d => d.isChecked);
+
+            if (_session.IsActive && _session.HasUncommittedChanges)
+            {
+                EditorGUILayout.HelpBox(M("未コミットのプレビューがあります。「適用」でディスクに保存、「元に戻す」で破棄します。"), MessageType.Info);
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            GUI.enabled = _activeRenderer != null && _session.IsActive;
+
+            string applyLabel = checkedCount > 1
+                ? string.Format(M("適用 (確定 x{0}メッシュ)"), checkedCount)
+                : M("適用 (確定)");
+            if (GUILayout.Button(applyLabel, GUILayout.Height(28)))
+            {
+                CommitPreviewAndBatch();
+                ResetAdjustmentParameters();
+            }
+
+            GUI.enabled = _activeRenderer != null && _session.IsActive && _session.HasUncommittedChanges;
+            if (GUILayout.Button(M("元に戻す"), GUILayout.Height(28), GUILayout.Width(100)))
+            {
+                _session.Revert();
+                ResetAdjustmentParameters();
+            }
 
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
@@ -899,8 +1058,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             GUILayout.Label(M("Mesh Painter - Scene選択"), EditorStyles.boldLabel);
             if (_activeRenderer != null)
                 GUILayout.Label(string.Format(M("メッシュ: {0}"), _activeRenderer.gameObject.name));
-            if (_selectedIslandIndex >= 0)
-                GUILayout.Label(string.Format(M("選択中: アイランド #{0}"), _selectedIslandIndex));
+            if (_selectedIslandIndices.Count > 0)
+                GUILayout.Label(string.Format(M("選択中: {0} アイランド"), _selectedIslandIndices.Count));
+            GUILayout.Label(M("Ctrl/Shift+クリックで追加選択"), EditorStyles.miniLabel);
             GUILayout.EndArea();
             Handles.EndGUI();
 
@@ -914,7 +1074,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                     Renderer r = picked.GetComponent<Renderer>();
                     if (r != null)
                     {
-                        SelectBySceneClick(r, ray);
+                        bool additive = e.control || e.shift || e.command;
+                        SelectBySceneClick(r, ray, additive);
 
                         // Scene Paint tab: auto-start painting on click
                         if (_editTab == 4 && !ScenePaintState.IsActive)
@@ -930,7 +1091,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             DrawSceneHighlight();
         }
 
-        private void SelectBySceneClick(Renderer r, Ray ray)
+        private void SelectBySceneClick(Renderer r, Ray ray, bool additive)
         {
             PrepareEditor(r);
 
@@ -952,8 +1113,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
             }
 
-            if (hitTriIdx != -1)
-                _selectedIslandIndex = _currentIslands.FindIndex(isl => isl.triangleIndices.Contains(hitTriIdx));
+            int hitIsland = -1;
+            if (hitTriIdx != -1 && _currentIslands != null)
+                hitIsland = _currentIslands.FindIndex(isl => isl.triangleIndices.Contains(hitTriIdx));
+            ApplyIslandSelection(hitIsland, additive);
             Repaint();
         }
 
@@ -967,13 +1130,17 @@ namespace AjisaiFlow.UnityAgent.Editor
             Vector3[] verts = GetWorldVertices(_activeRenderer, mesh);
             int[] tris = mesh.triangles;
 
-            if (_selectedIslandIndex >= 0 && _selectedIslandIndex < _currentIslands.Count)
+            if (_selectedIslandIndices.Count > 0)
             {
                 Handles.color = Color.yellow;
-                foreach (int triIdx in _currentIslands[_selectedIslandIndex].triangleIndices)
+                foreach (int islandIdx in _selectedIslandIndices)
                 {
-                    Vector3 v0 = verts[tris[triIdx * 3]], v1 = verts[tris[triIdx * 3 + 1]], v2 = verts[tris[triIdx * 3 + 2]];
-                    Handles.DrawPolyLine(v0, v1, v2, v0);
+                    if (islandIdx < 0 || islandIdx >= _currentIslands.Count) continue;
+                    foreach (int triIdx in _currentIslands[islandIdx].triangleIndices)
+                    {
+                        Vector3 v0 = verts[tris[triIdx * 3]], v1 = verts[tris[triIdx * 3 + 1]], v2 = verts[tris[triIdx * 3 + 2]];
+                        Handles.DrawPolyLine(v0, v1, v2, v0);
+                    }
                 }
             }
         }
@@ -994,7 +1161,10 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private string GetSelectedIslandIndicesString()
         {
-            return _selectedIslandIndex >= 0 ? _selectedIslandIndex.ToString() : "";
+            if (_selectedIslandIndices.Count == 0) return "";
+            var sorted = new List<int>(_selectedIslandIndices);
+            sorted.Sort();
+            return string.Join(";", sorted);
         }
 
         private List<Renderer> GetTargetRenderers()
@@ -1018,8 +1188,25 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void PrepareEditor(Renderer r)
         {
             if (r == _activeRenderer) return;
+
+            // Handle dirty session from previous renderer: prompt Apply / Discard / Cancel.
+            if (_session.IsActive && _session.HasUncommittedChanges)
+            {
+                int choice = EditorUtility.DisplayDialogComplex(
+                    M("未コミットの変更があります"),
+                    M("現在編集中のメッシュに未適用の変更があります。どうしますか？"),
+                    M("適用"), M("キャンセル"), M("破棄"));
+                if (choice == 1) return;          // Cancel: stay on current renderer
+                if (choice == 0) _session.End(autoCommit: true);
+                else _session.End(autoCommit: false); // Discard
+            }
+            else if (_session.IsActive)
+            {
+                _session.End(autoCommit: false);
+            }
+
             _activeRenderer = r;
-            _selectedIslandIndex = -1;
+            _selectedIslandIndices.Clear();
             _uvZoom = 1f;
             _uvPan = new Vector2(0.5f, 0.5f);
 
@@ -1035,102 +1222,176 @@ namespace AjisaiFlow.UnityAgent.Editor
                 if (mainTex != null)
                     _currentMetadata.originalTextureGuid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(mainTex));
             }
+
+            // Start new preview session for the 4 adjustment tabs. Scene Paint tab has its
+            // own session and is started on-demand via ScenePaintState.Activate.
+            if (_editTab != 4)
+                _session.Begin(r, _avatarRoot);
+
+            // Reset transient slider state so preview starts at "no change"
+            ResetAdjustmentParameters();
         }
 
-        // ─── Apply operations ───
-
-        private void ApplyPaint(string islandIndices)
+        private void ResetAdjustmentParameters()
         {
-            string hex = ColorToHex(_targetColor);
-            if (!string.IsNullOrEmpty(islandIndices))
-            {
-                // Island-specific: only primary renderer
-                if (_activeRenderer == null) return;
-                string path = GetGameObjectPath(_activeRenderer);
-                string result = TextureEditTools.ApplyGradientEx(path, hex, hex, "top_to_bottom", "replace", islandIndices, 0f, 1f);
-                Debug.Log($"[MeshPainter] Paint: {result}");
-            }
-            else
-            {
-                // Full mesh: all target renderers
-                foreach (var r in GetTargetRenderers())
-                {
-                    string path = GetGameObjectPath(r);
-                    string result = TextureEditTools.ApplyGradientEx(path, hex, hex, "top_to_bottom", "replace", "", 0f, 1f);
-                    Debug.Log($"[MeshPainter] Paint: {result}");
-                }
-            }
-            SceneView.RepaintAll();
-            Repaint();
+            _hueShift = 0f;
+            _satScale = 1f;
+            _valScale = 1f;
+            _brightness = 0f;
+            _contrast = 0f;
+            _gradStartT = 0f;
+            _gradEndT = 1f;
         }
 
-        private void ApplyGradient(string islandIndices)
-        {
-            string from = ColorToHex(_gradFrom);
-            string to = ColorToHex(_gradTo);
-            string dir = DirectionValues[_gradDirectionIdx];
-            string blend = BlendModeValues[_gradBlendModeIdx];
+        // ─── Live preview helpers ───
 
-            if (!string.IsNullOrEmpty(islandIndices))
-            {
-                if (_activeRenderer == null) return;
-                string path = GetGameObjectPath(_activeRenderer);
-                string result = TextureEditTools.ApplyGradientEx(path, from, to, dir, blend, islandIndices, _gradStartT, _gradEndT);
-                Debug.Log($"[MeshPainter] Gradient: {result}");
-            }
-            else
-            {
-                foreach (var r in GetTargetRenderers())
-                {
-                    string path = GetGameObjectPath(r);
-                    string result = TextureEditTools.ApplyGradientEx(path, from, to, dir, blend, "", _gradStartT, _gradEndT);
-                    Debug.Log($"[MeshPainter] Gradient: {result}");
-                }
-            }
-            SceneView.RepaintAll();
-            Repaint();
+        /// <summary>
+        /// Return the island indices list that should be used as the scope of the current
+        /// preview/commit. If the user has selected one or more islands in the UV/Scene editor,
+        /// scope = those islands; otherwise null (meaning "whole texture").
+        /// </summary>
+        private List<int> GetPreviewIslandScope()
+        {
+            if (_selectedIslandIndices.Count == 0) return null;
+            var list = new List<int>(_selectedIslandIndices);
+            list.Sort();
+            return list;
         }
 
-        private void ApplyHSV(string islandIndices)
+        private void RecomputePreviewForCurrentTab()
         {
-            if (!string.IsNullOrEmpty(islandIndices))
+            if (!_session.IsActive || _session.BaselinePixels == null) return;
+            if (_editTab == 4) return; // Scene Paint has its own system
+
+            var scopeRaw = GetPreviewIslandScope();
+            // For HSV/BC/paint/gradient, an empty scope list means "apply everywhere".
+            // TextureEditCore treats null/empty lists as "no island filter".
+            List<int> scopeForHSV = scopeRaw; // HSV/BC read targetIslandIndices as optional filter
+
+            Color[] newPixels = null;
+            switch (_editTab)
             {
-                if (_activeRenderer == null) return;
-                string path = GetGameObjectPath(_activeRenderer);
-                string result = TextureEditTools.AdjustHSV(path, _hueShift, _satScale, _valScale, islandIndices);
-                Debug.Log($"[MeshPainter] HSV: {result}");
+                case 0: // Paint — single color fill via Gradient with from==to, replace
+                    newPixels = ComputePaintPreview(scopeRaw);
+                    break;
+                case 1: // Gradient
+                    newPixels = ComputeGradientPreview(scopeRaw);
+                    break;
+                case 2: // HSV
+                    newPixels = TextureEditCore.ComputeHSV(
+                        _session.BaselinePixels, _session.Width, _session.Height,
+                        _session.CachedMesh, scopeForHSV, _session.CachedIslands,
+                        _hueShift, _satScale, _valScale);
+                    break;
+                case 3: // Brightness / Contrast
+                    newPixels = TextureEditCore.ComputeBrightnessContrast(
+                        _session.BaselinePixels, _session.Width, _session.Height,
+                        _session.CachedMesh, scopeForHSV, _session.CachedIslands,
+                        _brightness, _contrast);
+                    break;
             }
-            else
-            {
-                foreach (var r in GetTargetRenderers())
-                {
-                    string path = GetGameObjectPath(r);
-                    string result = TextureEditTools.AdjustHSV(path, _hueShift, _satScale, _valScale, "");
-                    Debug.Log($"[MeshPainter] HSV: {result}");
-                }
-            }
-            SceneView.RepaintAll();
-            Repaint();
+
+            if (newPixels != null)
+                _session.ApplyPreview(newPixels);
         }
 
-        private void ApplyBrightnessContrast(string islandIndices)
+        private Color[] ComputePaintPreview(List<int> scopeRaw)
         {
-            if (!string.IsNullOrEmpty(islandIndices))
+            // Single-color fill = Gradient with from==to, blend=replace
+            List<int> targets = scopeRaw;
+            if (targets == null || targets.Count == 0)
             {
-                if (_activeRenderer == null) return;
-                string path = GetGameObjectPath(_activeRenderer);
-                string result = TextureEditTools.AdjustBrightnessContrast(path, _brightness, _contrast, islandIndices);
-                Debug.Log($"[MeshPainter] Brightness/Contrast: {result}");
+                targets = new List<int>();
+                if (_session.CachedIslands != null)
+                    for (int i = 0; i < _session.CachedIslands.Count; i++) targets.Add(i);
             }
-            else
+            return TextureEditCore.ComputeGradient(
+                _session.BaselinePixels, _session.Width, _session.Height,
+                _session.CachedMesh, targets, _session.CachedIslands, _session.CachedIslandGroups,
+                _targetColor, _targetColor, 1, false, "replace", 0f, 1f);
+        }
+
+        private Color[] ComputeGradientPreview(List<int> scopeRaw)
+        {
+            List<int> targets = scopeRaw;
+            if (targets == null || targets.Count == 0)
             {
-                foreach (var r in GetTargetRenderers())
+                targets = new List<int>();
+                if (_session.CachedIslands != null)
+                    for (int i = 0; i < _session.CachedIslands.Count; i++) targets.Add(i);
+            }
+            int axis; bool invert;
+            switch (DirectionValues[_gradDirectionIdx])
+            {
+                case "top_to_bottom": axis = 1; invert = true; break;
+                case "bottom_to_top": axis = 1; invert = false; break;
+                case "left_to_right": axis = 0; invert = false; break;
+                case "right_to_left": axis = 0; invert = true; break;
+                default: axis = 1; invert = true; break;
+            }
+            return TextureEditCore.ComputeGradient(
+                _session.BaselinePixels, _session.Width, _session.Height,
+                _session.CachedMesh, targets, _session.CachedIslands, _session.CachedIslandGroups,
+                _gradFrom, _gradTo, axis, invert, BlendModeValues[_gradBlendModeIdx],
+                _gradStartT, _gradEndT);
+        }
+
+        /// <summary>
+        /// Commit the current preview session: save to disk, point material at saved tex,
+        /// then propagate the same pixel transformation to any other checked renderers via
+        /// the existing TextureEditTools path (so batch edits still work).
+        /// </summary>
+        private void CommitPreviewAndBatch()
+        {
+            if (!_session.IsActive) { Debug.LogWarning("[MeshPainter] No active session."); return; }
+            if (!_session.HasUncommittedChanges)
+            {
+                Debug.Log(M("[MeshPainter] 変更がありません (既にコミット済み)"));
+                return;
+            }
+
+            // 1. Commit active renderer via session
+            bool ok = _session.Commit();
+            if (!ok)
+            {
+                EditorUtility.DisplayDialog(M("エラー"), M("コミットに失敗しました。Console を確認してください。"), "OK");
+                return;
+            }
+
+            // 2. Propagate to other checked renderers via existing disk-write path.
+            //    Uses the same parameters the live preview used, so behavior stays consistent.
+            foreach (var r in GetTargetRenderers())
+            {
+                if (r == _activeRenderer) continue;
+                string path = GetGameObjectPath(r);
+                string scopeStr = GetSelectedIslandIndicesString();
+                switch (_editTab)
                 {
-                    string path = GetGameObjectPath(r);
-                    string result = TextureEditTools.AdjustBrightnessContrast(path, _brightness, _contrast, "");
-                    Debug.Log($"[MeshPainter] Brightness/Contrast: {result}");
+                    case 0:
+                        {
+                            string hex = ColorToHex(_targetColor);
+                            TextureEditTools.ApplyGradientEx(path, hex, hex, "top_to_bottom", "replace", scopeStr, 0f, 1f);
+                            break;
+                        }
+                    case 1:
+                        {
+                            string from = ColorToHex(_gradFrom);
+                            string to = ColorToHex(_gradTo);
+                            TextureEditTools.ApplyGradientEx(path, from, to,
+                                DirectionValues[_gradDirectionIdx],
+                                BlendModeValues[_gradBlendModeIdx],
+                                scopeStr, _gradStartT, _gradEndT);
+                            break;
+                        }
+                    case 2:
+                        TextureEditTools.AdjustHSV(path, _hueShift, _satScale, _valScale, scopeStr);
+                        break;
+                    case 3:
+                        TextureEditTools.AdjustBrightnessContrast(path, _brightness, _contrast, scopeStr);
+                        break;
                 }
             }
+
             SceneView.RepaintAll();
             Repaint();
         }

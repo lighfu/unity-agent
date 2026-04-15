@@ -134,6 +134,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                     ScenePaintState.LastHitUV = hitUV;
                     ScenePaintState.LastHitWorldPos = hitWorld;
                     ScenePaintState.LastHitNormal = hitNormal;
+                    ScenePaintState.StrokeHasLast = true;
 
                     e.Use();
                     sceneView.Repaint();
@@ -147,15 +148,33 @@ namespace AjisaiFlow.UnityAgent.Editor
                 if (ScenePaintEngine.RaycastMesh(ray, out Vector3 hitWorld, out Vector3 hitNormal,
                                                   out Vector2 hitUV, out int hitTriIndex))
                 {
-                    ScenePaintEngine.InterpolateAndStamp(ScenePaintState.LastHitUV, hitUV, hitTriIndex);
+                    // Only interpolate from the previous sample if we had a
+                    // continuous on-mesh drag. If the cursor passed over empty
+                    // space (StrokeHasLast cleared), or if the world-space jump
+                    // is unreasonably large (new hit on a far-away mesh), stamp
+                    // a fresh dot at the current position instead of drawing a
+                    // huge interpolated line from the stale LastHitUV.
+                    bool continuous = ScenePaintState.StrokeHasLast;
+                    if (continuous)
+                    {
+                        float worldJump = Vector3.Distance(hitWorld, ScenePaintState.LastHitWorldPos);
+                        if (worldJump > ScenePaintState.BrushSize * 4f)
+                            continuous = false;
+                    }
+
+                    if (continuous)
+                        ScenePaintEngine.InterpolateAndStamp(ScenePaintState.LastHitUV, hitUV, hitTriIndex);
+                    else
+                        ScenePaintEngine.DispatchStampPublic(hitUV, hitTriIndex);
 
                     // Symmetry
                     if (ScenePaintState.SymmetryEnabled)
                     {
                         if (ScenePaintEngine.ComputeMirrorUV(hitWorld, sceneView, out Vector2 mirrorUV, out int mirrorTriIndex))
                         {
-                            if (ScenePaintEngine.ComputeMirrorUV(ScenePaintState.LastHitWorldPos, sceneView,
-                                out Vector2 lastMirrorUV, out int _))
+                            if (continuous && ScenePaintEngine.ComputeMirrorUV(
+                                    ScenePaintState.LastHitWorldPos, sceneView,
+                                    out Vector2 lastMirrorUV, out int _))
                             {
                                 ScenePaintEngine.InterpolateAndStamp(lastMirrorUV, mirrorUV, mirrorTriIndex);
                             }
@@ -171,9 +190,17 @@ namespace AjisaiFlow.UnityAgent.Editor
                     ScenePaintState.LastHitUV = hitUV;
                     ScenePaintState.LastHitWorldPos = hitWorld;
                     ScenePaintState.LastHitNormal = hitNormal;
+                    ScenePaintState.StrokeHasLast = true;
 
                     e.Use();
                     sceneView.Repaint();
+                }
+                else
+                {
+                    // Raycast missed (cursor over empty space between meshes).
+                    // Drop stroke continuity so the next successful hit starts a
+                    // fresh dot.
+                    ScenePaintState.StrokeHasLast = false;
                 }
             }
 

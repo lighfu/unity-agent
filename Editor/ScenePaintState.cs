@@ -63,6 +63,12 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         // Stroke state
         public static bool IsStroking;
+        // True only when the previous drag sample actually hit the mesh. On a
+        // raycast miss mid-stroke (mouse crossed over empty space between meshes)
+        // we drop this flag so the next successful hit stamps a fresh dot instead
+        // of drawing a huge interpolated line across the texture from the stale
+        // LastHitUV.
+        public static bool StrokeHasLast;
         public static Vector2 LastHitUV;
         public static Vector3 LastHitWorldPos;
         public static Vector3 LastHitNormal;
@@ -210,8 +216,10 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (IsStroking)
                 EndStroke();
 
-            // Save to disk once on deactivation
-            ScenePaintEngine.SaveDisplayTexture();
+            // Save to disk once on deactivation. Pass keepPaintingAfterSave=false so the
+            // material is left pointing at the saved disk asset — this lets us safely
+            // destroy DisplayTexture below without orphaning mat.mainTexture.
+            ScenePaintEngine.SaveDisplayTexture(keepPaintingAfterSave: false);
 
             // Destroy runtime-created objects before nulling references
             if (BakedMesh != null && BakedMesh != SharedMesh)
@@ -276,6 +284,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
 
             IsStroking = true;
+            StrokeHasLast = false;
         }
 
         public static void BeginSmudgeAtPixel(int centerPixelIdx)

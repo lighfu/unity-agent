@@ -575,8 +575,13 @@ namespace AjisaiFlow.UnityAgent.Editor
         /// <summary>
         /// Save the current DisplayTexture to disk as PNG.
         /// Called on deactivate / explicit save — NOT on every stroke.
+        /// When <paramref name="keepPaintingAfterSave"/> is true (default), a fresh
+        /// DisplayTexture is re-created so the user can keep painting; when false
+        /// (called from Deactivate), the material is left pointing at the saved disk
+        /// asset so Deactivate can destroy the runtime tex without leaving mat with
+        /// a dangling reference.
         /// </summary>
-        public static void SaveDisplayTexture()
+        public static void SaveDisplayTexture(bool keepPaintingAfterSave = true)
         {
             var display = ScenePaintState.DisplayTexture;
             var renderer = ScenePaintState.ActiveRenderer;
@@ -602,11 +607,17 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (metadata != null)
                 MetadataManager.SaveMetadata(metadata, avatarName, renderer.gameObject.name);
 
-            // Re-assign display texture for continued painting
-            ScenePaintState.DisplayTexture = TextureUtility.CreateEditableTexture(
-                mat.mainTexture as Texture2D);
-            if (ScenePaintState.DisplayTexture != null)
-                mat.mainTexture = ScenePaintState.DisplayTexture;
+            if (keepPaintingAfterSave)
+            {
+                // Re-assign display texture for continued painting
+                ScenePaintState.DisplayTexture = TextureUtility.CreateEditableTexture(
+                    mat.mainTexture as Texture2D);
+                if (ScenePaintState.DisplayTexture != null)
+                    mat.mainTexture = ScenePaintState.DisplayTexture;
+            }
+            // else: mat.mainTexture stays bound to the saved disk asset (savedTex above).
+            //       Deactivate's DestroyImmediate(DisplayTexture) will clean up the old
+            //       runtime tex without orphaning mat.mainTexture.
         }
 
         /// <summary>

@@ -408,126 +408,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 // Group 3D-connected islands so they share gradient bounds
                 int[] islandGroups = UVIslandDetector.BuildIslandGroups(mesh, allIslands);
 
-                // Compute 3D bounds per group (only for target islands)
-                var groupBounds = new Dictionary<int, Vector2>(); // groupId → (min, max)
-                foreach (int islandIdx in targetIslandIndices)
-                {
-                    int groupId = islandGroups[islandIdx];
-                    var island = allIslands[islandIdx];
+                // Delegate pixel computation to TextureEditCore (shared with live-preview path)
+                Color[] baselinePixels = editableTex.GetPixels();
+                Color[] pixels = TextureEditCore.ComputeGradient(
+                    baselinePixels, width, height, mesh,
+                    targetIslandIndices, allIslands, islandGroups,
+                    from, to, axis, invert, blendMode, startT, endT);
 
-                    float gMin = groupBounds.ContainsKey(groupId) ? groupBounds[groupId].x : float.MaxValue;
-                    float gMax = groupBounds.ContainsKey(groupId) ? groupBounds[groupId].y : float.MinValue;
-
-                    foreach (int triIdx in island.triangleIndices)
-                    {
-                        for (int j = 0; j < 3; j++)
-                        {
-                            int vIdx = triangles[triIdx * 3 + j];
-                            float v = GetAxisValue(vertices[vIdx], axis);
-                            gMin = Mathf.Min(gMin, v);
-                            gMax = Mathf.Max(gMax, v);
-                        }
-                    }
-                    groupBounds[groupId] = new Vector2(gMin, gMax);
-                }
-
-                // Bulk read all pixels once (avoids per-pixel GetPixel calls)
-                Color[] pixels = editableTex.GetPixels();
-
-                // Apply gradient per-island using shared group bounds
-                foreach (int islandIdx in targetIslandIndices)
-                {
-                    var island = allIslands[islandIdx];
-                    int groupId = islandGroups[islandIdx];
-                    float minVal = groupBounds[groupId].x;
-                    float maxVal = groupBounds[groupId].y;
-
-                    float range = maxVal - minVal;
-                    if (range < 0.0001f) continue; // skip flat islands
-
-                    float invRange = 1f / range;
-                    float invEndMinusStart = (endT - startT) > 0.0001f ? 1f / (endT - startT) : 0f;
-
-                    foreach (int triIdx in island.triangleIndices)
-                    {
-                        int i0 = triangles[triIdx * 3];
-                        int i1 = triangles[triIdx * 3 + 1];
-                        int i2 = triangles[triIdx * 3 + 2];
-
-                        Vector3 v0 = vertices[i0], v1 = vertices[i1], v2 = vertices[i2];
-                        Vector2 uv0 = uvs[i0], uv1 = uvs[i1], uv2 = uvs[i2];
-
-                        Vector2 p0 = new Vector2(uv0.x * width, uv0.y * height);
-                        Vector2 p1 = new Vector2(uv1.x * width, uv1.y * height);
-                        Vector2 p2 = new Vector2(uv2.x * width, uv2.y * height);
-
-                        int minX = Mathf.Clamp(Mathf.FloorToInt(Mathf.Min(p0.x, Mathf.Min(p1.x, p2.x))), 0, width - 1);
-                        int maxX = Mathf.Clamp(Mathf.CeilToInt(Mathf.Max(p0.x, Mathf.Max(p1.x, p2.x))), 0, width - 1);
-                        int minY = Mathf.Clamp(Mathf.FloorToInt(Mathf.Min(p0.y, Mathf.Min(p1.y, p2.y))), 0, height - 1);
-                        int maxY = Mathf.Clamp(Mathf.CeilToInt(Mathf.Max(p0.y, Mathf.Max(p1.y, p2.y))), 0, height - 1);
-
-                        for (int y = minY; y <= maxY; y++)
-                        {
-                            int rowOffset = y * width;
-                            for (int x = minX; x <= maxX; x++)
-                            {
-                                Vector2 pt = new Vector2(x + 0.5f, y + 0.5f);
-                                Vector3 bary = ComputeBarycentric(pt, p0, p1, p2);
-
-                                if (bary.x < 0 || bary.y < 0 || bary.z < 0) continue;
-
-                                Vector3 worldPos = v0 * bary.x + v1 * bary.y + v2 * bary.z;
-                                float axisVal = GetAxisValue(worldPos, axis);
-                                float t = Mathf.Clamp01((axisVal - minVal) * invRange);
-                                if (invert) t = 1f - t;
-
-                                // Range clipping
-                                if (t < startT || t > endT) continue;
-                                float remappedT = (t - startT) * invEndMinusStart;
-
-                                Color gradColor = Color.Lerp(from, to, remappedT);
-                                float strength = gradColor.a; // alpha = blend strength
-                                int pixelIdx = rowOffset + x;
-                                Color original = pixels[pixelIdx];
-
-                                Color blended;
-                                switch (blendMode)
-                                {
-                                    case "multiply":
-                                        blended = original * gradColor;
-                                        break;
-                                    case "tint":
-                                        float lum = original.grayscale;
-                                        blended = new Color(gradColor.r, gradColor.g, gradColor.b) * (lum * 0.7f + 0.3f);
-                                        break;
-                                    case "overlay":
-                                        blended = new Color(
-                                            original.r < 0.5f ? 2f * original.r * gradColor.r : 1f - 2f * (1f - original.r) * (1f - gradColor.r),
-                                            original.g < 0.5f ? 2f * original.g * gradColor.g : 1f - 2f * (1f - original.g) * (1f - gradColor.g),
-                                            original.b < 0.5f ? 2f * original.b * gradColor.b : 1f - 2f * (1f - original.b) * (1f - gradColor.b));
-                                        break;
-                                    case "screen":
-                                        blended = new Color(
-                                            1f - (1f - original.r) * (1f - gradColor.r),
-                                            1f - (1f - original.g) * (1f - gradColor.g),
-                                            1f - (1f - original.b) * (1f - gradColor.b));
-                                        break;
-                                    default: // replace
-                                        blended = gradColor;
-                                        break;
-                                }
-
-                                // Alpha-based blend: alpha=0 → original (no change), alpha=1 → full blend
-                                Color final = Color.Lerp(original, blended, strength);
-                                final.a = original.a;
-
-                                pixels[pixelIdx] = final;
-                            }
-                        }
-                    }
-                }
-
-                // Bulk write all pixels and apply
                 editableTex.SetPixels(pixels);
                 editableTex.Apply();
 
@@ -671,57 +558,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
                 int width = editableTex.width;
                 int height = editableTex.height;
-                float hueShiftNormalized = hueShift / 360f;
 
-                // Build triangle filter (reuse cached islands)
-                HashSet<int> triangleFilter = BuildTriangleFilter(islandIndexList, islands);
-
-                // Bulk pixel processing for both paths
-                Color[] pixels = editableTex.GetPixels();
-
-                if (triangleFilter == null)
-                {
-                    // Fast path: no island filter, process all pixels
-                    for (int i = 0; i < pixels.Length; i++)
-                    {
-                        Color c = pixels[i];
-                        Color.RGBToHSV(c, out float h, out float s, out float v);
-
-                        h = (h + hueShiftNormalized) % 1f;
-                        if (h < 0f) h += 1f;
-                        s = Mathf.Clamp01(s * saturationScale);
-                        v = Mathf.Clamp01(v * valueScale);
-
-                        Color adjusted = Color.HSVToRGB(h, s, v);
-                        adjusted.a = c.a;
-                        pixels[i] = adjusted;
-                    }
-                }
-                else
-                {
-                    // Island-filtered path: build flat pixel mask then adjust only masked pixels
-                    bool[] mask = BuildPixelMask(width, height, mesh, triangleFilter);
-
-                    for (int i = 0; i < pixels.Length; i++)
-                    {
-                        if (!mask[i]) continue;
-
-                        Color c = pixels[i];
-                        Color.RGBToHSV(c, out float h, out float s, out float v);
-
-                        h = (h + hueShiftNormalized) % 1f;
-                        if (h < 0f) h += 1f;
-                        s = Mathf.Clamp01(s * saturationScale);
-                        v = Mathf.Clamp01(v * valueScale);
-
-                        Color adjusted = Color.HSVToRGB(h, s, v);
-                        adjusted.a = c.a;
-                        pixels[i] = adjusted;
-                    }
-                }
+                // Delegate pixel computation to TextureEditCore (shared with live-preview path)
+                if (islands == null && islandIndexList.Count > 0)
+                    islands = UVIslandDetector.DetectIslands(mesh);
+                Color[] baselinePixels = editableTex.GetPixels();
+                Color[] pixels = TextureEditCore.ComputeHSV(
+                    baselinePixels, width, height, mesh,
+                    islandIndexList, islands,
+                    hueShift, saturationScale, valueScale);
 
                 editableTex.SetPixels(pixels);
-
                 editableTex.Apply();
 
                 // Save texture (per-object filename to avoid collision)
@@ -857,39 +704,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 int width = editableTex.width;
                 int height = editableTex.height;
 
-                // Contrast formula: output = (input - 0.5) * contrastFactor + 0.5 + brightness
-                // contrastFactor = (1 + contrast) for contrast in [-1, 1] mapped to reasonable range
-                float contrastFactor = 1f + contrast; // 0..2
-                if (contrast > 0f)
-                    contrastFactor = 1f + contrast * 2f; // boost: up to 3x
-                else
-                    contrastFactor = Mathf.Max(0f, 1f + contrast); // reduce: down to 0
-
-                HashSet<int> triangleFilter = BuildTriangleFilter(islandIndexList, islands);
-
-                // Bulk pixel processing for both paths
-                Color[] pixels = editableTex.GetPixels();
-
-                if (triangleFilter == null)
-                {
-                    for (int i = 0; i < pixels.Length; i++)
-                    {
-                        pixels[i] = ApplyBC(pixels[i], brightness, contrastFactor);
-                    }
-                }
-                else
-                {
-                    bool[] mask = BuildPixelMask(width, height, mesh, triangleFilter);
-
-                    for (int i = 0; i < pixels.Length; i++)
-                    {
-                        if (!mask[i]) continue;
-                        pixels[i] = ApplyBC(pixels[i], brightness, contrastFactor);
-                    }
-                }
+                // Delegate pixel computation to TextureEditCore (shared with live-preview path)
+                if (islands == null && islandIndexList.Count > 0)
+                    islands = UVIslandDetector.DetectIslands(mesh);
+                Color[] baselinePixels = editableTex.GetPixels();
+                Color[] pixels = TextureEditCore.ComputeBrightnessContrast(
+                    baselinePixels, width, height, mesh,
+                    islandIndexList, islands,
+                    brightness, contrast);
 
                 editableTex.SetPixels(pixels);
-
                 editableTex.Apply();
 
                 string safeName = go.name.Replace("/", "_").Replace("\\", "_");
@@ -1090,7 +914,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         /// Neutralize lilToon shadow colors after gradient/color changes to prevent color bleeding.
         /// Removes saturation from shadow colors, converting them to grayscale while preserving brightness.
         /// </summary>
-        private static void NeutralizeLilToonShadowColors(Material mat)
+        internal static void NeutralizeLilToonShadowColors(Material mat)
         {
             if (!mat.HasProperty("_ShadowColor")) return;
 
@@ -1109,7 +933,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         /// lilToon renders finalColor = texture × _Color, so _Color is pre-multiplied
         /// into the texture to ensure texture edits reflect the actual displayed color.
         /// </summary>
-        private static void BakeMainColorIfNeeded(Texture2D editableTex, Material mat, MeshPaintMetadata metadata)
+        internal static void BakeMainColorIfNeeded(Texture2D editableTex, Material mat, MeshPaintMetadata metadata)
         {
             if (!mat.HasProperty("_Color")) return;
 
