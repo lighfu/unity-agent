@@ -21,6 +21,8 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
         Label _textLabel;
         string _rawText;
+        VisualElement _linkEmbedContainer;
+        bool _embedsBuilt;
 
         // Streaming thinking support (agent bubble only)
         VisualElement _agentBubble;
@@ -91,6 +93,14 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 {
                     _rawText = newText;
                     _textLabel.text = MarkdownToRichText(newText);
+
+                    // Build embeds once streaming text stabilizes (has URLs)
+                    if (!_embedsBuilt && _agentBubble != null && _agentTheme != null)
+                    {
+                        var urls = ExtractAllUrls(newText);
+                        if (urls.Count > 0)
+                            BuildLinkEmbeds(newText, _agentBubble, _agentTheme);
+                    }
                 }
             }
 
@@ -288,6 +298,12 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
             view._textLabel = label;
             view._rawText = displayText;
+
+            // Extract all URLs (from both markdown links and bare URLs)
+            var extractedUrls = ExtractAllUrls(displayText);
+
+            // URL link previews (Discord-style embeds, each card is clickable)
+            view.BuildLinkEmbeds(displayText, bubble, theme);
 
             // ツール結果
             if (entry.results != null && entry.results.Count > 0)
@@ -726,6 +742,81 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             @"\*\*(.+?)\*\*", RegexOptions.Compiled);
         static readonly Regex ItalicRegex = new Regex(
             @"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", RegexOptions.Compiled);
+        static readonly Regex MarkdownLinkRegex = new Regex(
+            @"\[([^\]]+)\]\((https?://[^\s\)]+)\)", RegexOptions.Compiled);
+        static readonly Regex BareLinkRegex = new Regex(
+            @"(?<!\()(https?://[^\s\)\]<>]+)", RegexOptions.Compiled);
+        internal static readonly Regex UrlExtractRegex = new Regex(
+            @"https?://[^\s\)\]<>""]+", RegexOptions.Compiled);
+
+        void BuildLinkEmbeds(string text, VisualElement parent, MD3Theme theme)
+        {
+            if (_embedsBuilt) return;
+
+            var urls = ExtractAllUrls(text);
+            if (urls.Count == 0) return;
+
+            _embedsBuilt = true;
+
+            // Remove old container if rebuilding
+            if (_linkEmbedContainer != null)
+            {
+                _linkEmbedContainer.RemoveFromHierarchy();
+                _linkEmbedContainer = null;
+            }
+
+            _linkEmbedContainer = new VisualElement();
+            _linkEmbedContainer.style.marginTop = 8;
+
+            foreach (var url in urls)
+            {
+                var embed = CreateLinkEmbed(url, theme);
+                if (embed != null)
+                    _linkEmbedContainer.Add(embed);
+            }
+
+            if (_linkEmbedContainer.childCount > 0)
+                parent.Add(_linkEmbedContainer);
+        }
+
+        /// <summary>
+        /// Extract all unique URLs from raw text, handling both [text](url) markdown links and bare URLs.
+        /// </summary>
+        internal static List<string> ExtractAllUrls(string text)
+        {
+            var result = new List<string>();
+            var seen = new HashSet<string>();
+
+            if (string.IsNullOrEmpty(text)) return result;
+
+            // 1. Markdown links: [text](url)
+            foreach (Match m in MarkdownLinkRegex.Matches(text))
+            {
+                string url = CleanUrl(m.Groups[2].Value);
+                if (!string.IsNullOrEmpty(url) && seen.Add(url))
+                    result.Add(url);
+            }
+
+            // 2. Bare URLs (not inside markdown link parens)
+            // Remove markdown link regions first to avoid double-counting
+            string stripped = MarkdownLinkRegex.Replace(text, "");
+            foreach (Match m in UrlExtractRegex.Matches(stripped))
+            {
+                string url = CleanUrl(m.Value);
+                if (!string.IsNullOrEmpty(url) && seen.Add(url))
+                    result.Add(url);
+            }
+
+            return result;
+        }
+
+        static string CleanUrl(string url)
+        {
+            // Strip trailing punctuation that's not part of the URL
+            while (url.Length > 0 && ".,;:!?)」』】\"'".IndexOf(url[url.Length - 1]) >= 0)
+                url = url.Substring(0, url.Length - 1);
+            return url;
+        }
 
         internal static string MarkdownToRichText(string md)
         {
@@ -759,6 +850,14 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             md = BoldRegex.Replace(md, "<b>$1</b>");
             md = ItalicRegex.Replace(md, "<i>$1</i>");
 
+            // Markdown links: [text](url) → colored text
+            string linkColor = dark ? "#6CB4EE" : "#0969DA";
+            md = MarkdownLinkRegex.Replace(md, m =>
+                $"<color={linkColor}><b>{m.Groups[1].Value}</b></color>");
+            // Bare URLs: https://... → colored
+            md = BareLinkRegex.Replace(md, m =>
+                $"<color={linkColor}>{m.Value}</color>");
+
             var lines = md.Split('\n');
             for (int i = 0; i < lines.Length; i++)
             {
@@ -781,6 +880,236 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 md = md.Replace($"\x00CB{i}\x00", codeBlocks[i]);
 
             return md;
+        }
+
+        // ══════════════════════════════════════════════
+        //  Link Embed (Discord-style preview card)
+        // ══════════════════════════════════════════════
+
+        private static readonly Regex BoothIdRegex = new Regex(
+            @"booth\.pm/ja/items/(\d+)", RegexOptions.Compiled);
+
+        static VisualElement CreateLinkEmbed(string url, MD3Theme theme)
+        {
+            // Card container
+            var card = new VisualElement();
+            card.style.flexDirection = FlexDirection.Row;
+            card.style.backgroundColor = theme.SurfaceContainerHigh;
+            card.style.borderTopLeftRadius = 8;
+            card.style.borderTopRightRadius = 8;
+            card.style.borderBottomLeftRadius = 8;
+            card.style.borderBottomRightRadius = 8;
+            card.style.borderLeftWidth = 3;
+            card.style.borderLeftColor = theme.Primary;
+            card.style.marginTop = 6;
+            card.style.marginBottom = 2;
+            card.style.overflow = Overflow.Hidden;
+            card.style.maxWidth = 400;
+
+            // Thumbnail (left)
+            var thumbArea = new VisualElement();
+            thumbArea.style.width = 60;
+            thumbArea.style.height = 60;
+            thumbArea.style.flexShrink = 0;
+            thumbArea.style.backgroundColor = theme.SurfaceContainerHighest;
+            thumbArea.style.unityBackgroundScaleMode = ScaleMode.ScaleToFit;
+            card.Add(thumbArea);
+
+            // Text content (right)
+            var textCol = new VisualElement();
+            textCol.style.flexGrow = 1;
+            textCol.style.paddingLeft = 8;
+            textCol.style.paddingRight = 8;
+            textCol.style.paddingTop = 6;
+            textCol.style.paddingBottom = 6;
+            textCol.style.overflow = Overflow.Hidden;
+
+            // Check if BOOTH link
+            var boothMatch = BoothIdRegex.Match(url);
+            if (boothMatch.Success)
+            {
+                string boothId = boothMatch.Groups[1].Value;
+
+                // Try to get info from MochiFitter catalog
+                string title = null;
+                string description = null;
+                string thumbnailUrl = null;
+
+                try
+                {
+                    var catalog = MochiFitterCatalogWindow.LoadCatalogStatic();
+                    var entry = catalog?.profiles?.Find(p => p.boothId == boothId);
+                    if (entry != null)
+                    {
+                        title = entry.avatar;
+                        description = $"{entry.shop} | {entry.price} | {GetConvLabel(entry.convType)}";
+                        thumbnailUrl = entry.thumbnailUrl;
+                    }
+                }
+                catch { }
+
+                // Site label
+                var siteLabel = new Label("BOOTH");
+                siteLabel.style.fontSize = 10;
+                siteLabel.style.color = theme.Primary;
+                siteLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+                textCol.Add(siteLabel);
+
+                // Title
+                var titleLabel = new Label(title ?? $"BOOTH Item {boothId}");
+                titleLabel.style.fontSize = 12;
+                titleLabel.style.color = new Color(0.38f, 0.60f, 0.93f); // link blue
+                titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+                titleLabel.style.overflow = Overflow.Hidden;
+                titleLabel.style.textOverflow = TextOverflow.Ellipsis;
+                titleLabel.style.whiteSpace = WhiteSpace.NoWrap;
+                textCol.Add(titleLabel);
+
+                // Description
+                if (!string.IsNullOrEmpty(description))
+                {
+                    var descLabel = new Label(description);
+                    descLabel.style.fontSize = 10;
+                    descLabel.style.color = theme.OnSurfaceVariant;
+                    descLabel.style.overflow = Overflow.Hidden;
+                    descLabel.style.textOverflow = TextOverflow.Ellipsis;
+                    descLabel.style.whiteSpace = WhiteSpace.NoWrap;
+                    textCol.Add(descLabel);
+                }
+
+                // Load thumbnail
+                if (!string.IsNullOrEmpty(thumbnailUrl))
+                    LoadEmbedThumbnail(thumbArea, boothId, thumbnailUrl);
+            }
+            else
+            {
+                // Generic link embed
+                var uri = new System.Uri(url);
+                var siteLabel = new Label(uri.Host);
+                siteLabel.style.fontSize = 10;
+                siteLabel.style.color = theme.Primary;
+                siteLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+                textCol.Add(siteLabel);
+
+                var titleLabel = new Label(url);
+                titleLabel.style.fontSize = 11;
+                titleLabel.style.color = new Color(0.38f, 0.60f, 0.93f);
+                titleLabel.style.overflow = Overflow.Hidden;
+                titleLabel.style.textOverflow = TextOverflow.Ellipsis;
+                titleLabel.style.whiteSpace = WhiteSpace.NoWrap;
+                textCol.Add(titleLabel);
+
+                thumbArea.style.display = DisplayStyle.None;
+            }
+
+            card.Add(textCol);
+
+            // Click to open URL
+            card.RegisterCallback<ClickEvent>(_ => ConfirmAndOpenURL(url));
+            card.RegisterCallback<MouseEnterEvent>(_ =>
+                card.style.backgroundColor = theme.HoverOverlay(theme.SurfaceContainerHigh, theme.OnSurface));
+            card.RegisterCallback<MouseLeaveEvent>(_ =>
+                card.style.backgroundColor = theme.SurfaceContainerHigh);
+            card.AddToClassList("cursor-link");
+
+            return card;
+        }
+
+        private static readonly HashSet<string> TrustedDomains = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "booth.pm", "booth.pximg.net",
+            "github.com", "docs.unity3d.com",
+            "unity.com", "vrchat.com",
+            "vcc.docs.vrchat.com",
+            "modular-avatar.nadena.dev",
+        };
+
+        static void ConfirmAndOpenURL(string url)
+        {
+            string host;
+            try { host = new System.Uri(url).Host; }
+            catch { host = url; }
+
+            bool trusted = false;
+            foreach (var domain in TrustedDomains)
+            {
+                if (host == domain || host.EndsWith("." + domain))
+                {
+                    trusted = true;
+                    break;
+                }
+            }
+
+            if (trusted)
+            {
+                bool ok = UnityEditor.EditorUtility.DisplayDialog(
+                    M("リンクを開く"),
+                    $"{url}\n\n{M("このリンクをブラウザで開きますか？")}",
+                    M("開く"), M("キャンセル"));
+                if (ok) Application.OpenURL(url);
+            }
+            else
+            {
+                bool ok = UnityEditor.EditorUtility.DisplayDialog(
+                    M("外部リンクの警告"),
+                    $"{M("信頼できないドメインです:")}\n{host}\n\n{url}\n\n{M("このリンクを本当にブラウザで開きますか？")}",
+                    M("開く"), M("キャンセル"));
+                if (ok) Application.OpenURL(url);
+            }
+        }
+
+        static string GetConvLabel(string convType)
+        {
+            switch (convType)
+            {
+                case "both": return "両変換";
+                case "forward": return "順変換";
+                case "reverse": return "逆変換";
+                default: return "";
+            }
+        }
+
+        static void LoadEmbedThumbnail(VisualElement thumbArea, string boothId, string thumbnailUrl)
+        {
+            // Check disk cache first
+            string cacheDir = System.IO.Path.Combine("Library", "UnityAgent", "MochiFitterThumbs");
+            string diskPath = System.IO.Path.Combine(cacheDir, boothId + ".png");
+
+            if (System.IO.File.Exists(diskPath))
+            {
+                try
+                {
+                    var tex = new Texture2D(2, 2);
+                    tex.LoadImage(System.IO.File.ReadAllBytes(diskPath));
+                    tex.hideFlags = HideFlags.HideAndDontSave;
+                    thumbArea.style.backgroundImage = new StyleBackground(tex);
+                    return;
+                }
+                catch { }
+            }
+
+            // Async download
+            var request = UnityEngine.Networking.UnityWebRequestTexture.GetTexture(thumbnailUrl);
+            var op = request.SendWebRequest();
+            op.completed += _ =>
+            {
+                if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                {
+                    var tex = UnityEngine.Networking.DownloadHandlerTexture.GetContent(request);
+                    tex.hideFlags = HideFlags.HideAndDontSave;
+                    thumbArea.style.backgroundImage = new StyleBackground(tex);
+
+                    // Save to disk cache
+                    try
+                    {
+                        if (!System.IO.Directory.Exists(cacheDir))
+                            System.IO.Directory.CreateDirectory(cacheDir);
+                        System.IO.File.WriteAllBytes(diskPath, tex.EncodeToPNG());
+                    }
+                    catch { }
+                }
+                request.Dispose();
+            };
         }
 
         static string EscapeRichText(string text)
