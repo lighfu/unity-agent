@@ -27,6 +27,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private readonly HashSet<int> _selectedIslandIndices = new HashSet<int>();
         private MeshPaintMetadata _currentMetadata;
         private bool _use3DConnection;
+        private bool _useMANonDestructive;
         private bool _isSceneSelectionEnabled = true;
         private int _editTab;
         private bool _suppressTabChanged;
@@ -227,6 +228,17 @@ namespace AjisaiFlow.UnityAgent.Editor
             use3dLbl.style.marginRight = 12;
             rootRow.Add(use3dLbl);
             rootRow.Add(use3d);
+
+            var useMA = new MD3Switch(_useMANonDestructive);
+            useMA.style.marginLeft = 8;
+            useMA.changed += v => { _useMANonDestructive = v; };
+            var useMALbl = new Label(M("MA非破壊"));
+            useMALbl.style.color = _theme.OnSurfaceVariant;
+            useMALbl.style.marginLeft = 4;
+            useMALbl.style.marginRight = 12;
+            useMALbl.tooltip = M("Modular Avatar を使用して非破壊的にテクスチャ変更を適用します");
+            rootRow.Add(useMALbl);
+            rootRow.Add(useMA);
 
             rootVisualElement.Add(rootRow);
 
@@ -1162,7 +1174,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (_selectedIslandIndices.Count > 0)
             {
                 GL.Begin(GL.LINES);
-                GL.Color(Color.yellow);
+                GL.Color(new Color(1f, 1f, 0f, 0.4f));
                 foreach (int islandIdx in _selectedIslandIndices)
                 {
                     if (islandIdx < 0 || islandIdx >= _currentIslands.Count) continue;
@@ -1234,6 +1246,15 @@ namespace AjisaiFlow.UnityAgent.Editor
                     if (_editTab == 4 && !ScenePaintState.IsActive) ActivateScenePaint();
                     e.Use();
                 }
+                else if (_selectedIslandIndices.Count > 0)
+                {
+                    // Click on empty space → deselect all
+                    _selectedIslandIndices.Clear();
+                    RecomputePreviewForCurrentTab();
+                    UpdateSelectionSummary();
+                    _uvImguiContainer?.MarkDirtyRepaint();
+                    e.Use();
+                }
             }
             DrawSceneHighlight();
         }
@@ -1285,7 +1306,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             if (_selectedIslandIndices.Count > 0)
             {
-                Handles.color = Color.yellow;
+                Handles.color = new Color(1f, 1f, 0f, 0.35f);
                 foreach (int islandIdx in _selectedIslandIndices)
                 {
                     if (islandIdx < 0 || islandIdx >= _currentIslands.Count) continue;
