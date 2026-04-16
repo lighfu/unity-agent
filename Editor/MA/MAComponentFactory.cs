@@ -328,6 +328,59 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
             return go.GetComponent<ModularAvatarVisibleHeadAccessory>() != null;
         }
 
+        // ========== MaterialSetter ==========
+
+        /// <summary>
+        /// Create or update a <c>ModularAvatarMaterialSetter</c> on <paramref name="host"/>
+        /// that assigns <paramref name="material"/> to slot <paramref name="materialIndex"/>
+        /// on <paramref name="targetRenderer"/> at MA build time.
+        ///
+        /// If a MaterialSetter already exists on <paramref name="host"/>, the existing entry
+        /// for (targetRenderer, materialIndex) is replaced; otherwise a new entry is appended.
+        /// </summary>
+        public static Component AddOrUpdateMaterialSetter(
+            GameObject host, Renderer targetRenderer, int materialIndex, Material material)
+        {
+            if (host == null || targetRenderer == null || material == null) return null;
+
+            var comp = host.GetComponent<ModularAvatarMaterialSetter>();
+            if (comp == null)
+                comp = Undo.AddComponent<ModularAvatarMaterialSetter>(host);
+            else
+                Undo.RecordObject(comp, "Update MA MaterialSetter");
+
+            if (comp.Objects == null)
+                comp.Objects = new List<MaterialSwitchObject>();
+
+            var targetRef = new AvatarObjectReference();
+            targetRef.Set(targetRenderer.gameObject);
+
+            int found = -1;
+            for (int i = 0; i < comp.Objects.Count; i++)
+            {
+                var existing = comp.Objects[i];
+                if (existing != null && existing.Object != null
+                    && existing.Object.referencePath == targetRef.referencePath
+                    && existing.MaterialIndex == materialIndex)
+                {
+                    found = i;
+                    break;
+                }
+            }
+
+            var swap = new MaterialSwitchObject
+            {
+                Object = targetRef,
+                MaterialIndex = materialIndex,
+                Material = material,
+            };
+            if (found >= 0) comp.Objects[found] = swap;
+            else comp.Objects.Add(swap);
+
+            EditorUtility.SetDirty(comp);
+            return comp;
+        }
+
         // ========== SetupOutfit ==========
 
         public static void SetupOutfit(GameObject outfitObject)
@@ -505,6 +558,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
         public static Component AddVisibleHeadAccessory(GameObject t) => null;
         public static bool HasVisibleHeadAccessory(GameObject go) => false;
         public static void SetupOutfit(GameObject o) { }
+        public static Component AddOrUpdateMaterialSetter(GameObject h, Renderer r, int i, Material m) => null;
         public static bool RemoveComponent(GameObject t, string c) => false;
         public static Component[] GetAllMAComponents(GameObject r) => new Component[0];
         public static string GetMAComponentTypeName(Component c) => c.GetType().Name;

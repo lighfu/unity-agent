@@ -31,6 +31,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         public Material CustomizedMat { get; private set; }
         public Texture2D PreviewTexture { get; private set; }
         public Color[] BaselinePixels { get; private set; }
+        public Color[] BakedOrigin { get; private set; }
         public int Width { get; private set; }
         public int Height { get; private set; }
         public Mesh CachedMesh { get; private set; }
@@ -120,6 +121,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             CustomizedMat = mat;
             PreviewTexture = previewTex;
             BaselinePixels = baseline;
+            BakedOrigin = (Color[])baseline.Clone();
             Width = previewTex.width;
             Height = previewTex.height;
             CachedMesh = mesh;
@@ -159,6 +161,23 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             if (!IsActive || PreviewTexture == null) return;
             PreviewTexture.SetPixels(BaselinePixels);
+            PreviewTexture.Apply(updateMipmaps: true);
+            HasUncommittedChanges = false;
+            SceneView.RepaintAll();
+        }
+
+        /// <summary>
+        /// Replace the baseline pixels with <paramref name="pixels"/> and refresh the preview
+        /// texture to match. Used by the Op-history replay path — when ops are added or
+        /// removed, the window recomputes "BakedOrigin + committed ops so far" and pushes
+        /// the result in here so that subsequent live-slider recomputes layer on top of it.
+        /// </summary>
+        public void SetBaseline(Color[] pixels)
+        {
+            if (!IsActive || PreviewTexture == null || pixels == null) return;
+            if (pixels.Length != BaselinePixels.Length) return;
+            BaselinePixels = pixels;
+            PreviewTexture.SetPixels(pixels);
             PreviewTexture.Apply(updateMipmaps: true);
             HasUncommittedChanges = false;
             SceneView.RepaintAll();
@@ -208,8 +227,11 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             EditorUtility.SetDirty(CustomizedMat);
 
-            // Baseline forward so next edits layer on top
+            // Baseline forward so next edits layer on top. BakedOrigin also moves
+            // forward here — a destructive commit is the only way the "origin" of
+            // the Op replay is allowed to change during a session.
             BaselinePixels = PreviewTexture.GetPixels();
+            BakedOrigin = (Color[])BaselinePixels.Clone();
             HasUncommittedChanges = false;
 
             // Re-point material at the in-memory preview so further slider edits remain live.
@@ -252,8 +274,32 @@ namespace AjisaiFlow.UnityAgent.Editor
             CachedIslandGroups = null;
             Metadata = null;
             _savedOriginalMainTexture = null;
+            BakedOrigin = null;
             HasUncommittedChanges = false;
             IsActive = false;
+            SceneView.RepaintAll();
+        }
+
+        /// <summary>
+        /// Detach the preview texture from the material and restore the committed texture,
+        /// but keep the preview texture alive in memory. Used when switching between entries
+        /// in the multi-session manager — we don't want to destroy the preview, just hide it.
+        /// </summary>
+        public void Suspend()
+        {
+            if (!IsActive || CustomizedMat == null) return;
+            if (_savedOriginalMainTexture != null)
+                CustomizedMat.mainTexture = _savedOriginalMainTexture;
+            SceneView.RepaintAll();
+        }
+
+        /// <summary>
+        /// Re-install the live preview texture on the material. Counterpart to <see cref="Suspend"/>.
+        /// </summary>
+        public void Resume()
+        {
+            if (!IsActive || CustomizedMat == null || PreviewTexture == null) return;
+            CustomizedMat.mainTexture = PreviewTexture;
             SceneView.RepaintAll();
         }
 

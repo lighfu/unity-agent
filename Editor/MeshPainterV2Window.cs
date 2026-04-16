@@ -5,6 +5,7 @@ using UnityEngine.UIElements;
 using UnityEditor;
 using AjisaiFlow.MD3SDK.Editor;
 using AjisaiFlow.UnityAgent.Editor.Tools;
+using AjisaiFlow.UnityAgent.Editor.MeshPaint;
 using static AjisaiFlow.UnityAgent.Editor.L10n;
 
 namespace AjisaiFlow.UnityAgent.Editor
@@ -19,7 +20,10 @@ namespace AjisaiFlow.UnityAgent.Editor
     public class MeshPainterV2Window : EditorWindow
     {
         // ─── Session / runtime state ───
-        private readonly MeshPaintPreviewSession _session = new MeshPaintPreviewSession();
+        private readonly MeshPaintSessionManager _sessionManager = new MeshPaintSessionManager();
+        private MeshPaintSessionEntry ActiveEntry => _sessionManager.Active;
+        private MeshPaintPreviewSession Session => _sessionManager.Active?.Session;
+        private VisualElement _editListContainer;
         private GameObject _avatarRoot;
         private Renderer _activeRenderer;
         private readonly List<RendererData> _rendererList = new List<RendererData>();
@@ -115,7 +119,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             SceneView.duringSceneGui -= OnSceneGUI;
             ScenePaintState.OnColorPicked -= HandleColorPicked;
             if (ScenePaintState.IsActive) ScenePaintState.Deactivate();
-            if (_session.IsActive) _session.End(autoCommit: _session.HasUncommittedChanges);
+            // Window close discards staged ops without writing PNGs — the explicit
+            // "Apply All" button is the only path that commits.
+            _sessionManager.DisposeAll();
         }
 
         private void CreateGUI()
@@ -287,14 +293,30 @@ namespace AjisaiFlow.UnityAgent.Editor
             topRow.style.flexGrow = 1;
             split.Add(topRow);
 
-            // [A] mesh list
+            // [A] mesh list + edit list (stacked vertically in the left column)
+            var leftCol = new VisualElement();
+            leftCol.style.width = 260;
+            leftCol.style.marginRight = 8;
+            leftCol.style.flexDirection = FlexDirection.Column;
+
             var rendererCard = new MD3Card(M("メッシュ一覧"), null, MD3CardStyle.Outlined);
-            rendererCard.style.width = 260;
-            rendererCard.style.marginRight = 8;
+            rendererCard.style.flexGrow = 1;
+            rendererCard.style.minHeight = 120;
             _rendererListContainer = new ScrollView(ScrollViewMode.Vertical);
             _rendererListContainer.style.flexGrow = 1;
             rendererCard.Add(_rendererListContainer);
-            topRow.Add(rendererCard);
+            leftCol.Add(rendererCard);
+
+            var editListCard = new MD3Card(M("編集リスト"), null, MD3CardStyle.Outlined);
+            editListCard.style.marginTop = 6;
+            editListCard.style.flexGrow = 1;
+            editListCard.style.minHeight = 140;
+            _editListContainer = new VisualElement();
+            _editListContainer.style.flexDirection = FlexDirection.Column;
+            editListCard.Add(_editListContainer);
+            leftCol.Add(editListCard);
+
+            topRow.Add(leftCol);
 
             // [C] right column (tabs + content)
             var rightCol = new VisualElement();
@@ -341,6 +363,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             split.Add(uvCard);
 
             RebuildTabContent();
+            RebuildEditListUI();
             UpdatePreviewStatusLabel();
             UpdateSelectionSummary();
         }
@@ -366,6 +389,94 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
             }
             RebuildRendererListUI();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Edit history list (left column, below mesh list)
+        // ══════════════════════════════════════════════════════════════
+
+        private void RebuildEditListUI()
+        {
+            if (_editListContainer == null) return;
+            _editListContainer.Clear();
+
+            var scroll = new ScrollView(ScrollViewMode.Vertical);
+            scroll.style.flexGrow = 1;
+            scroll.style.maxHeight = 260;
+            _editListContainer.Add(scroll);
+
+            bool any = false;
+            foreach (var entry in _sessionManager.AllEntries)
+            {
+                if (entry.Ops.Count == 0) continue;
+                any = true;
+
+                var header = new Label(string.Format("▼ {0} ({1})",
+                    entry.Renderer != null ? entry.Renderer.gameObject.name : "?", entry.Ops.Count));
+                header.style.color = _theme.OnSurfaceVariant;
+                header.style.unityFontStyleAndWeight = FontStyle.Bold;
+                header.style.marginTop = 4;
+                header.style.paddingLeft = 4;
+                scroll.Add(header);
+
+                for (int i = 0; i < entry.Ops.Count; i++)
+                {
+                    int opIndex = i;
+                    var op = entry.Ops[i];
+                    var row = new VisualElement();
+                    row.style.flexDirection = FlexDirection.Row;
+                    row.style.alignItems = Align.Center;
+                    row.style.paddingLeft = 12;
+                    row.style.paddingRight = 4;
+                    row.style.paddingTop = 1;
+                    row.style.paddingBottom = 1;
+
+                    var label = new Label((opIndex + 1) + ". " + op.ShortLabel() + " " + op.ScopeLabel());
+                    label.style.color = _theme.OnSurface;
+                    label.style.flexGrow = 1;
+                    label.style.fontSize = 11;
+                    label.tooltip = op.ShortLabel() + " " + op.ScopeLabel();
+                    row.Add(label);
+
+                    var delBtn = new MD3Button("✕", MD3ButtonStyle.Text);
+                    delBtn.style.width = 22;
+                    delBtn.tooltip = M("この編集を取り消す");
+                    var entryCapture = entry;
+                    delBtn.clicked += () =>
+                    {
+                        entryCapture.RemoveOpAt(opIndex);
+                        RebuildEditListUI();
+                        UpdatePreviewStatusLabel();
+                        SceneView.RepaintAll();
+                    };
+                    row.Add(delBtn);
+
+                    scroll.Add(row);
+                }
+            }
+
+            if (!any)
+            {
+                var empty = new Label(M("編集履歴はありません。"));
+                empty.style.color = _theme.OnSurfaceVariant;
+                empty.style.unityTextAlign = TextAnchor.MiddleCenter;
+                empty.style.paddingTop = 12;
+                empty.style.paddingBottom = 12;
+                scroll.Add(empty);
+            }
+
+            // Apply-all footer
+            var applyAllBtn = new MD3Button(M("すべて適用"), MD3ButtonStyle.Filled);
+            applyAllBtn.style.marginTop = 6;
+            applyAllBtn.tooltip = M("編集リストとアクティブなタブの編集内容をディスク/MA にコミットします");
+            applyAllBtn.SetEnabled(any);
+            applyAllBtn.clicked += () =>
+            {
+                ApplyAllStaged();
+                ResetAdjustmentParameters();
+                RebuildTabContent();
+            };
+            _editListContainer.Add(applyAllBtn);
         }
 
         private void RebuildRendererListUI()
@@ -426,40 +537,18 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (_suppressTabChanged) return;
             if (_editTab == idx) return;
 
+            // Freeze the current tab's draft into the active entry's op history
+            // before leaving. No dialog — staging is implicit.
+            FreezeDraftForCurrentTab();
+
             // Leaving Scene Paint → deactivate stroke session
             if (_prevEditTab == 4 && idx != 4 && ScenePaintState.IsActive)
                 ScenePaintState.Deactivate();
 
-            // Entering Scene Paint with dirty preview → dialog
-            if (_prevEditTab != 4 && idx == 4 && _session.IsActive)
-            {
-                if (_session.HasUncommittedChanges)
-                {
-                    int choice = EditorUtility.DisplayDialogComplex(
-                        M("未コミットの変更があります"),
-                        M("Scene ペイントに切替える前に、未適用の変更をどうしますか？"),
-                        M("適用"), M("キャンセル"), M("破棄"));
-                    if (choice == 1)
-                    {
-                        // Cancel: revert tab state in UI (suppress reentrant changed callback)
-                        _suppressTabChanged = true;
-                        try { for (int i = 0; i < _tabButtons.Count; i++) _tabButtons[i].Selected = (i == _prevEditTab); }
-                        finally { _suppressTabChanged = false; }
-                        return;
-                    }
-                    _session.End(autoCommit: choice == 0);
-                }
-                else
-                {
-                    _session.End(autoCommit: false);
-                }
-            }
-            // Coming back to adjustment tabs from Scene Paint → reset params only.
-            // Session starts lazily on the first edit (EnsureSessionStarted).
-            else if (_prevEditTab == 4 && idx != 4 && !_session.IsActive && _activeRenderer != null)
-            {
+            // Coming back to an adjustment tab → start with zeroed sliders so the
+            // next slider move is a fresh op (not additive to whatever was on tab 2).
+            if (idx != 4)
                 ResetAdjustmentParameters();
-            }
 
             _editTab = idx;
             _prevEditTab = idx;
@@ -467,6 +556,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             try { for (int i = 0; i < _tabButtons.Count; i++) _tabButtons[i].Selected = (i == idx); }
             finally { _suppressTabChanged = false; }
             RebuildTabContent();
+            RebuildEditListUI();
         }
 
         private void RebuildTabContent()
@@ -688,13 +778,15 @@ namespace AjisaiFlow.UnityAgent.Editor
             row.style.marginTop = 10;
             row.style.marginBottom = 4;
 
-            var applyBtn = new MD3Button(M("適用"), MD3ButtonStyle.Filled);
+            var applyBtn = new MD3Button(M("履歴に追加"), MD3ButtonStyle.Filled);
+            applyBtn.tooltip = M("現在のスライダー状態を編集リストに追加します。テクスチャはまだディスクに書き込まれません。");
             applyBtn.style.flexGrow = 1;
             applyBtn.clicked += () =>
             {
-                CommitPreviewAndBatch();
+                FreezeDraftForCurrentTab();
                 ResetAdjustmentParameters();
                 RebuildTabContent();
+                RebuildEditListUI();
                 UpdatePreviewStatusLabel();
             };
             row.Add(applyBtn);
@@ -704,7 +796,10 @@ namespace AjisaiFlow.UnityAgent.Editor
             revertBtn.style.width = 120;
             revertBtn.clicked += () =>
             {
-                _session.Revert();
+                // Discard the current tab's draft only — committed ops in the
+                // edit list are unaffected. Revert() resets preview to BaselinePixels
+                // which equals BakedOrigin + committed ops.
+                Session?.Revert();
                 ResetAdjustmentParameters();
                 RebuildTabContent();
                 UpdatePreviewStatusLabel();
@@ -717,9 +812,16 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void UpdatePreviewStatusLabel()
         {
             if (_previewStatusLabel == null) return;
-            if (_session.IsActive && _session.HasUncommittedChanges)
-                _previewStatusLabel.text = "● " + M("未コミットのプレビュー中");
-            else if (_session.IsActive)
+            var s = Session;
+            int pendingOps = 0;
+            foreach (var e in _sessionManager.AllEntries)
+                pendingOps += e.Ops.Count;
+
+            if (s != null && s.IsActive && s.HasUncommittedChanges)
+                _previewStatusLabel.text = "● " + M("編集中") + (pendingOps > 0 ? $" (+{pendingOps})" : "");
+            else if (pendingOps > 0)
+                _previewStatusLabel.text = string.Format(M("未適用 {0} 件"), pendingOps);
+            else if (s != null && s.IsActive)
                 _previewStatusLabel.text = M("セッション中");
             else
                 _previewStatusLabel.text = "";
@@ -751,19 +853,14 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             if (r == _activeRenderer) return;
 
-            if (_session.IsActive && _session.HasUncommittedChanges)
-            {
-                int choice = EditorUtility.DisplayDialogComplex(
-                    M("未コミットの変更があります"),
-                    M("現在編集中のメッシュに未適用の変更があります。どうしますか？"),
-                    M("適用"), M("キャンセル"), M("破棄"));
-                if (choice == 1) return;
-                _session.End(autoCommit: choice == 0);
-            }
-            else if (_session.IsActive)
-            {
-                _session.End(autoCommit: false);
-            }
+            // Freeze the current tab's draft into the old entry's op list,
+            // then suspend its preview so the new renderer can show its own.
+            FreezeDraftForCurrentTab();
+            var existingEntry = _sessionManager.FindEntry(r, 0);
+            if (existingEntry != null)
+                _sessionManager.SetActive(existingEntry);
+            else if (ActiveEntry != null)
+                _sessionManager.SetActive(null);
 
             _activeRenderer = r;
             _selectedIslandIndices.Clear();
@@ -786,14 +883,14 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
             }
 
-            // NOTE: do NOT start the session here. Session.Begin() is heavy
-            // (UV island detect, RGBA32 clone, _Color bake, material swap) and
-            // visibly changes the mesh appearance. Defer until the user actually
-            // edits something — see EnsureSessionStarted().
+            // Session start is still lazy — entry is created only when the user
+            // actually moves a slider (EnsureSessionStarted). This preserves the
+            // "don't swap mat.mainTexture on mere selection" behavior.
 
             ResetAdjustmentParameters();
             RebuildRendererListUI();
             RebuildTabContent();
+            RebuildEditListUI();
             UpdatePreviewStatusLabel();
             UpdateSelectionSummary();
             _uvImguiContainer?.MarkDirtyRepaint();
@@ -823,10 +920,19 @@ namespace AjisaiFlow.UnityAgent.Editor
         /// </summary>
         private bool EnsureSessionStarted()
         {
-            if (_session.IsActive) return true;
+            if (Session != null && Session.IsActive) return true;
             if (_editTab == 4) return false;
             if (_activeRenderer == null || _avatarRoot == null) return false;
-            if (!_session.Begin(_activeRenderer, _avatarRoot)) return false;
+
+            var entry = _sessionManager.GetOrCreate(_activeRenderer, _avatarRoot, 0);
+            if (entry == null) return false;
+            _sessionManager.SetActive(entry);
+
+            // If the entry already has ops (user came back to this renderer),
+            // rebuild its preview from BakedOrigin + ops before any live editing.
+            if (entry.Ops.Count > 0)
+                entry.ReplayAll();
+
             UpdatePreviewStatusLabel();
             return true;
         }
@@ -835,111 +941,177 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             if (_editTab == 4) return;
             if (!EnsureSessionStarted()) return;
-            if (_session.BaselinePixels == null) return;
+            var s = Session;
+            if (s == null || s.BaselinePixels == null) return;
 
-            var scopeRaw = GetPreviewIslandScope();
-            Color[] newPixels = null;
-            switch (_editTab)
+            var draft = BuildDraftOpFromCurrentTab();
+            if (draft == null || draft.IsNoop())
             {
-                case 0:
-                    {
-                        var targets = scopeRaw;
-                        if (targets == null || targets.Count == 0)
-                        {
-                            targets = new List<int>();
-                            if (_session.CachedIslands != null)
-                                for (int i = 0; i < _session.CachedIslands.Count; i++) targets.Add(i);
-                        }
-                        newPixels = TextureEditCore.ComputeGradient(
-                            _session.BaselinePixels, _session.Width, _session.Height,
-                            _session.CachedMesh, targets, _session.CachedIslands, _session.CachedIslandGroups,
-                            _targetColor, _targetColor, 1, false, "replace", 0f, 1f);
-                        break;
-                    }
-                case 1:
-                    {
-                        var targets = scopeRaw;
-                        if (targets == null || targets.Count == 0)
-                        {
-                            targets = new List<int>();
-                            if (_session.CachedIslands != null)
-                                for (int i = 0; i < _session.CachedIslands.Count; i++) targets.Add(i);
-                        }
-                        int axis; bool invert;
-                        switch (DirectionValues[_gradDirectionIdx])
-                        {
-                            case "top_to_bottom": axis = 1; invert = true; break;
-                            case "bottom_to_top": axis = 1; invert = false; break;
-                            case "left_to_right": axis = 0; invert = false; break;
-                            case "right_to_left": axis = 0; invert = true; break;
-                            default: axis = 1; invert = true; break;
-                        }
-                        newPixels = TextureEditCore.ComputeGradient(
-                            _session.BaselinePixels, _session.Width, _session.Height,
-                            _session.CachedMesh, targets, _session.CachedIslands, _session.CachedIslandGroups,
-                            _gradFrom, _gradTo, axis, invert, BlendModeValues[_gradBlendModeIdx], _gradStartT, _gradEndT);
-                        break;
-                    }
-                case 2:
-                    newPixels = TextureEditCore.ComputeHSV(
-                        _session.BaselinePixels, _session.Width, _session.Height,
-                        _session.CachedMesh, scopeRaw, _session.CachedIslands,
-                        _hueShift, _satScale, _valScale);
-                    break;
-                case 3:
-                    newPixels = TextureEditCore.ComputeBrightnessContrast(
-                        _session.BaselinePixels, _session.Width, _session.Height,
-                        _session.CachedMesh, scopeRaw, _session.CachedIslands,
-                        _brightness, _contrast);
-                    break;
-            }
-
-            if (newPixels != null) _session.ApplyPreview(newPixels);
-            UpdatePreviewStatusLabel();
-        }
-
-        private void CommitPreviewAndBatch()
-        {
-            if (!_session.IsActive) return;
-            if (!_session.HasUncommittedChanges) return;
-            if (!_session.Commit())
-            {
-                EditorUtility.DisplayDialog(M("エラー"), M("コミットに失敗しました。Console を確認してください。"), "OK");
+                // No meaningful draft — snap preview back to committed baseline.
+                s.Revert();
+                UpdatePreviewStatusLabel();
                 return;
             }
 
-            foreach (var r in GetTargetRenderers())
+            Color[] newPixels = MeshPaintOpApplier.Apply(
+                s.BaselinePixels, draft,
+                s.Width, s.Height,
+                s.CachedMesh, s.CachedIslands, s.CachedIslandGroups);
+
+            if (newPixels != null) s.ApplyPreview(newPixels);
+            UpdatePreviewStatusLabel();
+        }
+
+        /// <summary>
+        /// Build an operation representing the current tab's slider state.
+        /// Returns null when the tab is not an op-producing tab (e.g. Scene Paint).
+        /// </summary>
+        private MeshPaintOperation BuildDraftOpFromCurrentTab()
+        {
+            var scope = GetPreviewIslandScope();
+            switch (_editTab)
             {
-                if (r == _activeRenderer) continue;
-                string path = GetGameObjectPath(r);
-                string scope = GetSelectedIslandIndicesString();
-                switch (_editTab)
-                {
-                    case 0:
+                case 0:
+                    return new MeshPaintOperation
+                    {
+                        Type = MeshPaintOpType.Paint,
+                        IslandScope = scope,
+                        Paint = new PaintOpParams { color = _targetColor },
+                    };
+                case 1:
+                    return new MeshPaintOperation
+                    {
+                        Type = MeshPaintOpType.Gradient,
+                        IslandScope = scope,
+                        Gradient = new GradientOpParams
                         {
-                            string hex = ColorToHex(_targetColor);
-                            TextureEditTools.ApplyGradientEx(path, hex, hex, "top_to_bottom", "replace", scope, 0f, 1f);
-                            break;
-                        }
-                    case 1:
+                            fromColor = _gradFrom,
+                            toColor = _gradTo,
+                            directionIndex = _gradDirectionIdx,
+                            blendModeIndex = _gradBlendModeIdx,
+                            startT = _gradStartT,
+                            endT = _gradEndT,
+                        },
+                    };
+                case 2:
+                    return new MeshPaintOperation
+                    {
+                        Type = MeshPaintOpType.HSV,
+                        IslandScope = scope,
+                        HSV = new HSVOpParams
                         {
-                            string from = ColorToHex(_gradFrom);
-                            string to = ColorToHex(_gradTo);
-                            TextureEditTools.ApplyGradientEx(path, from, to,
-                                DirectionValues[_gradDirectionIdx], BlendModeValues[_gradBlendModeIdx],
-                                scope, _gradStartT, _gradEndT);
-                            break;
-                        }
-                    case 2:
-                        TextureEditTools.AdjustHSV(path, _hueShift, _satScale, _valScale, scope);
-                        break;
-                    case 3:
-                        TextureEditTools.AdjustBrightnessContrast(path, _brightness, _contrast, scope);
-                        break;
-                }
+                            hueShift = _hueShift,
+                            satScale = _satScale,
+                            valScale = _valScale,
+                        },
+                    };
+                case 3:
+                    return new MeshPaintOperation
+                    {
+                        Type = MeshPaintOpType.BrightnessContrast,
+                        IslandScope = scope,
+                        BC = new BCOpParams
+                        {
+                            brightness = _brightness,
+                            contrast = _contrast,
+                        },
+                    };
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// If the current tab has a non-trivial draft (sliders moved), freeze it
+        /// into the active entry's Ops list. The same op is also cloned into every
+        /// checked renderer's entry so that batch edits across meshes stay in sync.
+        /// </summary>
+        private void FreezeDraftForCurrentTab()
+        {
+            var activeEntry = ActiveEntry;
+            if (activeEntry == null || !activeEntry.IsStarted) return;
+            if (_editTab == 4) return;
+            var s = activeEntry.Session;
+            if (s == null || !s.HasUncommittedChanges) return;
+
+            var draft = BuildDraftOpFromCurrentTab();
+            if (draft == null || draft.IsNoop()) return;
+
+            activeEntry.AddOp(draft);
+
+            // Propagate to every checked renderer except the active one.
+            foreach (var other in GetTargetRenderers())
+            {
+                if (other == null || other == _activeRenderer) continue;
+                var otherEntry = _sessionManager.GetOrCreate(other, _avatarRoot, 0);
+                if (otherEntry == null) continue;
+                if (otherEntry == activeEntry) continue;
+                otherEntry.AddOp(draft.Clone());
             }
 
+            RebuildEditListUI();
+            UpdatePreviewStatusLabel();
+        }
+
+        /// <summary>
+        /// Commit every entry that has staged ops. Destructive path writes PNGs
+        /// and repoints <c>mat.mainTexture</c>; MA path creates MaterialSetter
+        /// components instead (see <see cref="MeshPaintMACommitter"/>).
+        /// </summary>
+        private void ApplyAllStaged()
+        {
+            // Flush any unfinished tab draft first.
+            FreezeDraftForCurrentTab();
+
+            var entriesWithOps = new List<MeshPaintSessionEntry>();
+            foreach (var e in _sessionManager.AllEntries)
+                if (e.Ops.Count > 0) entriesWithOps.Add(e);
+
+            if (entriesWithOps.Count == 0) return;
+
+            bool anyFailed = false;
+            int committed = 0;
+            foreach (var entry in entriesWithOps)
+            {
+                bool ok;
+                if (_useMANonDestructive)
+                    ok = MeshPaintMACommitter.Apply(entry, _avatarRoot);
+                else
+                    ok = CommitEntryDestructive(entry);
+
+                if (!ok) { anyFailed = true; continue; }
+                entry.Ops.Clear();
+                committed++;
+            }
+
+            if (anyFailed)
+                EditorUtility.DisplayDialog(M("エラー"),
+                    M("一部のメッシュでコミットに失敗しました。Console を確認してください。"), "OK");
+
+            RebuildEditListUI();
+            UpdatePreviewStatusLabel();
             SceneView.RepaintAll();
+        }
+
+        /// <summary>
+        /// Destructive commit of a single entry: the preview texture (already
+        /// reflecting BakedOrigin + all ops) is written to disk and assigned
+        /// back to the material. Reuses <see cref="MeshPaintPreviewSession.Commit"/>
+        /// which also moves BakedOrigin forward.
+        /// </summary>
+        private bool CommitEntryDestructive(MeshPaintSessionEntry entry)
+        {
+            if (entry == null) return false;
+            var s = entry.Session;
+            if (s == null || !s.IsActive) return false;
+
+            // Session.Commit() only flushes when HasUncommittedChanges is true.
+            // After ReplayAll the flag may be clear even though Ops > 0, so mark
+            // the preview as dirty by forcing a tiny re-apply.
+            if (!s.HasUncommittedChanges && entry.Ops.Count > 0)
+                s.ApplyPreview(s.BaselinePixels);
+
+            return s.Commit();
         }
 
         private List<Renderer> GetTargetRenderers()
@@ -949,22 +1121,6 @@ namespace AjisaiFlow.UnityAgent.Editor
                 if (d.isChecked && d.renderer != null) targets.Add(d.renderer);
             if (targets.Count == 0 && _activeRenderer != null) targets.Add(_activeRenderer);
             return targets;
-        }
-
-        private string GetSelectedIslandIndicesString()
-        {
-            if (_selectedIslandIndices.Count == 0) return "";
-            var sorted = new List<int>(_selectedIslandIndices); sorted.Sort();
-            return string.Join(";", sorted);
-        }
-
-        private static string ColorToHex(Color c)
-        {
-            int r = Mathf.RoundToInt(Mathf.Clamp01(c.r) * 255);
-            int g = Mathf.RoundToInt(Mathf.Clamp01(c.g) * 255);
-            int b = Mathf.RoundToInt(Mathf.Clamp01(c.b) * 255);
-            int a = Mathf.RoundToInt(Mathf.Clamp01(c.a) * 255);
-            return a < 255 ? $"#{r:X2}{g:X2}{b:X2}{a:X2}" : $"#{r:X2}{g:X2}{b:X2}";
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -1402,14 +1558,5 @@ namespace AjisaiFlow.UnityAgent.Editor
             return s > 0 && t > 0 && (s + t) <= area;
         }
 
-        private string GetGameObjectPath(Renderer renderer = null)
-        {
-            var r = renderer != null ? renderer : _activeRenderer;
-            if (r == null) return "";
-            Transform t = r.transform;
-            string path = t.name;
-            while (t.parent != null) { t = t.parent; path = t.name + "/" + path; }
-            return path;
-        }
     }
 }
