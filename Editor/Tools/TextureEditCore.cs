@@ -102,8 +102,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                             float t = Mathf.Clamp01((axisVal - minVal) * invRange);
                             if (invert) t = 1f - t;
 
-                            if (t < startT || t > endT) continue;
-                            float remappedT = (t - startT) * invEndMinusStart;
+                            float remappedT = Mathf.Clamp01((t - startT) * invEndMinusStart);
 
                             Color gradColor = Color.Lerp(fromColor, toColor, remappedT);
                             float strength = gradColor.a;
