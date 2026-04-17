@@ -537,10 +537,6 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (_suppressTabChanged) return;
             if (_editTab == idx) return;
 
-            // Freeze the current tab's draft into the active entry's op history
-            // before leaving. No dialog — staging is implicit.
-            FreezeDraftForCurrentTab();
-
             // Leaving Scene Paint → deactivate stroke session
             if (_prevEditTab == 4 && idx != 4 && ScenePaintState.IsActive)
                 ScenePaintState.Deactivate();
@@ -577,7 +573,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void BuildPaintTab()
         {
             var card = new MD3Card(M("単色ペイント"), null, MD3CardStyle.Filled);
-            card.Add(BuildColorFieldRow(M("ペイント色"), _targetColor, c => { _targetColor = c; RecomputePreviewForCurrentTab(); }));
+            card.Add(BuildColorFieldRow(M("ペイント色"), _targetColor, c => { _targetColor = c; }));
             card.Add(BuildLivePreviewButtons());
             _tabContentHost.Add(card);
         }
@@ -587,28 +583,26 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             var card = new MD3Card(M("グラデーション"), null, MD3CardStyle.Filled);
 
-            card.Add(BuildColorFieldRow(M("開始色 (From)"), _gradFrom, c => { _gradFrom = c; RecomputePreviewForCurrentTab(); }));
-            card.Add(BuildColorFieldRow(M("終了色 (To)"), _gradTo, c => { _gradTo = c; RecomputePreviewForCurrentTab(); }));
+            card.Add(BuildColorFieldRow(M("開始色 (From)"), _gradFrom, c => { _gradFrom = c; }));
+            card.Add(BuildColorFieldRow(M("終了色 (To)"), _gradTo, c => { _gradTo = c; }));
 
             var dirDropdown = new MD3Dropdown(M("方向"),
                 new[] { M("上→下"), M("下→上"), M("左→右"), M("右→左") }, _gradDirectionIdx,
-                i => { _gradDirectionIdx = i; RecomputePreviewForCurrentTab(); });
+                i => { _gradDirectionIdx = i; });
             card.Add(dirDropdown);
 
             var blendDropdown = new MD3Dropdown(M("ブレンドモード"),
                 new[] { M("スクリーン"), M("オーバーレイ"), M("ティント"), M("乗算"), M("置換") }, _gradBlendModeIdx,
-                i => { _gradBlendModeIdx = i; RecomputePreviewForCurrentTab(); });
+                i => { _gradBlendModeIdx = i; });
             card.Add(blendDropdown);
 
             card.Add(BuildSliderRow(M("範囲 開始"), _gradStartT, 0f, 1f, v =>
             {
                 _gradStartT = Mathf.Min(v, _gradEndT - 0.01f);
-                RecomputePreviewForCurrentTab();
             }));
             card.Add(BuildSliderRow(M("範囲 終了"), _gradEndT, 0f, 1f, v =>
             {
                 _gradEndT = Mathf.Max(v, _gradStartT + 0.01f);
-                RecomputePreviewForCurrentTab();
             }));
 
             card.Add(BuildLivePreviewButtons());
@@ -619,12 +613,12 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void BuildHSVTab()
         {
             var card = new MD3Card(M("HSV 調整"), null, MD3CardStyle.Filled);
-            card.Add(BuildSliderRow(M("色相シフト (Hue)"), _hueShift, -180f, 180f, v => { _hueShift = v; RecomputePreviewForCurrentTab(); }));
-            card.Add(BuildSliderRow(M("彩度 (Saturation)"), _satScale, 0f, 3f, v => { _satScale = v; RecomputePreviewForCurrentTab(); }));
-            card.Add(BuildSliderRow(M("明度 (Value)"), _valScale, 0f, 3f, v => { _valScale = v; RecomputePreviewForCurrentTab(); }));
+            card.Add(BuildSliderRow(M("色相シフト (Hue)"), _hueShift, -180f, 180f, v => { _hueShift = v; }));
+            card.Add(BuildSliderRow(M("彩度 (Saturation)"), _satScale, 0f, 3f, v => { _satScale = v; }));
+            card.Add(BuildSliderRow(M("明度 (Value)"), _valScale, 0f, 3f, v => { _valScale = v; }));
 
             var resetBtn = new MD3Button(M("リセット"), MD3ButtonStyle.Text, size: MD3ButtonSize.Small);
-            resetBtn.clicked += () => { _hueShift = 0f; _satScale = 1f; _valScale = 1f; RebuildTabContent(); RecomputePreviewForCurrentTab(); };
+            resetBtn.clicked += () => { _hueShift = 0f; _satScale = 1f; _valScale = 1f; RebuildTabContent(); };
             card.Add(resetBtn);
 
             card.Add(BuildLivePreviewButtons());
@@ -635,11 +629,11 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void BuildBrightnessContrastTab()
         {
             var card = new MD3Card(M("明るさ / コントラスト"), null, MD3CardStyle.Filled);
-            card.Add(BuildSliderRow(M("明るさ"), _brightness, -1f, 1f, v => { _brightness = v; RecomputePreviewForCurrentTab(); }));
-            card.Add(BuildSliderRow(M("コントラスト"), _contrast, -1f, 1f, v => { _contrast = v; RecomputePreviewForCurrentTab(); }));
+            card.Add(BuildSliderRow(M("明るさ"), _brightness, -1f, 1f, v => { _brightness = v; }));
+            card.Add(BuildSliderRow(M("コントラスト"), _contrast, -1f, 1f, v => { _contrast = v; }));
 
             var resetBtn = new MD3Button(M("リセット"), MD3ButtonStyle.Text, size: MD3ButtonSize.Small);
-            resetBtn.clicked += () => { _brightness = 0f; _contrast = 0f; RebuildTabContent(); RecomputePreviewForCurrentTab(); };
+            resetBtn.clicked += () => { _brightness = 0f; _contrast = 0f; RebuildTabContent(); };
             card.Add(resetBtn);
 
             card.Add(BuildLivePreviewButtons());
@@ -778,8 +772,8 @@ namespace AjisaiFlow.UnityAgent.Editor
             row.style.marginTop = 10;
             row.style.marginBottom = 4;
 
-            var applyBtn = new MD3Button(M("履歴に追加"), MD3ButtonStyle.Filled);
-            applyBtn.tooltip = M("現在のスライダー状態を編集リストに追加します。テクスチャはまだディスクに書き込まれません。");
+            var applyBtn = new MD3Button(M("適用"), MD3ButtonStyle.Filled);
+            applyBtn.tooltip = M("現在のタブ設定を編集リストに追加し、プレビューに反映します。テクスチャはまだディスクに書き込まれません。");
             applyBtn.style.flexGrow = 1;
             applyBtn.clicked += () =>
             {
@@ -791,15 +785,12 @@ namespace AjisaiFlow.UnityAgent.Editor
             };
             row.Add(applyBtn);
 
-            var revertBtn = new MD3Button(M("元に戻す"), MD3ButtonStyle.Outlined);
+            var revertBtn = new MD3Button(M("スライダー初期化"), MD3ButtonStyle.Outlined);
             revertBtn.style.marginLeft = 6;
-            revertBtn.style.width = 120;
+            revertBtn.style.width = 140;
+            revertBtn.tooltip = M("現在のタブのスライダーを初期値に戻します。編集リストの内容には影響しません。");
             revertBtn.clicked += () =>
             {
-                // Discard the current tab's draft only — committed ops in the
-                // edit list are unaffected. Revert() resets preview to BaselinePixels
-                // which equals BakedOrigin + committed ops.
-                Session?.Revert();
                 ResetAdjustmentParameters();
                 RebuildTabContent();
                 UpdatePreviewStatusLabel();
@@ -853,9 +844,9 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             if (r == _activeRenderer) return;
 
-            // Freeze the current tab's draft into the old entry's op list,
-            // then suspend its preview so the new renderer can show its own.
-            FreezeDraftForCurrentTab();
+            // Suspend the old entry's preview (if any) so the new renderer can
+            // show its own. Unapplied slider values stay local to the UI — they
+            // only become an op when the user presses "適用".
             var existingEntry = _sessionManager.FindEntry(r, 0);
             if (existingEntry != null)
                 _sessionManager.SetActive(existingEntry);
@@ -937,31 +928,6 @@ namespace AjisaiFlow.UnityAgent.Editor
             return true;
         }
 
-        private void RecomputePreviewForCurrentTab()
-        {
-            if (_editTab == 4) return;
-            if (!EnsureSessionStarted()) return;
-            var s = Session;
-            if (s == null || s.BaselinePixels == null) return;
-
-            var draft = BuildDraftOpFromCurrentTab();
-            if (draft == null || draft.IsNoop())
-            {
-                // No meaningful draft — snap preview back to committed baseline.
-                s.Revert();
-                UpdatePreviewStatusLabel();
-                return;
-            }
-
-            Color[] newPixels = MeshPaintOpApplier.Apply(
-                s.BaselinePixels, draft,
-                s.Width, s.Height,
-                s.CachedMesh, s.CachedIslands, s.CachedIslandGroups);
-
-            if (newPixels != null) s.ApplyPreview(newPixels);
-            UpdatePreviewStatusLabel();
-        }
-
         /// <summary>
         /// Build an operation representing the current tab's slider state.
         /// Returns null when the tab is not an op-producing tab (e.g. Scene Paint).
@@ -1022,20 +988,23 @@ namespace AjisaiFlow.UnityAgent.Editor
         }
 
         /// <summary>
-        /// If the current tab has a non-trivial draft (sliders moved), freeze it
-        /// into the active entry's Ops list. The same op is also cloned into every
-        /// checked renderer's entry so that batch edits across meshes stay in sync.
+        /// Build an op from the current tab's sliders and push it onto the active
+        /// entry's history. Because live preview is disabled, this is the only path
+        /// that turns tab adjustments into actual texture changes. The op is also
+        /// cloned into every checked renderer's entry so batch edits stay in sync.
         /// </summary>
         private void FreezeDraftForCurrentTab()
         {
-            var activeEntry = ActiveEntry;
-            if (activeEntry == null || !activeEntry.IsStarted) return;
             if (_editTab == 4) return;
-            var s = activeEntry.Session;
-            if (s == null || !s.HasUncommittedChanges) return;
 
             var draft = BuildDraftOpFromCurrentTab();
             if (draft == null || draft.IsNoop()) return;
+
+            // Lazy-start the session on first apply so nothing touches the
+            // material until the user actually commits an edit.
+            if (!EnsureSessionStarted()) return;
+            var activeEntry = ActiveEntry;
+            if (activeEntry == null) return;
 
             activeEntry.AddOp(draft);
 
@@ -1060,9 +1029,6 @@ namespace AjisaiFlow.UnityAgent.Editor
         /// </summary>
         private void ApplyAllStaged()
         {
-            // Flush any unfinished tab draft first.
-            FreezeDraftForCurrentTab();
-
             var entriesWithOps = new List<MeshPaintSessionEntry>();
             foreach (var e in _sessionManager.AllEntries)
                 if (e.Ops.Count > 0) entriesWithOps.Add(e);
@@ -1285,7 +1251,6 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _selectedIslandIndices.Clear();
                 if (hitIsland >= 0) _selectedIslandIndices.Add(hitIsland);
             }
-            RecomputePreviewForCurrentTab();
             UpdateSelectionSummary();
         }
 
@@ -1424,7 +1389,6 @@ namespace AjisaiFlow.UnityAgent.Editor
                 {
                     // Click on empty space → deselect all
                     _selectedIslandIndices.Clear();
-                    RecomputePreviewForCurrentTab();
                     UpdateSelectionSummary();
                     _uvImguiContainer?.MarkDirtyRepaint();
                     e.Use();
