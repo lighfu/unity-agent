@@ -1529,12 +1529,22 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             if (r is SkinnedMeshRenderer smr)
             {
+                // IMPORTANT: SkinnedMeshRenderer.BakeMesh(mesh) returns vertices in a
+                // space that *already includes* the SMR transform's scale — despite
+                // the Unity docs claiming "local scale excluded". Applying the full
+                // localToWorldMatrix (which also multiplies by scale) would scale
+                // twice, shoving the mesh away from where it actually renders. For
+                // avatars with non-identity SMR scale (e.g. raw Blender FBX exports
+                // with 270° X rotation + ~1.37 scale), this made scene-click rays
+                // miss foreground meshes and hit background ones instead.
+                // Apply only position + rotation to match the rendered geometry.
                 var baked = new Mesh();
                 smr.BakeMesh(baked);
                 var locals = baked.vertices;
                 var world = new Vector3[locals.Length];
-                var ltw = r.transform.localToWorldMatrix;
-                for (int i = 0; i < locals.Length; i++) world[i] = ltw.MultiplyPoint3x4(locals[i]);
+                var pos = smr.transform.position;
+                var rot = smr.transform.rotation;
+                for (int i = 0; i < locals.Length; i++) world[i] = pos + rot * locals[i];
                 Object.DestroyImmediate(baked);
                 return world;
             }
