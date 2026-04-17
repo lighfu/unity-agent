@@ -26,26 +26,38 @@ namespace AjisaiFlow.UnityAgent.Editor
         // ── UI state ────────────────────────────────────────────────
         private MD3Theme _theme;
         private MD3VirtualList<MochiFitterProfileEntry> _virtualList;
-        private ScrollView _gridScroll;
-        private VisualElement _gridContainer;
+        private MD3VirtualList<int> _gridVirtualList; // virtualizes rows of cards
+        private Label _gridEmptyPlaceholder;
+        private int _gridCardsPerRow = 1;
         private VisualElement _listHost;   // parent of _virtualList
-        private VisualElement _gridHost;   // parent of _gridScroll
+        private VisualElement _gridHost;   // parent of _gridVirtualList
         private ScrollView _detailScroll;
         private Label _statusLabel;
         private MD3TextField _searchField;
         private int _filterConvIdx;     // 0=All, 1=both, 2=forward, 3=reverse, 4=unknown
         private int _filterPriceIdx;    // 0=All, 1=free, 2=paid
+        private int _filterTypeIdx;     // 0=All, 1=profile, 2=avatar_native
         private int _selectedIndex = -1;
         private MochiFitterProfileEntry _selectedEntry;
         private bool _isGridMode = true; // default: grid
 
         private static readonly string[] ConvFilterValues = { "", "both", "forward", "reverse", "unknown" };
+        private static readonly string[] TypeFilterValues = { "", MochiFitterEntryType.Profile, MochiFitterEntryType.AvatarNative };
         private const float GridCardWidth = 140f;
-        private const float GridCardHeight = 180f;
+        private const float GridCardHeight = 180f;         // thumbnail (140 square) + info area (~40)
         private const float GridGap = 8f;
+        private const float GridRowHeight = GridCardHeight + GridGap;
 
         // ── Thumbnail ───────────────────────────────────────────────
+        // Memory cache with LRU eviction. Textures are Texture2D objects that
+        // leak GPU memory if not DestroyImmediate'd — the LRU layer enforces
+        // the upper bound to keep the cache bounded across long sessions
+        // (especially as the catalog grows toward ~1000 entries).
+        private const int MaxThumbCacheEntries = 120;
         private static readonly Dictionary<string, Texture2D> _thumbCache = new Dictionary<string, Texture2D>();
+        private static readonly LinkedList<string> _thumbLru = new LinkedList<string>();
+        private static readonly Dictionary<string, LinkedListNode<string>> _thumbLruNodes =
+            new Dictionary<string, LinkedListNode<string>>();
         private static readonly HashSet<string> _thumbLoading = new HashSet<string>();
         private static readonly HashSet<string> _thumbFailed = new HashSet<string>();
         private const int MaxConcurrentThumbLoads = 4;
@@ -172,6 +184,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             priceSeg.changed += idx => { _filterPriceIdx = idx; ApplyFilter(); RefreshView(); };
             filterRow.Add(priceSeg);
 
+            var typeLabels = new[] { M("全区分"), M("プロファイル"), M("対応アバター") };
+            var typeSeg = new MD3SegmentedButton(typeLabels, 0);
+            typeSeg.changed += idx => { _filterTypeIdx = idx; ApplyFilter(); RefreshView(); };
+            filterRow.Add(typeSeg);
+
             // View mode toggle (grid / list)
             var viewLabels = new[] { M("グリッド"), M("リスト") };
             var viewSeg = new MD3SegmentedButton(viewLabels, _isGridMode ? 0 : 1);
@@ -204,26 +221,29 @@ namespace AjisaiFlow.UnityAgent.Editor
             main.Add(_listHost);
 
             // Left: grid view host
+            // Row-based virtualization: each virtual item is a row of _gridCardsPerRow cards.
+            // Only visible rows (+ overscan) are realized, so catalog size doesn't bloat the UI tree.
             _gridHost = new VisualElement();
             _gridHost.style.flexGrow = 1;
             _gridHost.style.minWidth = 340;
             _gridHost.style.display = _isGridMode ? DisplayStyle.Flex : DisplayStyle.None;
 
-            _gridScroll = new ScrollView(ScrollViewMode.Vertical);
-            _gridScroll.style.flexGrow = 1;
+            _gridVirtualList = new MD3VirtualList<int>(itemHeight: GridRowHeight, overscan: 2);
+            _gridVirtualList.style.flexGrow = 1;
+            _gridVirtualList.RegisterCallback<GeometryChangedEvent>(_ => RecomputeGridCardsPerRow());
+            _gridHost.Add(_gridVirtualList);
 
-            _gridContainer = new VisualElement();
-            _gridContainer.style.flexDirection = FlexDirection.Row;
-            _gridContainer.style.flexWrap = Wrap.Wrap;
-            _gridContainer.style.paddingLeft = GridGap;
-            _gridContainer.style.paddingRight = 0;
-            _gridContainer.style.paddingTop = GridGap;
-            _gridScroll.Add(_gridContainer);
+            _gridEmptyPlaceholder = new Label(M("該当するプロファイルがありません"));
+            _gridEmptyPlaceholder.style.color = _theme.OnSurfaceVariant;
+            _gridEmptyPlaceholder.style.unityTextAlign = TextAnchor.MiddleCenter;
+            _gridEmptyPlaceholder.style.marginTop = 40;
+            _gridEmptyPlaceholder.style.display = DisplayStyle.None;
+            _gridHost.Add(_gridEmptyPlaceholder);
 
-            _gridHost.Add(_gridScroll);
             main.Add(_gridHost);
 
-            if (_isGridMode) RebuildGrid();
+            if (_isGridMode)
+                rootVisualElement.schedule.Execute(RefreshGridData).ExecuteLater(1);
 
             // Vertical divider
             var vdivider = new VisualElement();
@@ -368,7 +388,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             // Conv badge
             var convBadge = el.Q<Label>("conv");
-            SetConvBadge(convBadge, p.convType);
+            SetConvBadge(convBadge, p);
 
             // Thumbnail
             var thumb = el.Q("thumb");
@@ -392,9 +412,20 @@ namespace AjisaiFlow.UnityAgent.Editor
             el.style.backgroundColor = isSelected ? _theme.SecondaryContainer : StyleKeyword.None;
         }
 
-        private void SetConvBadge(Label badge, string convType)
+        private void SetConvBadge(Label badge, MochiFitterProfileEntry p)
         {
-            switch (convType)
+            // Avatar-native entries (BOOTH avatar products declaring MochiFitter compatibility)
+            // do not expose a conversion direction on the listing page — show a distinct badge
+            // so users can tell them apart from profile-converter products at a glance.
+            if (MochiFitterEntryType.Normalize(p?.type) == MochiFitterEntryType.AvatarNative)
+            {
+                badge.text = M("本体");
+                badge.style.color = _theme.OnSecondaryContainer;
+                badge.style.backgroundColor = _theme.SecondaryContainer;
+                return;
+            }
+
+            switch (p?.convType)
             {
                 case "both":
                     badge.text = M("両");
@@ -480,6 +511,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             // Info fields
             AddDetailField(M("ショップ"), p.shop);
             AddDetailField(M("価格"), p.price);
+            AddDetailField(M("区分"), GetTypeDisplayName(p.type));
             AddDetailField(M("変換タイプ"), GetConvDisplayName(p.convType));
             AddDetailField("BOOTH ID", p.boothId);
 
@@ -536,6 +568,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                 ? _searchField.Value.ToLower() : null;
             string convFilter = _filterConvIdx > 0 && _filterConvIdx < ConvFilterValues.Length
                 ? ConvFilterValues[_filterConvIdx] : null;
+            string typeFilter = _filterTypeIdx > 0 && _filterTypeIdx < TypeFilterValues.Length
+                ? TypeFilterValues[_filterTypeIdx] : null;
 
             _filtered = _catalog.profiles.Where(p =>
             {
@@ -543,6 +577,9 @@ namespace AjisaiFlow.UnityAgent.Editor
 
                 if (_filterPriceIdx == 1 && !IsFree(p.price)) return false;
                 if (_filterPriceIdx == 2 && IsFree(p.price)) return false;
+
+                if (typeFilter != null && MochiFitterEntryType.Normalize(p.type) != typeFilter)
+                    return false;
 
                 if (kw != null)
                 {
@@ -564,7 +601,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void RefreshView()
         {
             if (_isGridMode)
-                RebuildGrid();
+                RefreshGridData();
             else
                 _virtualList?.SetData(_filtered, BindListItem, MakeListItem);
             UpdateStatus();
@@ -575,43 +612,79 @@ namespace AjisaiFlow.UnityAgent.Editor
             _listHost.style.display = _isGridMode ? DisplayStyle.None : DisplayStyle.Flex;
             _gridHost.style.display = _isGridMode ? DisplayStyle.Flex : DisplayStyle.None;
             RefreshView();
+            // Cards-per-row depends on the host's resolved width, which is only
+            // available after the next layout pass.
+            if (_isGridMode)
+                rootVisualElement.schedule.Execute(RecomputeGridCardsPerRow).ExecuteLater(1);
         }
 
-        // ── Grid View ───────────────────────────────────────────────
-        private void RebuildGrid()
+        // ── Grid View (virtualized by row) ──────────────────────────
+        private void RecomputeGridCardsPerRow()
         {
-            if (_gridContainer == null) return;
-            _gridContainer.Clear();
+            if (_gridVirtualList == null || !_isGridMode) return;
+            float w = _gridVirtualList.resolvedStyle.width;
+            if (float.IsNaN(w) || w <= 0) return;
+            // Reserve space for vertical scrollbar (~14px) + horizontal gap on both sides.
+            float available = w - 14f - GridGap * 2f;
+            int n = Mathf.Max(1, Mathf.FloorToInt((available + GridGap) / (GridCardWidth + GridGap)));
+            if (n == _gridCardsPerRow) return;
+            _gridCardsPerRow = n;
+            RefreshGridData();
+        }
 
-            if (_filtered == null || _filtered.Count == 0)
+        private void RefreshGridData()
+        {
+            if (_gridVirtualList == null) return;
+
+            bool empty = _filtered == null || _filtered.Count == 0;
+            _gridEmptyPlaceholder.style.display = empty ? DisplayStyle.Flex : DisplayStyle.None;
+            _gridVirtualList.style.display = empty ? DisplayStyle.None : DisplayStyle.Flex;
+            if (empty)
             {
-                var placeholder = new Label(M("該当するプロファイルがありません"));
-                placeholder.style.color = _theme.OnSurfaceVariant;
-                placeholder.style.unityTextAlign = TextAnchor.MiddleCenter;
-                placeholder.style.width = Length.Percent(100);
-                placeholder.style.marginTop = 40;
-                _gridContainer.Add(placeholder);
+                _gridVirtualList.SetData(new List<int>(), BindGridRow, MakeGridRow);
                 return;
             }
 
-            for (int i = 0; i < _filtered.Count; i++)
+            int rowCount = (_filtered.Count + _gridCardsPerRow - 1) / _gridCardsPerRow;
+            var rows = new List<int>(rowCount);
+            for (int i = 0; i < rowCount; i++) rows.Add(i);
+            _gridVirtualList.SetData(rows, BindGridRow, MakeGridRow);
+        }
+
+        private VisualElement MakeGridRow()
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.paddingLeft = GridGap;
+            row.style.paddingRight = GridGap;
+            row.style.paddingTop = GridGap;
+            row.style.height = GridRowHeight;
+            row.style.flexShrink = 0;
+            return row;
+        }
+
+        private void BindGridRow(int rowIdx, VisualElement row, int _)
+        {
+            row.Clear();
+            if (_filtered == null) return;
+            int start = rowIdx * _gridCardsPerRow;
+            int end = Mathf.Min(start + _gridCardsPerRow, _filtered.Count);
+            for (int i = start; i < end; i++)
             {
                 var entry = _filtered[i];
-                var idx = i;
-                var card = MakeGridCard(entry, idx);
-                _gridContainer.Add(card);
+                row.Add(MakeGridCard(entry, i));
             }
         }
 
         private VisualElement MakeGridCard(MochiFitterProfileEntry p, int index)
         {
+            // Fixed size: row virtualization requires uniform height, and fixed width keeps
+            // cards-per-row math deterministic. No flexGrow/flexBasis here.
             var card = new VisualElement();
-            card.style.minWidth = GridCardWidth;
-            card.style.maxWidth = GridCardWidth * 1.6f;
-            card.style.flexGrow = 1;
-            card.style.flexBasis = GridCardWidth;
+            card.style.width = GridCardWidth;
+            card.style.height = GridCardHeight;
             card.style.marginRight = GridGap;
-            card.style.marginBottom = GridGap;
+            card.style.flexShrink = 0;
             card.style.borderTopLeftRadius = 10;
             card.style.borderTopRightRadius = 10;
             card.style.borderBottomLeftRadius = 10;
@@ -691,7 +764,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             convLabel.style.borderTopRightRadius = 8;
             convLabel.style.borderBottomLeftRadius = 8;
             convLabel.style.borderBottomRightRadius = 8;
-            SetConvBadge(convLabel, p.convType);
+            SetConvBadge(convLabel, p);
             badgeRow.Add(convLabel);
 
             info.Add(badgeRow);
@@ -726,8 +799,12 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             if (string.IsNullOrEmpty(boothId)) return null;
 
-            // Memory cache
-            if (_thumbCache.TryGetValue(boothId, out var cached)) return cached;
+            // Memory cache — bump LRU on access.
+            if (_thumbCache.TryGetValue(boothId, out var cached))
+            {
+                TouchThumbnail(boothId);
+                return cached;
+            }
 
             // Disk cache
             string diskPath = Path.Combine(ThumbCacheDir, boothId + ".png");
@@ -738,13 +815,47 @@ namespace AjisaiFlow.UnityAgent.Editor
                     var tex = new Texture2D(2, 2);
                     tex.LoadImage(File.ReadAllBytes(diskPath));
                     tex.hideFlags = HideFlags.HideAndDontSave;
-                    _thumbCache[boothId] = tex;
+                    PutThumbnail(boothId, tex);
                     return tex;
                 }
                 catch { }
             }
 
             return null;
+        }
+
+        private static void PutThumbnail(string boothId, Texture2D tex)
+        {
+            if (string.IsNullOrEmpty(boothId) || tex == null) return;
+            if (_thumbLruNodes.TryGetValue(boothId, out var existing))
+                _thumbLru.Remove(existing);
+            _thumbCache[boothId] = tex;
+            _thumbLruNodes[boothId] = _thumbLru.AddFirst(boothId);
+            while (_thumbCache.Count > MaxThumbCacheEntries)
+                EvictOldestThumbnail();
+        }
+
+        private static void TouchThumbnail(string boothId)
+        {
+            if (_thumbLruNodes.TryGetValue(boothId, out var node))
+            {
+                _thumbLru.Remove(node);
+                _thumbLru.AddFirst(node);
+            }
+        }
+
+        private static void EvictOldestThumbnail()
+        {
+            var node = _thumbLru.Last;
+            if (node == null) return;
+            string id = node.Value;
+            _thumbLru.RemoveLast();
+            _thumbLruNodes.Remove(id);
+            if (_thumbCache.TryGetValue(id, out var tex))
+            {
+                _thumbCache.Remove(id);
+                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
+            }
         }
 
         /// <summary>
@@ -830,7 +941,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 {
                     var tex = DownloadHandlerTexture.GetContent(request);
                     tex.hideFlags = HideFlags.HideAndDontSave;
-                    _thumbCache[boothId] = tex;
+                    PutThumbnail(boothId, tex);
 
                     try
                     {
@@ -959,6 +1070,13 @@ namespace AjisaiFlow.UnityAgent.Editor
             return price == "無料" || price == "¥0" || price == "0" || price.Contains("無料");
         }
 
+        private static string GetTypeDisplayName(string type)
+        {
+            return MochiFitterEntryType.Normalize(type) == MochiFitterEntryType.AvatarNative
+                ? M("対応アバター（本体）")
+                : M("変換プロファイル");
+        }
+
         private static string GetConvDisplayName(string convType)
         {
             switch (convType)
@@ -1071,6 +1189,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                 sb.Append($"    {{\"avatar\": \"{Esc(p.avatar)}\", \"price\": \"{Esc(p.price)}\", \"convType\": \"{Esc(p.convType)}\", \"shop\": \"{Esc(p.shop)}\", \"boothId\": \"{Esc(p.boothId)}\"");
                 if (!string.IsNullOrEmpty(p.thumbnailUrl))
                     sb.Append($", \"thumbnailUrl\": \"{Esc(p.thumbnailUrl)}\"");
+                if (!string.IsNullOrEmpty(p.type) && p.type != MochiFitterEntryType.Profile)
+                    sb.Append($", \"type\": \"{Esc(p.type)}\"");
                 sb.Append("}");
                 sb.AppendLine(i < catalog.profiles.Count - 1 ? "," : "");
             }

@@ -10,17 +10,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class MochiFitterCatalogTools
     {
-        [AgentTool("List MochiFitter avatar profiles from the catalog. Optional filters: keyword (searches avatar/shop name), convType ('forward','reverse','both'), priceFilter ('free','paid'). Returns BOOTH links for each profile.")]
+        [AgentTool("List MochiFitter catalog entries. Optional filters: keyword (avatar/shop name), convType ('forward','reverse','both'), priceFilter ('free','paid'), entryType ('profile' = MochiFitter conversion profile products; 'avatar_native' = BOOTH avatars whose own product page declares MochiFitter compatibility). Returns BOOTH links.")]
         public static string ListMochiFitterCatalog(
             string keyword = "",
             string convType = "",
-            string priceFilter = "")
+            string priceFilter = "",
+            string entryType = "")
         {
             var catalog = MochiFitterCatalogWindow.LoadCatalogStatic();
             if (catalog == null || catalog.profiles.Count == 0)
                 return "Error: MochiFitter catalog is empty or not found.";
 
             string kw = string.IsNullOrWhiteSpace(keyword) ? null : keyword.ToLower();
+            string typeFilter = string.IsNullOrWhiteSpace(entryType) ? null : entryType.Trim();
 
             var filtered = catalog.profiles.Where(p =>
             {
@@ -29,6 +31,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (priceFilter == "free" && !IsFree(p.price))
                     return false;
                 if (priceFilter == "paid" && IsFree(p.price))
+                    return false;
+                if (typeFilter != null && MochiFitterEntryType.Normalize(p.type) != typeFilter)
                     return false;
                 if (kw != null)
                 {
@@ -42,14 +46,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (filtered.Count == 0)
                 return "No profiles found matching the filter criteria.";
 
+            int profileCount = filtered.Count(p => MochiFitterEntryType.Normalize(p.type) == MochiFitterEntryType.Profile);
+            int nativeCount = filtered.Count - profileCount;
+
             var sb = new StringBuilder();
-            sb.AppendLine($"=== MochiFitter Profile Catalog ({filtered.Count}/{catalog.profiles.Count} profiles) ===");
+            sb.AppendLine($"=== MochiFitter Catalog ({filtered.Count}/{catalog.profiles.Count} entries: {profileCount} profiles, {nativeCount} avatar-native) ===");
             sb.AppendLine();
 
             foreach (var p in filtered)
             {
-                string conv = p.convType == "both" ? "Both" : p.convType == "forward" ? "Fwd" : p.convType == "reverse" ? "Rev" : "?";
-                sb.AppendLine($"  [{conv}] {p.avatar}  ({p.price})");
+                string tag = MochiFitterEntryType.Normalize(p.type) == MochiFitterEntryType.AvatarNative
+                    ? "Avatar"
+                    : p.convType == "both" ? "Both" : p.convType == "forward" ? "Fwd" : p.convType == "reverse" ? "Rev" : "?";
+                sb.AppendLine($"  [{tag}] {p.avatar}  ({p.price})");
                 sb.AppendLine($"    Shop: {p.shop}");
                 sb.AppendLine($"    BOOTH: https://booth.pm/ja/items/{p.boothId}");
                 sb.AppendLine();
@@ -152,8 +161,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     sb.AppendLine($"  [FOUND] {matches.Count} matching profile(s):");
                     foreach (var m in matches.Take(3))
                     {
-                        string conv = m.convType == "both" ? "Both" : m.convType == "forward" ? "Fwd" : "Rev";
-                        sb.AppendLine($"    [{conv}] {m.avatar} ({m.price}) - {m.shop}");
+                        string tag = MochiFitterEntryType.Normalize(m.type) == MochiFitterEntryType.AvatarNative
+                            ? "Avatar"
+                            : m.convType == "both" ? "Both" : m.convType == "forward" ? "Fwd" : "Rev";
+                        sb.AppendLine($"    [{tag}] {m.avatar} ({m.price}) - {m.shop}");
                         sb.AppendLine($"      BOOTH: https://booth.pm/ja/items/{m.boothId}");
                     }
                     if (matches.Count > 3)
@@ -286,8 +297,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         private static void AppendProfileInfo(StringBuilder sb, MochiFitterProfileEntry p)
         {
-            string conv = p.convType == "both" ? "Both" : p.convType == "forward" ? "Fwd" : p.convType == "reverse" ? "Rev" : "?";
-            sb.AppendLine($"  [{conv}] {p.avatar} ({p.price}) - {p.shop}");
+            string tag = MochiFitterEntryType.Normalize(p.type) == MochiFitterEntryType.AvatarNative
+                ? "Avatar"
+                : p.convType == "both" ? "Both" : p.convType == "forward" ? "Fwd" : p.convType == "reverse" ? "Rev" : "?";
+            sb.AppendLine($"  [{tag}] {p.avatar} ({p.price}) - {p.shop}");
             sb.AppendLine($"    BOOTH: https://booth.pm/ja/items/{p.boothId}");
         }
 
