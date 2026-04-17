@@ -1377,9 +1377,27 @@ namespace AjisaiFlow.UnityAgent.Editor
                     Mesh m = GetMesh(candidate);
                     if (m == null) continue;
 
-                    if (!candidate.bounds.IntersectRay(ray)) continue;
-
                     Vector3[] verts = GetWorldVertices(candidate, m);
+                    if (verts == null || verts.Length == 0) continue;
+
+                    // Do NOT use candidate.bounds as an early-reject: for SkinnedMeshRenderers
+                    // with updateWhenOffscreen=false (the VRChat default) the bounds reflect
+                    // the T-pose AABB stored at import time and may not contain the live
+                    // skinned vertices. Rejecting on stale bounds silently hid foreground
+                    // meshes (e.g. front hair) and let the click fall through to a
+                    // background mesh behind. Compute a quick AABB from the actual baked
+                    // vertices and test against that instead.
+                    Vector3 bbMin = verts[0], bbMax = verts[0];
+                    for (int i = 1; i < verts.Length; i++)
+                    {
+                        Vector3 v = verts[i];
+                        if (v.x < bbMin.x) bbMin.x = v.x; else if (v.x > bbMax.x) bbMax.x = v.x;
+                        if (v.y < bbMin.y) bbMin.y = v.y; else if (v.y > bbMax.y) bbMax.y = v.y;
+                        if (v.z < bbMin.z) bbMin.z = v.z; else if (v.z > bbMax.z) bbMax.z = v.z;
+                    }
+                    var liveBounds = new Bounds((bbMin + bbMax) * 0.5f, bbMax - bbMin);
+                    if (!liveBounds.IntersectRay(ray)) continue;
+
                     int[] tris = m.triangles;
                     for (int i = 0; i < tris.Length / 3; i++)
                     {
