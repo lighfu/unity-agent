@@ -220,11 +220,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // CRLF や制御文字を落として log-injection / ANSI 注入を防ぐ。
             string remote = SanitizeForLog(req.RemoteEndPoint?.ToString(), 64);
             string ua = SanitizeForLog(req.UserAgent, 200);
-            string method = SanitizeForLog(req.HttpMethod, 16);
-            string rawPath = SanitizeForLog(req.Url.AbsolutePath, 200);
-            string accept = SanitizeForLog(req.Headers["Accept"], 200);
-            string ct = SanitizeForLog(req.ContentType, 120);
-            TraceLog($"REQ {method} {rawPath} remote={remote} len={req.ContentLength64} ct={ct} auth={(req.Headers["Authorization"] != null ? "present" : "MISSING")} accept={accept} ua={ua}");
+            string safeMethod = SanitizeForLog(req.HttpMethod, 16);
+            string safePath = SanitizeForLog(req.Url.AbsolutePath, 200);
+            string safeAccept = SanitizeForLog(req.Headers["Accept"], 200);
+            string safeCt = SanitizeForLog(req.ContentType, 120);
+            TraceLog($"REQ {safeMethod} {safePath} remote={remote} len={req.ContentLength64} ct={safeCt} auth={(req.Headers["Authorization"] != null ? "present" : "MISSING")} accept={safeAccept} ua={ua}");
 
             // CORS (ローカルツール用)
             resp.AddHeader("Access-Control-Allow-Origin", "*");
