@@ -1,0 +1,26 @@
+{
+    "name": "AjisaiFlow.UnityAgent.TexTransTool.Editor",
+    "rootNamespace": "AjisaiFlow.UnityAgent.TexTransTool.Editor",
+    "references": [
+        "AjisaiFlow.UnityAgent.SDK",
+        "net.rs64.tex-trans-tool.runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "net.rs64.tex-trans-tool",
+            "expression": "[1.0.0,2.0.0)",
+            "define": "NET_RS64_TTT"
+        }
+    ],
+    "noEngineReferences": false
+}
+

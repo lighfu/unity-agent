@@ -38,8 +38,12 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             foreach (var asm in assemblies)
             {
-                bool isExternal = asm != mainAssembly;
                 string asmName = asm.GetName().Name;
+                // First-party sub-assemblies (AjisaiFlow.UnityAgent.*) are treated as internal
+                // so that optional-package-gated tool modules (e.g. TexTransTool) ship built-in
+                // without requiring external-tool opt-in.
+                bool isExternal = asm != mainAssembly
+                    && !asmName.StartsWith("AjisaiFlow.UnityAgent.", StringComparison.Ordinal);
 
                 Type[] types;
                 try
@@ -119,7 +123,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (isExternal)
                 return attr.Risk;
 
-            // 内蔵ツール → メソッド名プレフィックス判定で上書き
+            // 内蔵ツール → 属性が明示的に Safe/Dangerous を指定していれば尊重、
+            //   そうでない (default=Caution) 場合のみメソッド名プレフィックスで判定
+            if (attr.Risk == ToolRisk.Safe || attr.Risk == ToolRisk.Dangerous)
+                return attr.Risk;
+
             return ClassifyByMethodName(methodName);
         }
 
