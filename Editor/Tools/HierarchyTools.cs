@@ -128,7 +128,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("List all Renderers under a GameObject (including children). Shows renderer type, material names, and mesh info. Useful for finding all mesh parts of an avatar.")]
+        [AgentTool("List all Renderers under a GameObject (including children). Shows renderer type, material names, and mesh info. Useful for finding all mesh parts of an avatar. Hint: mesh name alone can be misleading (e.g. an SMR named 'Body' may actually be the face mesh when its material is 'Avatar_face'). For critical operations that depend on identifying a specific body part, call ScanAvatarMeshes afterwards to visually confirm each mesh.")]
         public static string ListRenderers(string gameObjectName)
         {
             var go = FindGO(gameObjectName);
@@ -139,6 +139,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"Renderers under '{gameObjectName}': {renderers.Length} found");
+            sb.AppendLine("Hint: identify parts by **material name** first (mesh names can be misleading — e.g. 'Body' + 'Avatar_face' = face mesh).");
+            sb.AppendLine("      For critical operations (AO bake, deletion, material swap), call ScanAvatarMeshes to get a labeled grid image for visual verification.");
             sb.AppendLine("---");
 
             foreach (var r in renderers)
