@@ -91,7 +91,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 foreach (var kv in _env)
                 {
                     startInfo.EnvironmentVariables[kv.Key] = kv.Value;
-                    AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] ENV: {kv.Key}={kv.Value}");
+                    // API キー・トークン等は log に実値を出さない。key 名に KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL を
+                    // 含む場合は長さだけ出す。
+                    string safeVal = AgentMCPServer.MaskSecretValue(kv.Key, kv.Value);
+                    AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] ENV: {kv.Key}={safeVal}");
                 }
 
                 process = System.Diagnostics.Process.Start(startInfo);
@@ -351,16 +354,27 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             if (content != null && content.Count > 0)
             {
                 var sb = new StringBuilder();
+                int textParts = 0;
                 foreach (var item in content)
                 {
                     if (item["type"].AsString == "text")
                     {
+                        textParts++;
                         if (sb.Length > 0) sb.AppendLine();
                         sb.Append(item["text"].AsString);
                     }
                 }
                 string result = sb.ToString();
-                AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} parts={content.Count}");
+                if (textParts == 0)
+                {
+                    // content.Count > 0 だが "text" 型が 1 つも無い (image / resource only) ケース。
+                    // 呼び出し側は空文字を受け取ることになるので、観測側で区別できるよう明示的にログする。
+                    AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms (no text parts; content={content.Count})");
+                }
+                else
+                {
+                    AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} textParts={textParts} totalParts={content.Count}");
+                }
                 onResult?.Invoke(result);
             }
             else
@@ -438,11 +452,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // 100KB 制限
             const int MaxLen = 100 * 1024;
             string result = sb.ToString();
+            int originalBytes = result.Length;
             bool truncated = result.Length > MaxLen;
             if (truncated)
                 result = result.Substring(0, MaxLen) + "\n[... truncated at 100KB]";
 
-            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} textParts={textParts} blobParts={blobParts} truncated={truncated}");
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} originalBytes={originalBytes} textParts={textParts} blobParts={blobParts} truncated={truncated}");
             onResult?.Invoke(result);
         }
 

@@ -216,9 +216,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             var resp = ctx.Response;
 
             // デバッグログ: 認証系の問題調査用
-            string remote = req.RemoteEndPoint?.ToString() ?? "?";
-            string ua = req.UserAgent ?? "-";
-            TraceLog($"REQ {req.HttpMethod} {req.Url.AbsolutePath} remote={remote} len={req.ContentLength64} ct={req.ContentType ?? "-"} auth={(req.Headers["Authorization"] != null ? "present" : "MISSING")} accept={req.Headers["Accept"]} ua={ua}");
+            // 注: User-Agent / path / method / Accept はリモート入力なので、ログに貼る前に
+            // CRLF や制御文字を落として log-injection / ANSI 注入を防ぐ。
+            string remote = SanitizeForLog(req.RemoteEndPoint?.ToString(), 64);
+            string ua = SanitizeForLog(req.UserAgent, 200);
+            string method = SanitizeForLog(req.HttpMethod, 16);
+            string rawPath = SanitizeForLog(req.Url.AbsolutePath, 200);
+            string accept = SanitizeForLog(req.Headers["Accept"], 200);
+            string ct = SanitizeForLog(req.ContentType, 120);
+            TraceLog($"REQ {method} {rawPath} remote={remote} len={req.ContentLength64} ct={ct} auth={(req.Headers["Authorization"] != null ? "present" : "MISSING")} accept={accept} ua={ua}");
 
             // CORS (ローカルツール用)
             resp.AddHeader("Access-Control-Allow-Origin", "*");
@@ -425,7 +431,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             if (!CheckAuth(req))
             {
                 JNode idNode = root["id"];
-                AgentLogger.Warning(LogTag.MCP, $"Unauthorized JSON-RPC request from {remote} (method={root["method"].AsString ?? "?"}, ua={ua})");
+                // JSON-RPC method は client 提供の文字列なので、Warning (Unity Console 行き) に貼る前に sanitize。
+                string rpcMethod = SanitizeForLog(root["method"].AsString, 80);
+                AgentLogger.Warning(LogTag.MCP, $"Unauthorized JSON-RPC request from {remote} (method={rpcMethod}, ua={ua})");
                 WriteJsonRpcError(resp, idNode, -32001, "Unauthorized",
                     "Missing or invalid Authorization header. Provide 'Authorization: Bearer <token>'.");
                 return;
@@ -488,8 +496,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         EnqueueCall(pending);
                         lock (_queueLock) { qdepth = _pendingCalls.Count; }
                         var sw = Stopwatch.StartNew();
-                        AgentLogger.Debug(LogTag.MCP, $"tools/call ENQUEUE tool={toolName} argsBytes={argsJson.Length} qdepth={qdepth}");
-                        TraceLog($"  tools/call enqueue tool={toolName} argsBytes={argsJson.Length} qdepth={qdepth}");
+                        AgentLogger.Debug(LogTag.MCP, $"tools/call START tool={toolName} argsBytes={argsJson.Length} qdepth={qdepth}");
+                        TraceLog($"  tools/call start tool={toolName} argsBytes={argsJson.Length} qdepth={qdepth}");
 
                         bool ok = pending.Wait(DefaultCallTimeoutMs);
                         sw.Stop();
@@ -511,7 +519,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
                         TotalCallsServed++;
                         AgentLogger.Debug(LogTag.MCP,
-                            $"tools/call DONE tool={toolName} elapsed={sw.ElapsedMilliseconds}ms textBytes={(pending.ResultText?.Length ?? 0)} imgBytes={(pending.ImageBytes?.Length ?? 0)} served={TotalCallsServed}");
+                            $"tools/call OK tool={toolName} elapsed={sw.ElapsedMilliseconds}ms textBytes={(pending.ResultText?.Length ?? 0)} imgBytes={(pending.ImageBytes?.Length ?? 0)} served={TotalCallsServed}");
 
                         var contentNodes = new List<JNode>
                         {
@@ -810,6 +818,52 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Log-safe sanitizer. Strips CR/LF/control chars that could be used to inject fake lines
+        /// into the ring buffer or Unity Console, and truncates long values.
+        /// Use this for any remote-controlled string (User-Agent, path, method, remote IP) before interpolating into a log message.
+        /// </summary>
+        internal static string SanitizeForLog(string s, int maxLen = 200)
+        {
+            if (string.IsNullOrEmpty(s)) return "-";
+            int len = Math.Min(s.Length, maxLen);
+            var sb = new StringBuilder(len);
+            for (int i = 0; i < len; i++)
+            {
+                char c = s[i];
+                if (c < 0x20 || c == 0x7F) sb.Append('?');
+                else sb.Append(c);
+            }
+            if (s.Length > maxLen) sb.Append('…');
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Heuristic: env var names that commonly hold secrets. Matches case-insensitively.
+        /// </summary>
+        internal static bool IsSecretKey(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return false;
+            string u = key.ToUpperInvariant();
+            return u.Contains("KEY")
+                || u.Contains("TOKEN")
+                || u.Contains("SECRET")
+                || u.Contains("PASSWORD")
+                || u.Contains("PASSWD")
+                || u.Contains("CREDENTIAL")
+                || u.Contains("API_KEY");
+        }
+
+        /// <summary>
+        /// Mask a value when the key looks secret-bearing. Keeps length so diagnostics ("is it empty?") still works.
+        /// </summary>
+        internal static string MaskSecretValue(string key, string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            if (!IsSecretKey(key)) return value;
+            return $"***(len={value.Length})";
         }
 
         static string JsonEscapeInline(string s)
