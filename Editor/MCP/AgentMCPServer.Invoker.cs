@@ -136,7 +136,24 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 return;
             }
 
+            CaptureAndClearPendingImage(call);
             call.SetResult(resStr);
+        }
+
+        /// <summary>
+        /// Capture-style tools (CaptureSceneView / CaptureExpressionPreview / CaptureMultiAngle)
+        /// stash the PNG on <see cref="Tools.SceneViewTools.PendingImageBytes"/> so the in-editor
+        /// chat can inline it into the next user turn. For MCP callers the bytes must be pulled
+        /// off the static slot and attached to this specific call's result, otherwise the
+        /// remote LLM only ever sees the tool's summary string ("Success: Captured ...") and
+        /// silently misses the actual image.
+        /// </summary>
+        static void CaptureAndClearPendingImage(PendingCall call)
+        {
+            var bytes = Tools.SceneViewTools.PendingImageBytes;
+            if (bytes == null || bytes.Length == 0) return;
+            call.SetImage(bytes, Tools.SceneViewTools.PendingImageMimeType);
+            Tools.SceneViewTools.ClearPendingImage();
         }
 
         /// <summary>
@@ -187,6 +204,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 yield return inner.Current;
             }
 
+            CaptureAndClearPendingImage(call);
             call.SetResult(asyncResult ?? "Success (No return value)");
         }
 

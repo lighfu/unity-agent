@@ -308,12 +308,22 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
                 else
                 {
-                    msg = JNode.Obj(
+                    var fields = new List<(string, JNode)>
+                    {
                         ("type", JNode.Str("result")),
                         ("id", JNode.Str(call.BridgePendingId ?? "")),
                         ("ok", JNode.Bool(true)),
-                        ("text", JNode.Str(call.ResultText ?? ""))
-                    );
+                        ("text", JNode.Str(call.ResultText ?? "")),
+                    };
+                    if (call.ImageBytes != null && call.ImageBytes.Length > 0)
+                    {
+                        // Bridge relays an optional base64 image alongside the text summary
+                        // so the remote MCP-facing process can emit an MCP image content
+                        // block instead of just the summary string.
+                        fields.Add(("imageBase64", JNode.Str(Convert.ToBase64String(call.ImageBytes))));
+                        fields.Add(("imageMimeType", JNode.Str(call.ImageMimeType ?? "image/png")));
+                    }
+                    msg = JNode.Obj(fields.ToArray());
                 }
                 _writer.WriteLine(msg.ToJson());
             }

@@ -479,11 +479,22 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
                         TotalCallsServed++;
 
+                        var contentNodes = new List<JNode>
+                        {
+                            JNode.Obj(
+                                ("type", JNode.Str("text")),
+                                ("text", JNode.Str(pending.ResultText ?? "")))
+                        };
+                        if (pending.ImageBytes != null && pending.ImageBytes.Length > 0)
+                        {
+                            contentNodes.Add(JNode.Obj(
+                                ("type", JNode.Str("image")),
+                                ("data", JNode.Str(Convert.ToBase64String(pending.ImageBytes))),
+                                ("mimeType", JNode.Str(pending.ImageMimeType ?? "image/png"))));
+                        }
+
                         var result = JNode.Obj(
-                            ("content", JNode.Arr(
-                                JNode.Obj(
-                                    ("type", JNode.Str("text")),
-                                    ("text", JNode.Str(pending.ResultText ?? ""))))),
+                            ("content", JNode.Arr(contentNodes.ToArray())),
                             ("isError", JNode.Bool(false))
                         );
                         WriteJsonRpcResult(resp, idNode, result);
@@ -793,6 +804,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             Arguments = newArgs ?? JNode.Obj();
         }
         public string ResultText { get; private set; }
+
+        /// <summary>
+        /// Optional image payload attached to the tool result. Populated by
+        /// <see cref="Invoker"/> when a tool sets <see cref="Tools.SceneViewTools.PendingImageBytes"/>
+        /// (scene / expression / multi-angle captures). When non-null, the HTTP / bridge
+        /// transports wrap this in an MCP <c>image</c> content block so the calling LLM
+        /// actually sees the picture instead of just the tool's summary string.
+        /// </summary>
+        public byte[] ImageBytes { get; private set; }
+        public string ImageMimeType { get; private set; }
+
         public string Error { get; private set; }
         public string ErrorData { get; private set; }
         public int ErrorCode { get; private set; } = -32000;
@@ -825,6 +847,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             AgentMCPServer.RaiseCallFinish(ToolName, ResultText, false);
             _done.Set();
             try { OnComplete?.Invoke(this); } catch { }
+        }
+
+        /// <summary>
+        /// Attach an image payload to the result. Must be called from the main thread
+        /// *before* <see cref="SetResult"/> for the transport layer to pick it up.
+        /// </summary>
+        public void SetImage(byte[] bytes, string mimeType)
+        {
+            if (bytes == null || bytes.Length == 0) return;
+            ImageBytes = bytes;
+            ImageMimeType = string.IsNullOrEmpty(mimeType) ? "image/png" : mimeType;
         }
 
         public void SetError(string message, string data = null, int code = -32000)
