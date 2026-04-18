@@ -30,6 +30,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             if (_initialized) yield break;
 
+            var totalSw = System.Diagnostics.Stopwatch.StartNew();
             Shutdown();
 
             var configs = GetServerConfigs();
@@ -60,15 +61,20 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 var client = new MCPClient(cfg.name, cfg.command, cfg.args, env);
                 _clients.Add(client);
 
+                var perServerSw = System.Diagnostics.Stopwatch.StartNew();
                 yield return client.Connect();
+                perServerSw.Stop();
 
                 if (!client.IsConnected)
-                    AgentLogger.Warning(LogTag.MCP, $"Failed to connect to MCP server: {cfg.name}");
+                    AgentLogger.Warning(LogTag.MCP, $"Failed to connect to MCP server: {cfg.name} (elapsed={perServerSw.ElapsedMilliseconds}ms)");
+                else
+                    AgentLogger.Debug(LogTag.MCP, $"Connected to MCP server: {cfg.name} (elapsed={perServerSw.ElapsedMilliseconds}ms)");
             }
 
             _initialized = true;
+            totalSw.Stop();
             int totalTools = _clients.Sum(c => c.Tools.Count);
-            AgentLogger.Info(LogTag.MCP, $"Initialized. {_clients.Count(c => c.IsConnected)} servers, {totalTools} MCP tools.");
+            AgentLogger.Info(LogTag.MCP, $"Initialized. {_clients.Count(c => c.IsConnected)} servers, {totalTools} MCP tools. (total elapsed={totalSw.ElapsedMilliseconds}ms)");
         }
 
         /// <summary>Reinitialize MCP (e.g., after settings change).</summary>
@@ -130,13 +136,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                             env[cfg.envKeys[i]] = cfg.envValues[i] ?? "";
 
                 var newClient = new MCPClient(cfg.name, cfg.command, cfg.args, env);
+                var reconnectSw = System.Diagnostics.Stopwatch.StartNew();
                 yield return newClient.Connect();
+                reconnectSw.Stop();
 
                 _clients[idx] = newClient;
                 if (newClient.IsConnected)
-                    AgentLogger.Info(LogTag.MCP, $"Reconnected '{cfg.name}' ({newClient.Tools.Count} tools)");
+                    AgentLogger.Info(LogTag.MCP, $"Reconnected '{cfg.name}' ({newClient.Tools.Count} tools, elapsed={reconnectSw.ElapsedMilliseconds}ms)");
                 else
-                    AgentLogger.Warning(LogTag.MCP, $"Reconnect failed for '{cfg.name}': {newClient.LastError}");
+                    AgentLogger.Warning(LogTag.MCP, $"Reconnect failed for '{cfg.name}' (elapsed={reconnectSw.ElapsedMilliseconds}ms): {newClient.LastError}");
             }
         }
 

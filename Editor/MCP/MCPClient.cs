@@ -525,6 +525,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             onResult?.Invoke(result);
         }
 
+        // `IDisposable.Dispose()` ルート専用フォールバック。通常の callsite は必ず
+        // reason 付きの Dispose(string) を直接呼ぶので、実運用で "unspecified" が出た場合は
+        // using/finally ブロック経由の意図しない回収を疑うこと。
         public void Dispose() => Dispose("unspecified");
 
         /// <summary>Dispose the MCP server with a human-readable reason for diagnostics.</summary>
@@ -797,12 +800,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 };
                 string currentPath = info.EnvironmentVariables.ContainsKey("PATH")
                     ? info.EnvironmentVariables["PATH"] : "";
+                int added = 0;
                 foreach (var p in extraPaths)
                 {
                     if (currentPath.IndexOf(p, StringComparison.OrdinalIgnoreCase) < 0)
+                    {
                         currentPath = p + ";" + currentPath;
+                        added++;
+                    }
                 }
                 info.EnvironmentVariables["PATH"] = currentPath;
+                // npx / uvx not found の調査用。実 PATH は長大なので、追加件数 + 先頭 300 chars のみ。
+                AgentLogger.Debug(LogTag.MCP, $"BuildStartInfo PATH added={added} extras, head={(currentPath.Length > 300 ? currentPath.Substring(0, 300) + "…" : currentPath)}");
             }
 
             return info;

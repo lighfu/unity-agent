@@ -146,14 +146,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             UnregisterPump();
 
             // Cancel any in-flight pending calls — bridge will time out the corresponding HTTP requests.
+            int dropped = 0;
             lock (_queueLock)
             {
                 while (_pending.Count > 0)
                 {
                     var c = _pending.Dequeue();
-                    AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] dropping pending call id={c.ID} on disconnect");
+                    AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] dropping pending call id={c.ID} tool={c.Tool} argsBytes={c.Args?.ToJson().Length ?? 0} on disconnect");
+                    dropped++;
                 }
             }
+            if (dropped > 0)
+                AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] disconnect dropped {dropped} pending call(s) (reason={reason})");
 
             _connected = false;
             _starting = false;

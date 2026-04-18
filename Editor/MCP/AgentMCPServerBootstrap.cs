@@ -192,12 +192,22 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             string binaryPath = ResolveBridgeBinary();
-            if (string.IsNullOrEmpty(binaryPath) || !File.Exists(binaryPath))
+            if (string.IsNullOrEmpty(binaryPath))
             {
+                // packageRoot 解決失敗 (PackageInfo.FindForAssembly null + package.json walk-up fail)
+                AgentLogger.Error(LogTag.MCP, "[Bootstrap] Could not resolve package root; bridge binary path is empty.");
+                throw new FileNotFoundException(
+                    "Bridge binary path could not be resolved (package root lookup failed). " +
+                    "Verify UnityAgent is installed as a UPM package or switch back to InProc mode.");
+            }
+            if (!File.Exists(binaryPath))
+            {
+                AgentLogger.Error(LogTag.MCP, $"[Bootstrap] Bridge binary missing at expected path: {binaryPath}");
                 throw new FileNotFoundException(
                     $"Bridge binary not found at expected path: {binaryPath}\n" +
                     "Build it via Editor/Bridge~/UnityAgentBridge/build.ps1 or switch back to InProc mode.");
             }
+            AgentLogger.Debug(LogTag.MCP, $"[Bootstrap] Resolved bridge binary: {binaryPath}");
 
             string logPath = GetBridgeLogPath();
             string args = $"--internal-port {internalPort} --public-port {publicPort} --token {token} --log \"{logPath}\"";

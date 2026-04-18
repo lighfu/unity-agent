@@ -27,6 +27,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         const int MaxRequestBodyBytes = 2 * 1024 * 1024; // 2MB
         const int DefaultCallTimeoutMs = 120_000;
 
+        /// <summary>
+        /// OAuth /token レスポンスの expires_in。ローカル専用なので 1 年 (31,536,000 秒) を静的に返す。
+        /// Claude Code の MCP SDK は短命トークンだと頻繁に再発行を求めるため、実害無く長期化する。
+        /// </summary>
+        const int OAuthTokenExpiresInSeconds = 365 * 24 * 60 * 60;
+
         static AgentMCPServer _shared;
 
         /// <summary>プロセス内で 1 インスタンスを共有する。</summary>
@@ -349,11 +355,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 string tok = AgentSettings.MCPServerToken ?? "";
                 if (string.IsNullOrEmpty(tok)) tok = AgentSettings.EnsureMCPServerToken();
                 // セキュリティ: access_token の値自体はログに出さない (長さのみ)。
-                AgentLogger.Debug(LogTag.MCP, $"oauth token issued (len={tok.Length}, expires=31536000) remote={remote}");
+                AgentLogger.Debug(LogTag.MCP, $"oauth token issued (len={tok.Length}, expires={OAuthTokenExpiresInSeconds}) remote={remote}");
                 string tokenMd = "{" +
                     "\"access_token\":\"" + tok + "\"," +
                     "\"token_type\":\"Bearer\"," +
-                    "\"expires_in\":31536000," +
+                    "\"expires_in\":" + OAuthTokenExpiresInSeconds + "," +
                     "\"scope\":\"mcp\"" +
                     "}";
                 WriteJson(resp, 200, tokenMd);
@@ -575,7 +581,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         void HandleSseStream(HttpListenerContext ctx)
         {
             var resp = ctx.Response;
-            TraceLog("  SSE stream opened");
+            string sseRemote = SanitizeForLog(ctx.Request.RemoteEndPoint?.ToString(), 64);
+            string sseUa = SanitizeForLog(ctx.Request.UserAgent, 120);
+            var sseSw = Stopwatch.StartNew();
+            int keepaliveCount = 0;
+            string closeReason = "server-stopped";
+
+            AgentLogger.Debug(LogTag.MCP, $"SSE stream opened remote={sseRemote} ua={sseUa}");
+            TraceLog($"  SSE stream opened remote={sseRemote}");
             try
             {
                 resp.StatusCode = 200;
@@ -593,10 +606,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     {
                         output.Write(keepalive, 0, keepalive.Length);
                         output.Flush();
+                        keepaliveCount++;
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
                         // Client disconnected
+                        closeReason = $"client-disconnect ({ex.GetType().Name})";
                         break;
                     }
                     Thread.Sleep(15000);
@@ -604,11 +619,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch (Exception ex)
             {
+                closeReason = $"exception ({ex.GetType().Name}: {ex.Message})";
                 TraceLog($"  SSE error: {ex.Message}");
             }
             finally
             {
-                TraceLog("  SSE stream closed");
+                sseSw.Stop();
+                AgentLogger.Debug(LogTag.MCP,
+                    $"SSE stream closed remote={sseRemote} duration={sseSw.ElapsedMilliseconds}ms keepalives={keepaliveCount} reason={closeReason}");
+                TraceLog($"  SSE stream closed duration={sseSw.ElapsedMilliseconds}ms keepalives={keepaliveCount} reason={closeReason}");
                 try { resp.OutputStream.Close(); } catch { }
                 try { resp.Close(); } catch { }
             }
@@ -820,6 +839,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
         }
 
+        /// <summary>
+        /// Low-level MCP trace sink. Prefer this over <see cref="AgentLogger.Debug"/> when you want the line
+        /// to also be replayable from disk after a domain reload (e.g. HTTP request boundaries, JSON-RPC
+        /// dispatch steps, SSE lifecycle). The dual-sink behavior:
+        ///   1. Always routes to <see cref="AgentLogger.Debug"/> so it appears in AgentLogWindow under DebugMode.
+        ///   2. Additionally appends to Temp/UnityAgent-MCPServer.log when DeveloperMode.IsDevBuild is true,
+        ///      giving package developers an off-editor record that survives Unity restarts.
+        /// For ordinary per-call observability, call AgentLogger.Debug/Info/Warning directly.
+        /// </summary>
         internal static void TraceLog(string line)
         {
             // AgentLogWindow 用のインメモリバッファにも流す (DebugMode で可視化)。
