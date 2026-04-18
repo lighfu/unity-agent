@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
@@ -31,13 +32,21 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 int limit = 20;
                 var limNode = call.Arguments["limit"];
                 if (limNode != null && limNode.Type == JNode.JType.Number) limit = limNode.AsInt;
-                call.SetResult(Handlers.ImplSearchTool(query, limit));
+                var sw = Stopwatch.StartNew();
+                string res = Handlers.ImplSearchTool(query, limit);
+                sw.Stop();
+                AgentLogger.Debug(LogTag.MCP, $"meta SearchUnityTool query=\"{Truncate(query, 80)}\" limit={limit} textBytes={res.Length} elapsed={sw.ElapsedMilliseconds}ms");
+                call.SetResult(res);
                 return;
             }
             if (call.ToolName == "DescribeUnityTool")
             {
                 string name = call.Arguments["name"].AsString ?? "";
-                call.SetResult(Handlers.ImplDescribeTool(name));
+                var sw = Stopwatch.StartNew();
+                string res = Handlers.ImplDescribeTool(name);
+                sw.Stop();
+                AgentLogger.Debug(LogTag.MCP, $"meta DescribeUnityTool name={name} textBytes={res.Length} elapsed={sw.ElapsedMilliseconds}ms");
+                call.SetResult(res);
                 return;
             }
             if (call.ToolName == "ExecuteUnityTool")
@@ -45,6 +54,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 string targetName = call.Arguments["name"].AsString ?? "";
                 if (string.IsNullOrEmpty(targetName))
                 {
+                    AgentLogger.Warning(LogTag.MCP, "ExecuteUnityTool called without 'name' argument.");
                     call.SetError("ExecuteUnityTool: 'name' is required.", null, -32602);
                     return;
                 }
@@ -52,6 +62,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 if (targetArgs == null || targetArgs.Type != JNode.JType.Object)
                     targetArgs = JNode.Obj();
 
+                AgentLogger.Debug(LogTag.MCP, $"meta ExecuteUnityTool → rewrite target={targetName} argsBytes={targetArgs.ToJson().Length}");
                 // 元の call を rewrite して通常のディスパッチパスに再入
                 call.Rewrite(targetName, targetArgs);
                 // fall through to normal dispatch
@@ -64,6 +75,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 string detail = suggestions.Count > 0
                     ? $"Did you mean: {string.Join(", ", suggestions)}"
                     : "No matching tool.";
+                AgentLogger.Warning(LogTag.MCP, $"Tool not found: '{call.ToolName}'. {detail}");
                 call.SetError($"Tool '{call.ToolName}' not found.", detail, -32601);
                 return;
             }
@@ -74,12 +86,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // 有効化 + リスクゲート (tools/list と同じ判定を再適用)
             if (!AgentSettings.IsToolEnabled(method.Name, info.isExternal))
             {
+                AgentLogger.Warning(LogTag.MCP, $"Tool '{method.Name}' rejected: disabled in UnityAgent settings.");
                 call.SetError($"Tool '{method.Name}' is disabled in UnityAgent settings.", null, -32000);
                 return;
             }
             var exposeRisk = AgentSettings.MCPServerExposeRisk;
             if ((int)info.resolvedRisk > (int)exposeRisk)
             {
+                AgentLogger.Warning(LogTag.MCP, $"Tool '{method.Name}' rejected: risk {info.resolvedRisk} > expose limit {exposeRisk}.");
                 call.SetError(
                     $"Tool '{method.Name}' risk level ({info.resolvedRisk}) exceeds MCP expose limit ({exposeRisk}).",
                     null, -32000);
@@ -91,6 +105,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             string bindError = BindArguments(method, call.Arguments, out typedArgs);
             if (bindError != null)
             {
+                AgentLogger.Warning(LogTag.MCP, $"Bind error tool={method.Name}: {bindError}");
                 call.SetError(bindError, null, -32602);
                 return;
             }
@@ -98,31 +113,40 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // 実行
             int groupBefore = Undo.GetCurrentGroup();
             object rawResult;
+            string argsJson = call.Arguments.ToJson();
+            var invokeSw = Stopwatch.StartNew();
             try
             {
-                AgentLogger.Info(LogTag.MCP, $"[MCPServer] call method={method.Name} args={call.Arguments.ToJson()}");
+                AgentLogger.Info(LogTag.MCP,
+                    $"invoke START tool={method.Name} risk={info.resolvedRisk} external={info.isExternal} params={method.GetParameters().Length} argsBytes={argsJson.Length} args={Truncate(argsJson, 400)}");
                 rawResult = method.Invoke(null, typedArgs);
             }
             catch (TargetInvocationException tex)
             {
+                invokeSw.Stop();
                 var inner = tex.InnerException ?? tex;
                 string data = DeveloperMode.IsDevBuild ? inner.ToString() : null;
+                AgentLogger.Warning(LogTag.MCP, $"invoke FAIL tool={method.Name} elapsed={invokeSw.ElapsedMilliseconds}ms ex={inner.GetType().Name}: {inner.Message}");
                 call.SetError($"Error executing tool {method.Name}: {inner.Message}", data, -32000);
                 return;
             }
             catch (Exception ex)
             {
+                invokeSw.Stop();
                 string data = DeveloperMode.IsDevBuild ? ex.ToString() : null;
+                AgentLogger.Warning(LogTag.MCP, $"invoke FAIL tool={method.Name} elapsed={invokeSw.ElapsedMilliseconds}ms ex={ex.GetType().Name}: {ex.Message}");
                 call.SetError($"Error executing tool {method.Name}: {ex.Message}", data, -32000);
                 return;
             }
 
             if (rawResult is IEnumerator enumerator)
             {
+                AgentLogger.Debug(LogTag.MCP, $"invoke async tool={method.Name} (IEnumerator coroutine path, sync elapsed={invokeSw.ElapsedMilliseconds}ms)");
                 // コルーチンを起動し、完了時に結果を回収
-                EditorCoroutineUtility.StartCoroutineOwnerless(RunAsyncTool(method.Name, enumerator, call, groupBefore));
+                EditorCoroutineUtility.StartCoroutineOwnerless(RunAsyncTool(method.Name, enumerator, call, groupBefore, invokeSw));
                 return;
             }
+            invokeSw.Stop();
 
             // 同期結果
             string resStr = rawResult?.ToString() ?? "Success (No return value)";
@@ -130,6 +154,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // AskUser 等のユーザー対話ツールが sentinel を返した場合は UI 側で選択を待つ
             if (resStr == "__WAITING_USER_CHOICE__")
             {
+                AgentLogger.Info(LogTag.MCP, $"invoke WAITING_USER_CHOICE tool={method.Name} question=\"{Truncate(UserChoiceState.Question ?? "", 80)}\"");
                 AgentMCPServer.TraceLog($"  WaitForUserChoice start: tool={method.Name}, pending={UserChoiceState.IsPending}, question={UserChoiceState.Question}");
                 AgentMCPServer.RaiseUserChoiceRequested();
                 EditorCoroutineUtility.StartCoroutineOwnerless(WaitForUserChoice(call));
@@ -137,7 +162,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             CaptureAndClearPendingImage(call);
+            AgentLogger.Info(LogTag.MCP,
+                $"invoke OK tool={method.Name} elapsed={invokeSw.ElapsedMilliseconds}ms textBytes={resStr.Length} imgBytes={(call.ImageBytes?.Length ?? 0)}");
             call.SetResult(resStr);
+        }
+
+        static string Truncate(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            if (s.Length <= max) return s;
+            return s.Substring(0, max) + "…";
         }
 
         /// <summary>
@@ -183,9 +217,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             call.SetResult(resultText);
         }
 
-        static IEnumerator RunAsyncTool(string toolName, IEnumerator inner, PendingCall call, int groupBefore)
+        static IEnumerator RunAsyncTool(string toolName, IEnumerator inner, PendingCall call, int groupBefore, Stopwatch sw)
         {
             string asyncResult = null;
+            int steps = 0;
             while (true)
             {
                 bool hasMore;
@@ -195,17 +230,24 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
                 catch (Exception ex)
                 {
+                    sw.Stop();
                     string data = DeveloperMode.IsDevBuild ? ex.ToString() : null;
+                    AgentLogger.Warning(LogTag.MCP, $"invoke FAIL async tool={toolName} steps={steps} elapsed={sw.ElapsedMilliseconds}ms ex={ex.GetType().Name}: {ex.Message}");
                     call.SetError($"Error during async tool {toolName}: {ex.Message}", data, -32000);
                     yield break;
                 }
                 if (!hasMore) break;
                 if (inner.Current is string s) asyncResult = s;
+                steps++;
                 yield return inner.Current;
             }
 
+            sw.Stop();
             CaptureAndClearPendingImage(call);
-            call.SetResult(asyncResult ?? "Success (No return value)");
+            string resText = asyncResult ?? "Success (No return value)";
+            AgentLogger.Info(LogTag.MCP,
+                $"invoke OK async tool={toolName} steps={steps} elapsed={sw.ElapsedMilliseconds}ms textBytes={resText.Length} imgBytes={(call.ImageBytes?.Length ?? 0)}");
+            call.SetResult(resText);
         }
 
         // ─── Argument binding ───

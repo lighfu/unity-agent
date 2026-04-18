@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -117,7 +118,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             _listenerThread.Start();
 
             RegisterPump();
-            AgentLogger.Info(LogTag.MCP, $"MCP Server started at http://localhost:{port}{EndpointPath}");
+            AgentLogger.Info(LogTag.MCP, $"MCP Server started at http://localhost:{port}{EndpointPath} (token.len={token?.Length ?? 0}, timeoutMs={DefaultCallTimeoutMs}, maxBody={MaxRequestBodyBytes})");
         }
 
         public void Stop()
@@ -141,7 +142,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             UnregisterPump();
-            AgentLogger.Info(LogTag.MCP, "MCP Server stopped.");
+            AgentLogger.Info(LogTag.MCP, $"MCP Server stopped. (served={TotalCallsServed})");
         }
 
         /// <summary>静的ヘルパ。Window / Menu 等からの呼び出し用。</summary>
@@ -157,7 +158,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[UnityAgent] MCP Server start failed: {ex.Message}");
+                AgentLogger.Error(LogTag.MCP, $"MCP Server start failed: {ex.Message}");
             }
         }
 
@@ -206,7 +207,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             var resp = ctx.Response;
 
             // デバッグログ: 認証系の問題調査用
-            TraceLog($"REQ {req.HttpMethod} {req.Url.AbsolutePath} auth={(req.Headers["Authorization"]!=null?"present":"MISSING")} accept={req.Headers["Accept"]}");
+            string remote = req.RemoteEndPoint?.ToString() ?? "?";
+            string ua = req.UserAgent ?? "-";
+            TraceLog($"REQ {req.HttpMethod} {req.Url.AbsolutePath} remote={remote} len={req.ContentLength64} ct={req.ContentType ?? "-"} auth={(req.Headers["Authorization"] != null ? "present" : "MISSING")} accept={req.Headers["Accept"]} ua={ua}");
 
             // CORS (ローカルツール用)
             resp.AddHeader("Access-Control-Allow-Origin", "*");
@@ -403,6 +406,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             if (!CheckAuth(req))
             {
                 JNode idNode = root["id"];
+                AgentLogger.Warning(LogTag.MCP, $"Unauthorized JSON-RPC request from {remote} (method={root["method"].AsString ?? "?"}, ua={ua})");
                 WriteJsonRpcError(resp, idNode, -32001, "Unauthorized",
                     "Missing or invalid Authorization header. Provide 'Authorization: Bearer <token>'.");
                 return;
@@ -459,12 +463,20 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     {
                         string toolName = paramsNode["name"].AsString ?? "";
                         JNode args = paramsNode["arguments"];
+                        string argsJson = (args ?? JNode.Obj()).ToJson();
                         var pending = new PendingCall(toolName, args ?? JNode.Obj());
+                        int qdepth;
                         EnqueueCall(pending);
+                        lock (_queueLock) { qdepth = _pendingCalls.Count; }
+                        var sw = Stopwatch.StartNew();
+                        AgentLogger.Debug(LogTag.MCP, $"tools/call ENQUEUE tool={toolName} argsBytes={argsJson.Length} qdepth={qdepth}");
+                        TraceLog($"  tools/call enqueue tool={toolName} argsBytes={argsJson.Length} qdepth={qdepth}");
 
                         bool ok = pending.Wait(DefaultCallTimeoutMs);
+                        sw.Stop();
                         if (!ok)
                         {
+                            AgentLogger.Warning(LogTag.MCP, $"tools/call TIMEOUT tool={toolName} after {sw.ElapsedMilliseconds}ms (limit={DefaultCallTimeoutMs}ms)");
                             WriteJsonRpcError(resp, idNode, -32001, "Timeout",
                                 $"Tool '{toolName}' did not complete within {DefaultCallTimeoutMs}ms.");
                             pending.Cancel();
@@ -473,11 +485,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
                         if (pending.Error != null)
                         {
+                            AgentLogger.Warning(LogTag.MCP, $"tools/call ERROR tool={toolName} code={pending.ErrorCode} elapsed={sw.ElapsedMilliseconds}ms msg={pending.Error}");
                             WriteJsonRpcError(resp, idNode, pending.ErrorCode, pending.Error, pending.ErrorData);
                             return;
                         }
 
                         TotalCallsServed++;
+                        AgentLogger.Debug(LogTag.MCP,
+                            $"tools/call DONE tool={toolName} elapsed={sw.ElapsedMilliseconds}ms textBytes={(pending.ResultText?.Length ?? 0)} imgBytes={(pending.ImageBytes?.Length ?? 0)} served={TotalCallsServed}");
 
                         var contentNodes = new List<JNode>
                         {
@@ -589,6 +604,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
                 if (call.Cancelled) { processed++; continue; }
 
+                int remaining;
+                lock (_queueLock) { remaining = _pendingCalls.Count; }
+                TraceLog($"  pump dispatch tool={call.ToolName} remaining={remaining}");
+
                 RaiseCallStart(call.ToolName, call.Arguments?.ToJson() ?? "{}");
 
                 try
@@ -597,6 +616,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
                 catch (Exception ex)
                 {
+                    AgentLogger.Error(LogTag.MCP, $"Invoker unhandled exception tool={call.ToolName}: {ex.Message}");
                     call.SetError($"Invoker exception: {ex.Message}", ex.ToString(), -32603);
                 }
                 processed++;
@@ -750,7 +770,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         internal static void TraceLog(string line)
         {
-            // 通常ユーザーでは無効化。開発者モード (DLL 非配置) の場合のみファイルログ出力する。
+            // AgentLogWindow 用のインメモリバッファにも流す (DebugMode で可視化)。
+            // 開発者モード (DLL 非配置) の場合のみ Temp/UnityAgent-MCPServer.log にも追記する。
+            try { AgentLogger.Debug(LogTag.MCP, line); } catch { }
+
             if (!DeveloperMode.IsDevBuild) return;
             try
             {

@@ -180,6 +180,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 ("token", JNode.Str(_token))
             );
             _writer.WriteLine(msg.ToJson());
+            AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] sent hello (version={ProtocolVersion}, token.len={_token?.Length ?? 0})");
         }
 
         // ─── Reader loop (background thread) ───
@@ -198,11 +199,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     }
                     if (line.Length == 0) continue;
 
+                    AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] recv bytes={line.Length}");
+
                     JNode msg;
                     try { msg = JNode.Parse(line); }
                     catch (Exception ex)
                     {
-                        AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] parse error: {ex.Message}");
+                        AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] parse error: {ex.Message} (line.len={line.Length})");
                         continue;
                     }
 
@@ -219,10 +222,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         Tool = msg["tool"].AsString ?? "",
                         Args = msg["args"] ?? JNode.Obj(),
                     };
+                    int qdepth;
                     lock (_queueLock)
                     {
                         _pending.Enqueue(call);
+                        qdepth = _pending.Count;
                     }
+                    AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] recv call id={call.ID} tool={call.Tool} argsBytes={call.Args.ToJson().Length} qdepth={qdepth}");
                 }
             }
             catch (IOException ex)
@@ -262,11 +268,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             for (int i = 0; i < MaxPerFrame; i++)
             {
                 PendingBridgeCall call;
+                int remaining;
                 lock (_queueLock)
                 {
                     if (_pending.Count == 0) return;
                     call = _pending.Dequeue();
+                    remaining = _pending.Count;
                 }
+
+                AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] pump dispatch id={call.ID} tool={call.Tool} remaining={remaining}");
 
                 // Forward to existing Invoker via a shim PendingCall.
                 // The bridge call's id is bridge-internal; we keep it in BridgePendingId so we
@@ -284,6 +294,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
                 catch (Exception ex)
                 {
+                    AgentLogger.Error(LogTag.MCP, $"[BridgeClient] Invoker unhandled exception id={call.ID} tool={call.Tool}: {ex.Message}");
                     inner.SetError($"Invoker exception: {ex.Message}", ex.ToString(), -32603);
                 }
             }
@@ -292,12 +303,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         void SendResultBack(PendingCall call)
         {
             // Note: PendingCall.SetResult/SetError already raises OnCallFinish; do not duplicate it here.
-            if (!_connected || _writer == null) return;
+            if (!_connected || _writer == null)
+            {
+                AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] send dropped (disconnected) id={call.BridgePendingId} tool={call.ToolName}");
+                return;
+            }
             try
             {
                 JNode msg;
+                string kind;
                 if (call.Error != null)
                 {
+                    kind = "error";
                     msg = JNode.Obj(
                         ("type", JNode.Str("error")),
                         ("id", JNode.Str(call.BridgePendingId ?? "")),
@@ -308,6 +325,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
                 else
                 {
+                    kind = "result";
                     var fields = new List<(string, JNode)>
                     {
                         ("type", JNode.Str("result")),
@@ -325,11 +343,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     }
                     msg = JNode.Obj(fields.ToArray());
                 }
-                _writer.WriteLine(msg.ToJson());
+                string wire = msg.ToJson();
+                _writer.WriteLine(wire);
+                AgentLogger.Debug(LogTag.MCP,
+                    $"[BridgeClient] send {kind} id={call.BridgePendingId} tool={call.ToolName} bytes={wire.Length} textBytes={(call.ResultText?.Length ?? 0)} imgBytes={(call.ImageBytes?.Length ?? 0)}");
             }
             catch (Exception ex)
             {
-                AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] failed to send result back: {ex.Message}");
+                AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] failed to send result back id={call.BridgePendingId} tool={call.ToolName}: {ex.Message}");
             }
         }
     }

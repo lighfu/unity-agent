@@ -4,7 +4,6 @@ using System.IO;
 using System.Net.Sockets;
 using UnityEditor;
 using UnityEngine;
-using Debug = UnityEngine.Debug;
 
 namespace AjisaiFlow.UnityAgent.Editor.MCP
 {
@@ -78,6 +77,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             AgentMCPBridgeClient.Shared.MarkStarting();
 
+            AgentLogger.Info(LogTag.MCP, $"[Bootstrap] StartBridgeMode internal={internalPort} public={publicPort} token.len={token?.Length ?? 0}");
+
             try
             {
                 EnsureBridgeProcessRunning(internalPort, publicPort, token);
@@ -85,7 +86,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             catch (Exception ex)
             {
                 AgentMCPBridgeClient.Shared.ClearStarting();
-                Debug.LogWarning($"[UnityAgent] Bridge spawn failed: {ex.Message}");
+                AgentLogger.Error(LogTag.MCP, $"[Bootstrap] Bridge spawn failed: {ex.Message}");
                 return;
             }
 
@@ -127,17 +128,19 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 try
                 {
                     AgentMCPBridgeClient.Shared.Connect(internalPort, token);
+                    AgentLogger.Info(LogTag.MCP, $"[Bootstrap] Bridge connected on attempt {attempts}/{MaxAttempts}");
                     EditorApplication.update -= tick;
                     return;
                 }
                 catch (Exception ex)
                 {
+                    AgentLogger.Debug(LogTag.MCP, $"[Bootstrap] Bridge connect attempt {attempts}/{MaxAttempts} failed: {ex.Message}");
                     if (attempts >= MaxAttempts)
                     {
                         EditorApplication.update -= tick;
                         AgentMCPBridgeClient.Shared.ClearStarting();
-                        Debug.LogWarning(
-                            $"[UnityAgent] Bridge client connect failed after {attempts} attempts: {ex.Message}");
+                        AgentLogger.Error(LogTag.MCP,
+                            $"[Bootstrap] Bridge client connect failed after {attempts} attempts: {ex.Message}");
                         return;
                     }
                     nextAt = EditorApplication.timeSinceStartup + IntervalSec;
@@ -164,22 +167,25 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         try
                         {
                             var existing = Process.GetProcessById(existingPid);
-                            if (!existing.HasExited && IsPortListening(internalPort))
+                            bool listening = IsPortListening(internalPort);
+                            AgentLogger.Debug(LogTag.MCP, $"[Bootstrap] lockfile pid={existingPid} hasExited={existing.HasExited} listening={listening}");
+                            if (!existing.HasExited && listening)
                             {
-                                Debug.Log($"[UnityAgent] Bridge already running (pid={existingPid}), reusing.");
+                                AgentLogger.Info(LogTag.MCP, $"[Bootstrap] Bridge already running (pid={existingPid}), reusing.");
                                 return;
                             }
                             // pid は存在するが port listen が無い → pid 再利用 or 別プロセス。上書きして spawn。
                         }
                         catch (ArgumentException)
                         {
+                            AgentLogger.Debug(LogTag.MCP, $"[Bootstrap] stale lockfile pid={existingPid} no longer exists");
                             // pid no longer exists — stale lockfile, will overwrite below
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[UnityAgent] Reading bridge lockfile failed: {ex.Message}");
+                    AgentLogger.Warning(LogTag.MCP, $"[Bootstrap] Reading bridge lockfile failed: {ex.Message}");
                 }
             }
 
@@ -214,10 +220,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[UnityAgent] Failed to write bridge lockfile: {ex.Message}");
+                AgentLogger.Warning(LogTag.MCP, $"[Bootstrap] Failed to write bridge lockfile: {ex.Message}");
             }
 
-            Debug.Log($"[UnityAgent] Bridge spawned (pid={proc.Id}, internal={internalPort}, public={publicPort})");
+            AgentLogger.Info(LogTag.MCP, $"[Bootstrap] Bridge spawned (pid={proc.Id}, internal={internalPort}, public={publicPort}, binary={binaryPath})");
         }
 
         static string ResolveBridgeBinary()
