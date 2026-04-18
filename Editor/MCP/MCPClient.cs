@@ -157,7 +157,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 lock (_lock) stderr = _stderrBuilder.ToString();
                 LastError = $"Process exited immediately (ExitCode={process.ExitCode})";
                 AgentLogger.Error(LogTag.MCP, $"[{ServerName}] {LastError}\nSTDERR:\n{stderr}");
-                Dispose();
+                Dispose("process-exited-immediately");
                 yield break;
             }
 
@@ -186,7 +186,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 AgentLogger.Error(LogTag.MCP, $"[{ServerName}] {LastError}");
                 if (!string.IsNullOrEmpty(stderr))
                     AgentLogger.Error(LogTag.MCP, $"[{ServerName}] STDERR accumulated:\n{stderr}");
-                Dispose();
+                Dispose("initialize-handshake-failed");
                 yield break;
             }
 
@@ -310,11 +310,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 IsConnected = false;
                 LastError = "Server process is not running";
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] tools/call REJECTED tool={toolName} (server not connected)");
                 onError?.Invoke($"MCP server '{ServerName}' is not connected.");
                 yield break;
             }
 
             int id = NextId();
+            string argsJson = (arguments ?? JNode.Obj()).ToJson();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call START tool={toolName} id={id} argsBytes={argsJson.Length}");
+
             var callParams = JNode.Obj(
                 ("name", JNode.Str(toolName)),
                 ("arguments", arguments ?? JNode.Obj())
@@ -323,16 +328,21 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             JNode response = null;
             yield return WaitForResponse(id, r => response = r, timeoutSeconds: 120);
+            sw.Stop();
 
             if (response == null)
             {
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] tools/call TIMEOUT tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms");
                 onError?.Invoke($"MCP tool '{toolName}' timed out.");
                 yield break;
             }
 
             if (response["error"].Type != JNode.JType.Null)
             {
-                onError?.Invoke($"MCP tool '{toolName}' error: {response["error"]["message"].AsString}");
+                int code = response["error"]["code"].Type == JNode.JType.Number ? response["error"]["code"].AsInt : 0;
+                string msg = response["error"]["message"].AsString ?? "unknown";
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] tools/call ERROR tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms code={code} msg={msg}");
+                onError?.Invoke($"MCP tool '{toolName}' error: {msg}");
                 yield break;
             }
 
@@ -349,10 +359,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         sb.Append(item["text"].AsString);
                     }
                 }
-                onResult?.Invoke(sb.ToString());
+                string result = sb.ToString();
+                AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} parts={content.Count}");
+                onResult?.Invoke(result);
             }
             else
             {
+                AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms (empty content)");
                 onResult?.Invoke("(empty result)");
             }
         }
@@ -363,46 +376,60 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             if (!IsConnected || _process == null || _process.HasExited)
             {
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] resources/read REJECTED uri={uri} (server not connected)");
                 onError?.Invoke($"MCP server '{ServerName}' is not connected.");
                 yield break;
             }
 
             int id = NextId();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read START uri={uri} id={id}");
+
             var reqParams = JNode.Obj(("uri", JNode.Str(uri)));
             SendRequest("resources/read", reqParams, id);
 
             JNode response = null;
             yield return WaitForResponse(id, r => response = r, timeoutSeconds: 30);
+            sw.Stop();
 
             if (response == null)
             {
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] resources/read TIMEOUT uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms");
                 onError?.Invoke($"resources/read timed out for '{uri}'.");
                 yield break;
             }
             if (response["error"].Type != JNode.JType.Null)
             {
-                onError?.Invoke($"resources/read error: {response["error"]["message"].AsString}");
+                int code = response["error"]["code"].Type == JNode.JType.Number ? response["error"]["code"].AsInt : 0;
+                string msg = response["error"]["message"].AsString ?? "unknown";
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] resources/read ERROR uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms code={code} msg={msg}");
+                onError?.Invoke($"resources/read error: {msg}");
                 yield break;
             }
 
             var contents = response["result"]["contents"].AsArray;
             if (contents == null || contents.Count == 0)
             {
+                AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms (empty)");
                 onResult?.Invoke("(empty resource)");
                 yield break;
             }
 
             var sb = new StringBuilder();
+            int textParts = 0;
+            int blobParts = 0;
             foreach (var item in contents)
             {
                 string text = item["text"].AsString;
                 if (text != null)
                 {
+                    textParts++;
                     if (sb.Length > 0) sb.AppendLine("---");
                     sb.Append(text);
                 }
                 else if (item["blob"].AsString != null)
                 {
+                    blobParts++;
                     string mime = item["mimeType"].AsString ?? "unknown";
                     sb.AppendLine($"[Binary content: {mime}, {item["blob"].AsString.Length} chars base64]");
                 }
@@ -411,9 +438,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // 100KB 制限
             const int MaxLen = 100 * 1024;
             string result = sb.ToString();
-            if (result.Length > MaxLen)
+            bool truncated = result.Length > MaxLen;
+            if (truncated)
                 result = result.Substring(0, MaxLen) + "\n[... truncated at 100KB]";
 
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} textParts={textParts} blobParts={blobParts} truncated={truncated}");
             onResult?.Invoke(result);
         }
 
@@ -423,11 +452,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             if (!IsConnected || _process == null || _process.HasExited)
             {
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] prompts/get REJECTED name={name} (server not connected)");
                 onError?.Invoke($"MCP server '{ServerName}' is not connected.");
                 yield break;
             }
 
             int id = NextId();
+            string argsJson = (arguments ?? JNode.Obj()).ToJson();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] prompts/get START name={name} id={id} argsBytes={argsJson.Length}");
+
             var reqParams = JNode.Obj(
                 ("name", JNode.Str(name)),
                 ("arguments", arguments ?? JNode.Obj())
@@ -436,15 +470,20 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             JNode response = null;
             yield return WaitForResponse(id, r => response = r, timeoutSeconds: 30);
+            sw.Stop();
 
             if (response == null)
             {
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] prompts/get TIMEOUT name={name} id={id} elapsed={sw.ElapsedMilliseconds}ms");
                 onError?.Invoke($"prompts/get timed out for '{name}'.");
                 yield break;
             }
             if (response["error"].Type != JNode.JType.Null)
             {
-                onError?.Invoke($"prompts/get error: {response["error"]["message"].AsString}");
+                int code = response["error"]["code"].Type == JNode.JType.Number ? response["error"]["code"].AsInt : 0;
+                string msg = response["error"]["message"].AsString ?? "unknown";
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] prompts/get ERROR name={name} id={id} elapsed={sw.ElapsedMilliseconds}ms code={code} msg={msg}");
+                onError?.Invoke($"prompts/get error: {msg}");
                 yield break;
             }
 
@@ -454,6 +493,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 sb.AppendLine($"Description: {desc}");
 
             var messages = response["result"]["messages"].AsArray;
+            int msgCount = messages?.Count ?? 0;
             if (messages != null)
             {
                 foreach (var msg in messages)
@@ -464,11 +504,22 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
             }
 
-            onResult?.Invoke(sb.Length > 0 ? sb.ToString() : "(empty prompt)");
+            string result = sb.Length > 0 ? sb.ToString() : "(empty prompt)";
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] prompts/get OK name={name} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} messages={msgCount}");
+            onResult?.Invoke(result);
         }
 
-        public void Dispose()
+        public void Dispose() => Dispose("unspecified");
+
+        /// <summary>Dispose the MCP server with a human-readable reason for diagnostics.</summary>
+        public void Dispose(string reason)
         {
+            bool wasConnected = IsConnected;
+            int pid = -1;
+            bool hadExited = true;
+            try { if (_process != null) { pid = _process.Id; hadExited = _process.HasExited; } } catch { }
+            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] Dispose reason={reason ?? "unspecified"} wasConnected={wasConnected} pid={pid} hadExited={hadExited} tools={Tools.Count}");
+
             IsConnected = false;
             if (_process != null)
             {
@@ -480,9 +531,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         {
                             _process.StandardInput.Close();
                             if (!_process.WaitForExit(3000))
+                            {
+                                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] Dispose graceful exit timed out (pid={pid}), killing process.");
                                 _process.Kill();
+                            }
                         }
-                        catch { /* shutdown error — ignore */ }
+                        catch (Exception ex)
+                        {
+                            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Dispose shutdown error: {ex.Message}");
+                        }
                     }
                 }
                 finally

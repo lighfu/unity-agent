@@ -178,8 +178,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 {
                     ctx = _listener.GetContext();
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    // 正常 Stop: Stop() が _running=false を立てて listener.Stop() するため
+                    // GetContext が例外化する。その場合は無言 break が正しい。
+                    // _running が true のまま例外が飛んできた場合は、listener が予期せず死んだ可能性が高い。
+                    if (_running)
+                    {
+                        AgentLogger.Error(LogTag.MCP,
+                            $"MCP Server ListenLoop died unexpectedly: {ex.GetType().Name}: {ex.Message}");
+                        _running = false;
+                    }
                     break;
                 }
 
@@ -229,6 +238,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // GET / → 簡易ヘルスエンドポイント (Authorization 不要)
             if (req.HttpMethod == "GET" && (path == "/" || path == "/health"))
             {
+                AgentLogger.Debug(LogTag.MCP, $"oauth health probe remote={remote} path={path}");
                 WriteJson(resp, 200, $"{{\"server\":\"UnityAgent\",\"endpoint\":\"{EndpointPath}\",\"status\":\"ok\"}}");
                 return;
             }
@@ -244,6 +254,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 path == "/.well-known/oauth-protected-resource" ||
                 path == "/.well-known/oauth-protected-resource/mcp"))
             {
+                AgentLogger.Debug(LogTag.MCP, $"oauth discovery protected-resource path={path} remote={remote}");
                 string md = "{" +
                     "\"resource\":\"" + origin + EndpointPath + "\"," +
                     "\"authorization_servers\":[\"" + origin + "\"]," +
@@ -262,6 +273,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 path == "/.well-known/openid-configuration/mcp" ||
                 path == "/mcp/.well-known/openid-configuration"))
             {
+                AgentLogger.Debug(LogTag.MCP, $"oauth discovery authz-server path={path} remote={remote}");
                 string md = "{" +
                     "\"issuer\":\"" + origin + "\"," +
                     "\"authorization_endpoint\":\"" + origin + "/authorize\"," +
@@ -281,6 +293,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // RFC 7591: Dynamic Client Registration
             if (req.HttpMethod == "POST" && path == "/register")
             {
+                AgentLogger.Debug(LogTag.MCP, $"oauth register → client=unity-agent-local remote={remote}");
                 long nowSec = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
                 string clientMd = "{" +
                     "\"client_id\":\"unity-agent-local\"," +
@@ -304,6 +317,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 qp.TryGetValue("state", out string state);
                 if (string.IsNullOrEmpty(redirectUri))
                 {
+                    AgentLogger.Warning(LogTag.MCP, $"oauth authorize rejected: redirect_uri missing (remote={remote})");
                     WriteJson(resp, 400, "{\"error\":\"invalid_request\",\"error_description\":\"redirect_uri required\"}");
                     return;
                 }
@@ -312,6 +326,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 string target = redirectUri + sep + "code=" + Uri.EscapeDataString(code);
                 if (!string.IsNullOrEmpty(state))
                     target += "&state=" + Uri.EscapeDataString(state);
+                string redirectHost = "?";
+                try { redirectHost = new Uri(redirectUri).Host; } catch { }
+                AgentLogger.Debug(LogTag.MCP, $"oauth authorize → 302 redirect_host={redirectHost} state_present={!string.IsNullOrEmpty(state)} remote={remote}");
                 resp.StatusCode = 302;
                 resp.Headers["Location"] = target;
                 resp.ContentLength64 = 0;
@@ -325,6 +342,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 string tok = AgentSettings.MCPServerToken ?? "";
                 if (string.IsNullOrEmpty(tok)) tok = AgentSettings.EnsureMCPServerToken();
+                // セキュリティ: access_token の値自体はログに出さない (長さのみ)。
+                AgentLogger.Debug(LogTag.MCP, $"oauth token issued (len={tok.Length}, expires=31536000) remote={remote}");
                 string tokenMd = "{" +
                     "\"access_token\":\"" + tok + "\"," +
                     "\"token_type\":\"Bearer\"," +
@@ -719,7 +738,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 WriteJson(ctx.Response, status, "{\"error\":\"" + JsonEscapeInline(message) + "\"}");
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // レスポンス書き込みに失敗するケース: client disconnect / already closed stream。
+                // これ自体は致命ではないが、無言で捨てると上流の 500 応答が届かない原因を追跡できないため残す。
+                TraceLog($"  TryWriteError failed (status={status}): {ex.Message}");
+            }
         }
 
         static Dictionary<string, string> ParseQuery(string query)

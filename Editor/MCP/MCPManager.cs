@@ -82,8 +82,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// <summary>Shutdown all MCP servers.</summary>
         public static void Shutdown()
         {
+            if (_clients.Count > 0)
+                AgentLogger.Info(LogTag.MCP, $"Shutdown: disposing {_clients.Count} MCP client(s)");
             foreach (var c in _clients)
-                c.Dispose();
+                c.Dispose("MCPManager.Shutdown");
             _clients.Clear();
             _initialized = false;
         }
@@ -105,7 +107,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 if (client.IsConnected && !client.IsAlive)
                 {
                     AgentLogger.Warning(LogTag.MCP, $"Server '{client.ServerName}' process died. Attempting reconnect...");
-                    client.Dispose();
+                    client.Dispose("process-died-auto-reconnect");
                     deadClients.Add(i);
                 }
             }
