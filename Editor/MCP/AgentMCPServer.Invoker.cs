@@ -197,10 +197,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// </summary>
         static IEnumerator WaitForUserChoice(PendingCall call)
         {
+            var waitSw = Stopwatch.StartNew();
             while (UserChoiceState.SelectedIndex < 0)
             {
                 if (call.Cancelled)
                 {
+                    waitSw.Stop();
+                    AgentLogger.Info(LogTag.MCP, $"invoke USER_CHOICE CANCELLED tool={call.ToolName} waited={waitSw.ElapsedMilliseconds}ms");
                     UserChoiceState.Clear();
                     call.SetError("User choice cancelled.", null, -32000);
                     yield break;
@@ -208,12 +211,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 yield return null;
             }
 
+            waitSw.Stop();
+            int idx = UserChoiceState.SelectedIndex;
+            bool isCustomText = UserChoiceState.CustomText != null;
             string selected = UserChoiceState.CustomText
-                ?? UserChoiceState.Options?[UserChoiceState.SelectedIndex]
+                ?? UserChoiceState.Options?[idx]
                 ?? "";
-            string resultText = UserChoiceState.CustomText != null
+            string resultText = isCustomText
                 ? $"User responded: \"{selected}\""
                 : $"User selected: \"{selected}\"";
+            AgentLogger.Info(LogTag.MCP,
+                $"invoke USER_CHOICE RESOLVED tool={call.ToolName} waited={waitSw.ElapsedMilliseconds}ms kind={(isCustomText ? "custom-text" : "option-index")} index={idx} textLen={selected.Length}");
             UserChoiceState.Clear();
             call.SetResult(resultText);
         }

@@ -401,6 +401,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch (Exception ex)
             {
+                AgentLogger.Warning(LogTag.MCP,
+                    $"Body read rejected from {remote} (declared len={req.ContentLength64}, ua={ua}): {ex.Message}");
                 WriteJson(resp, 413, "{\"error\":\"" + JsonEscapeInline(ex.Message) + "\"}");
                 return;
             }
@@ -412,6 +414,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             catch (Exception ex)
             {
+                string preview = SanitizeForLog(body, 120);
+                AgentLogger.Warning(LogTag.MCP,
+                    $"JSON-RPC parse error from {remote} (len={body?.Length ?? 0}, ua={ua}): {ex.Message} | head={preview}");
                 WriteJsonRpcError(resp, JNode.NullNode, -32700, "Parse error", ex.Message);
                 return;
             }
@@ -433,7 +438,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 JNode idNode = root["id"];
                 // JSON-RPC method は client 提供の文字列なので、Warning (Unity Console 行き) に貼る前に sanitize。
                 string rpcMethod = SanitizeForLog(root["method"].AsString, 80);
+                // ヘッダ欠落 vs トークン不一致は切り分けられると調査が速い。
+                // ただし Warning (Unity Console 行き) にはリーク源を増やしたくないので、詳細は Debug に流す。
+                string authHeader = req.Headers["Authorization"];
+                string authReason = string.IsNullOrEmpty(authHeader)
+                    ? "no Authorization header"
+                    : (!authHeader.StartsWith("Bearer ", StringComparison.Ordinal)
+                        ? "non-Bearer scheme"
+                        : "token mismatch");
                 AgentLogger.Warning(LogTag.MCP, $"Unauthorized JSON-RPC request from {remote} (method={rpcMethod}, ua={ua})");
+                AgentLogger.Debug(LogTag.MCP, $"Unauthorized reason={authReason} from {remote}");
                 WriteJsonRpcError(resp, idNode, -32001, "Unauthorized",
                     "Missing or invalid Authorization header. Provide 'Authorization: Bearer <token>'.");
                 return;
@@ -458,6 +472,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             // Notifications (no response expected)
             if (method.StartsWith("notifications/"))
             {
+                AgentLogger.Debug(LogTag.MCP, $"notification received method={method} paramsBytes={(paramsNode?.ToJson().Length ?? 0)}");
                 resp.StatusCode = 202;
                 resp.ContentLength64 = 0;
                 resp.OutputStream.Close();
@@ -629,7 +644,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     call = _pendingCalls.Dequeue();
                 }
 
-                if (call.Cancelled) { processed++; continue; }
+                if (call.Cancelled)
+                {
+                    AgentLogger.Debug(LogTag.MCP, $"pump skipping cancelled call tool={call.ToolName}");
+                    processed++;
+                    continue;
+                }
 
                 int remaining;
                 lock (_queueLock) { remaining = _pendingCalls.Count; }

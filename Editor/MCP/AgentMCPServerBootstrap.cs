@@ -53,7 +53,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void StopBeforeReload()
         {
-            switch (AgentSettings.MCPServerMode)
+            var mode = AgentSettings.MCPServerMode;
+            AgentLogger.Info(LogTag.MCP, $"[Bootstrap] StopBeforeReload mode={mode}");
+            switch (mode)
             {
                 case MCPServerMode.Bridge:
                     AgentMCPBridgeClient.Shared.Disconnect("domain_reload");
