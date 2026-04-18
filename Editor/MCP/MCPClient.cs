@@ -321,7 +321,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             int id = NextId();
             string argsJson = (arguments ?? JNode.Obj()).ToJson();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call START tool={toolName} id={id} argsBytes={argsJson.Length}");
+            // ルーチン tools/call は Debug 扱い。TIMEOUT / ERROR は Warning で残す。
+            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] tools/call START tool={toolName} id={id} argsBytes={argsJson.Length}");
 
             var callParams = JNode.Obj(
                 ("name", JNode.Str(toolName)),
@@ -369,17 +370,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 {
                     // content.Count > 0 だが "text" 型が 1 つも無い (image / resource only) ケース。
                     // 呼び出し側は空文字を受け取ることになるので、観測側で区別できるよう明示的にログする。
-                    AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms (no text parts; content={content.Count})");
+                    AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms (no text parts; content={content.Count})");
                 }
                 else
                 {
-                    AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} textParts={textParts} totalParts={content.Count}");
+                    AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} textParts={textParts} totalParts={content.Count}");
                 }
                 onResult?.Invoke(result);
             }
             else
             {
-                AgentLogger.Info(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms (empty content)");
+                AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] tools/call OK tool={toolName} id={id} elapsed={sw.ElapsedMilliseconds}ms (empty content)");
                 onResult?.Invoke("(empty result)");
             }
         }
@@ -397,7 +398,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             int id = NextId();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read START uri={uri} id={id}");
+            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] resources/read START uri={uri} id={id}");
 
             var reqParams = JNode.Obj(("uri", JNode.Str(uri)));
             SendRequest("resources/read", reqParams, id);
@@ -424,7 +425,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             var contents = response["result"]["contents"].AsArray;
             if (contents == null || contents.Count == 0)
             {
-                AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms (empty)");
+                AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms (empty)");
                 onResult?.Invoke("(empty resource)");
                 yield break;
             }
@@ -457,7 +458,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             if (truncated)
                 result = result.Substring(0, MaxLen) + "\n[... truncated at 100KB]";
 
-            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} originalBytes={originalBytes} textParts={textParts} blobParts={blobParts} truncated={truncated}");
+            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] resources/read OK uri={uri} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} originalBytes={originalBytes} textParts={textParts} blobParts={blobParts} truncated={truncated}");
             onResult?.Invoke(result);
         }
 
@@ -475,7 +476,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             int id = NextId();
             string argsJson = (arguments ?? JNode.Obj()).ToJson();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] prompts/get START name={name} id={id} argsBytes={argsJson.Length}");
+            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] prompts/get START name={name} id={id} argsBytes={argsJson.Length}");
 
             var reqParams = JNode.Obj(
                 ("name", JNode.Str(name)),
@@ -520,7 +521,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             string result = sb.Length > 0 ? sb.ToString() : "(empty prompt)";
-            AgentLogger.Info(LogTag.MCP, $"[{ServerName}] prompts/get OK name={name} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} messages={msgCount}");
+            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] prompts/get OK name={name} id={id} elapsed={sw.ElapsedMilliseconds}ms textBytes={result.Length} messages={msgCount}");
             onResult?.Invoke(result);
         }
 

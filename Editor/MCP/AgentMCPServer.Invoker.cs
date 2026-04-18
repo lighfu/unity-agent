@@ -117,7 +117,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             var invokeSw = Stopwatch.StartNew();
             try
             {
-                AgentLogger.Info(LogTag.MCP,
+                // ルーチン呼び出し単位は Debug。WAITING_USER_CHOICE や FAIL は上位レベルで残る。
+                AgentLogger.Debug(LogTag.MCP,
                     $"invoke START tool={method.Name} risk={info.resolvedRisk} external={info.isExternal} params={method.GetParameters().Length} argsBytes={argsJson.Length} args={Truncate(argsJson, 400)}");
                 rawResult = method.Invoke(null, typedArgs);
             }
@@ -162,7 +163,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             CaptureAndClearPendingImage(call);
-            AgentLogger.Info(LogTag.MCP,
+            AgentLogger.Debug(LogTag.MCP,
                 $"invoke OK tool={method.Name} elapsed={invokeSw.ElapsedMilliseconds}ms textBytes={resStr.Length} imgBytes={(call.ImageBytes?.Length ?? 0)}");
             call.SetResult(resStr);
         }
@@ -245,7 +246,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             sw.Stop();
             CaptureAndClearPendingImage(call);
             string resText = asyncResult ?? "Success (No return value)";
-            AgentLogger.Info(LogTag.MCP,
+            AgentLogger.Debug(LogTag.MCP,
                 $"invoke OK async tool={toolName} steps={steps} elapsed={sw.ElapsedMilliseconds}ms textBytes={resText.Length} imgBytes={(call.ImageBytes?.Length ?? 0)}");
             call.SetResult(resText);
         }
