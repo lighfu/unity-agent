@@ -27,17 +27,31 @@ delivery once Unity reconnects.
 
 ## Build
 
-Prerequisite: **Go 1.21+**. Install via `winget install GoLang.Go` on Windows.
+Prerequisite: **Go 1.21+**. Install via `winget install GoLang.Go` on Windows, or your
+package manager / https://go.dev/dl/ elsewhere.
 
 ```powershell
+# Windows (PowerShell)
 cd Editor/Bridge~/UnityAgentBridge
 ./build.ps1            # builds win-x64 (current host)
 ./build.ps1 -All       # cross-builds for win-x64, osx-x64, osx-arm64, linux-x64
 ```
 
+```bash
+# Linux / macOS
+cd Editor/Bridge~/UnityAgentBridge
+./build.sh             # builds the host RID (linux-x64, osx-x64, or osx-arm64)
+./build.sh --all       # cross-builds for all 4 supported RIDs
+```
+
 Output goes to `Editor/Bridge/bin/<rid>/UnityAgentBridge[.exe]`. The `Bridge~` source folder
 has a trailing tilde so Unity ignores it during import; the `Bridge` folder (no tilde) is
 imported and contains only the prebuilt binaries.
+
+> **Note:** binaries are NOT checked into git. They are produced either by the build scripts
+> above (for local dev) or by the CI release workflow (`.github/workflows/release-editor.yml`,
+> which cross-builds all 4 RIDs into the VPM release zip). The `.meta` files are kept in git
+> so Unity's GUIDs for the binary slots remain stable across releases.
 
 ## Run (manual / dev)
 

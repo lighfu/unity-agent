@@ -31,3 +31,15 @@ Fonts/*.otf.meta
 *.png.meta
 *.zip
 *.zip.meta
+
+# Bridge binaries: built locally via Editor/Bridge~/UnityAgentBridge/build.{ps1,sh}
+# or in CI at release time.
+#
+# Binary-level .meta files are also ignored — Unity auto-generates them next to
+# the binary when present, and CI writes canonical ones (with fixed GUIDs) into
+# the release zip. Folder-level .meta files under Editor/Bridge/bin/ ARE tracked
+# so folder GUIDs stay stable across installs.
+Editor/Bridge/bin/*/UnityAgentBridge
+Editor/Bridge/bin/*/UnityAgentBridge.exe
+Editor/Bridge/bin/*/UnityAgentBridge.meta
+Editor/Bridge/bin/*/UnityAgentBridge.exe.meta

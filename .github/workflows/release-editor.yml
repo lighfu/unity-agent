@@ -27,8 +27,59 @@ jobs:
             exit 1
           fi
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Cross-build bridge binaries
+        working-directory: Editor/Bridge~/UnityAgentBridge
+        run: |
+          set -euo pipefail
+          OUT=../../Bridge/bin
+          mkdir -p "$OUT/win-x64" "$OUT/linux-x64" "$OUT/osx-x64" "$OUT/osx-arm64"
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w" -o "$OUT/win-x64/UnityAgentBridge.exe" .
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w" -o "$OUT/linux-x64/UnityAgentBridge" .
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w" -o "$OUT/osx-x64/UnityAgentBridge" .
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 \
+            go build -trimpath -ldflags="-s -w" -o "$OUT/osx-arm64/UnityAgentBridge" .
+
+          chmod +x "$OUT/linux-x64/UnityAgentBridge" \
+                   "$OUT/osx-x64/UnityAgentBridge" \
+                   "$OUT/osx-arm64/UnityAgentBridge"
+
+          # Unity .meta files next to each binary so VPM consumers don't see import warnings.
+          # GUIDs are hardcoded per-RID so they stay stable across releases (referenced only
+          # by Unity's asset database — nothing resolves the binary via Unity asset GUID).
+          write_meta() {
+            local path=$1 guid=$2
+            cat > "$path" <<EOF
+          fileFormatVersion: 2
+          guid: $guid
+          DefaultImporter:
+            externalObjects: {}
+            userData:
+            assetBundleName:
+            assetBundleVariant:
+          EOF
+          }
+          write_meta "$OUT/win-x64/UnityAgentBridge.exe.meta" 5088fa82bb48e8848832757d012724ec
+          write_meta "$OUT/linux-x64/UnityAgentBridge.meta"   552e82d77fa4402988278a508cdb158c
+          write_meta "$OUT/osx-x64/UnityAgentBridge.meta"     d25812d2c98e474fbcf508c5b8629b14
+          write_meta "$OUT/osx-arm64/UnityAgentBridge.meta"   fb7f0fe1116b4ede86df8a958242dd9d
+
+          ls -la "$OUT"/*/UnityAgentBridge*
+
       - name: Create release zip
         run: |
+          # Drop Go source from the package zip — end users only need the prebuilt binaries.
+          # Unity already ignores Bridge~ (tilde suffix), but keeping it out keeps the zip lean.
+          rm -rf Editor/Bridge~
+
           zip -r "com.ajisaiflow.unityagent-${{ steps.version.outputs.version }}.zip" . \
             -x ".git/*" ".github/*" "README.md" "CHANGELOG.md" ".gitignore" \
             -x "SDK/*" "SDK.meta"
