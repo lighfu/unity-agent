@@ -16,7 +16,9 @@
         "AnimatorAsCode.V1.ModularAvatar",
         "com.anatawa12.avatar-optimizer.runtime",
         "lilToon.Editor",
-        "jp.lilxyzw.ndmfmeshsimplifier.runtime"
+        "jp.lilxyzw.ndmfmeshsimplifier.runtime",
+        "vrchat.blackstartx.gesture-manager",
+        "vrchat.blackstartx.gesture-manager.editor"
     ],
     "includePlatforms": [
         "Editor"
@@ -72,6 +74,11 @@
             "name": "jp.lilxyzw.ndmfmeshsimplifier",
             "expression": "",
             "define": "NDMF_MESH_SIMPLIFIER"
+        },
+        {
+            "name": "vrchat.blackstartx.gesture-manager",
+            "expression": "",
+            "define": "GESTURE_MANAGER"
         }
     ],
     "noEngineReferences": false

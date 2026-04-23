@@ -139,6 +139,39 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return $"Success: Updated local Transform for '{name}'.";
         }
 
+        [AgentTool(@"Set WORLD-space position/rotation of a GameObject (avoids manual local-space math when the parent has non-identity transform).
+Only pass values to change — omit or use -999 to leave unchanged.
+Scale remains local (world scale can't be set directly when parents have non-uniform scale).
+Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
+        public static string SetTransformWorld(string name, float posX = -999, float posY = -999, float posZ = -999, float rotX = -999, float rotY = -999, float rotZ = -999)
+        {
+            var go = FindGO(name);
+            if (go == null) return $"Error: GameObject '{name}' not found.";
+
+            Undo.RecordObject(go.transform, "Set Transform World via Agent");
+
+            if (posX != -999 || posY != -999 || posZ != -999)
+            {
+                var pos = go.transform.position;
+                if (posX != -999) pos.x = posX;
+                if (posY != -999) pos.y = posY;
+                if (posZ != -999) pos.z = posZ;
+                go.transform.position = pos;
+            }
+
+            if (rotX != -999 || rotY != -999 || rotZ != -999)
+            {
+                var rot = go.transform.eulerAngles;
+                if (rotX != -999) rot.x = rotX;
+                if (rotY != -999) rot.y = rotY;
+                if (rotZ != -999) rot.z = rotZ;
+                go.transform.eulerAngles = rot;
+            }
+
+            var wp = go.transform.position;
+            return $"Success: Updated world Transform for '{name}' (world pos=({wp.x:F3}, {wp.y:F3}, {wp.z:F3})).";
+        }
+
         [AgentTool("Duplicate a GameObject.")]
         public static string DuplicateGameObject(string name)
         {

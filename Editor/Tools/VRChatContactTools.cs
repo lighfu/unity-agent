@@ -404,6 +404,106 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (p != null) p.quaternionValue = value;
         }
 
+        [AgentTool(@"Read the LIVE runtime proximity value of a VRCContactReceiver during Play mode (or GestureManager preview).
+Returns: paramAccess (current receiver value 0-1 for Proximity, 0/1 for OnEnter/Constant), parameter name,
+receiver type, collision tags, allowSelf/allowOthers flags, and whether the receiver is firing.
+Use to distinguish 'Contact not firing' vs 'Contact firing but Animator not writing to material'.")]
+        public static string GetContactReceiverRuntimeValue(string gameObjectName)
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode (or GestureManager preview) to observe runtime values.";
+
+            var go = FindGO(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+
+            var receiverType = VRChatTools.FindVrcType(VrcContactReceiverTypeName);
+            if (receiverType == null)
+                return "Error: VRChat SDK Contact type not found.";
+
+            var receiver = go.GetComponent(receiverType) as Behaviour;
+            if (receiver == null)
+                return $"Error: No VRCContactReceiver on '{gameObjectName}'.";
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"VRCContactReceiver on '{gameObjectName}':");
+            sb.AppendLine($"  enabled: {receiver.enabled}");
+            sb.AppendLine($"  isActiveAndEnabled: {receiver.isActiveAndEnabled}");
+
+            // Reflection: read paramAccess (float), parameter (string), receiverType (enum), allowSelf, allowOthers,
+            // localOnly, collisionTags, minVelocity.
+            var t = receiver.GetType();
+            string paramName = TryReadField<string>(t, receiver, "parameter") ?? "(unknown)";
+            sb.AppendLine($"  parameter: '{paramName}'");
+
+            object recTypeVal = TryReadFieldObject(t, receiver, "receiverType");
+            sb.AppendLine($"  receiverType: {recTypeVal ?? "<unknown>"}");
+
+            // paramAccess is of type IAnimParameterAccess (class), NOT float.
+            // Under normal runtime, VRC SDK assigns AnimParameterAccessAvatarSDK (wraps Animator).
+            // Under GM preview, GestureManager assigns AnimParameterAccessAvatarGmg (wraps Vrc3Param).
+            // Both expose .floatVal / .boolVal / .intVal properties.
+            object paramAccessObj = TryReadFieldObject(t, receiver, "paramAccess");
+            float paramAccess = 0f;
+            string paramAccessImpl = "<null>";
+            if (paramAccessObj != null)
+            {
+                paramAccessImpl = paramAccessObj.GetType().Name;
+                var pt = paramAccessObj.GetType();
+                var floatValProp = pt.GetProperty("floatVal", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (floatValProp != null)
+                {
+                    try { paramAccess = (float)floatValProp.GetValue(paramAccessObj); }
+                    catch { /* leave 0 */ }
+                }
+            }
+            sb.AppendLine($"  paramAccess (runtime value): {paramAccess.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}  [impl={paramAccessImpl}]");
+
+            bool firing = paramAccess > 0f;
+            sb.AppendLine($"  firing: {firing}");
+
+            float minVel = TryReadField<float>(t, receiver, "minVelocity");
+            sb.AppendLine($"  minVelocity: {minVel.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            sb.AppendLine($"  allowSelf: {TryReadField<bool>(t, receiver, "allowSelf")}");
+            sb.AppendLine($"  allowOthers: {TryReadField<bool>(t, receiver, "allowOthers")}");
+            sb.AppendLine($"  localOnly: {TryReadField<bool>(t, receiver, "localOnly")}");
+
+            // collisionTags (List<string>)
+            var tagsField = t.GetField("collisionTags", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            if (tagsField != null)
+            {
+                var tagsObj = tagsField.GetValue(receiver) as System.Collections.IEnumerable;
+                if (tagsObj != null)
+                {
+                    var tags = new System.Collections.Generic.List<string>();
+                    foreach (var tag in tagsObj) tags.Add(tag?.ToString() ?? "<null>");
+                    sb.AppendLine($"  collisionTags: [{string.Join(", ", tags)}]");
+                }
+            }
+
+            // radius/height
+            float radius = TryReadField<float>(t, receiver, "radius");
+            sb.AppendLine($"  radius: {radius.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            // World position for easy raycast setup
+            sb.AppendLine($"  world position: ({receiver.transform.position.x.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}, {receiver.transform.position.y.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}, {receiver.transform.position.z.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)})");
+
+            return sb.ToString().TrimEnd();
+        }
+
+        private static T TryReadField<T>(System.Type t, object instance, string name)
+        {
+            var f = t.GetField(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (f == null) return default(T);
+            try { return (T)f.GetValue(instance); } catch { return default(T); }
+        }
+
+        private static object TryReadFieldObject(System.Type t, object instance, string name)
+        {
+            var f = t.GetField(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            return f == null ? null : f.GetValue(instance);
+        }
+
         private static Vector3? ParseVector3(string s)
         {
             var parts = s.Split(',');

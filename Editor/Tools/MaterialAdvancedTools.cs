@@ -175,6 +175,86 @@ Use ListMaterialProperties (in TextureEditTools) to discover property names.")]
             return $"Success: Set {propertyName}=({x:F3},{y:F3},{z:F3},{w:F3}) on '{mat.name}'.";
         }
 
+        [AgentTool(@"Get a Vector4 property value from a GameObject's material (read-only).
+Useful when ListMaterialProperties is not enough and you need the raw x,y,z,w components.
+Returns 'propertyName = (x, y, z, w)' or an error if the property does not exist or is not a Vector.")]
+        public static string GetMaterialVector(string gameObjectName, string propertyName, int materialIndex = 0)
+        {
+            var go = MeshAnalysisTools.FindGameObject(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer == null) return $"Error: No Renderer found on '{gameObjectName}'.";
+
+            var materials = renderer.sharedMaterials;
+            if (materialIndex < 0 || materialIndex >= materials.Length)
+                return $"Error: Material index {materialIndex} out of range (0-{materials.Length - 1}).";
+
+            Material mat = materials[materialIndex];
+            if (mat == null) return $"Error: Material at index {materialIndex} is null.";
+            if (!mat.HasProperty(propertyName))
+                return $"Error: Material '{mat.name}' has no property '{propertyName}'.";
+
+            Shader shader = mat.shader;
+            int propIdx = shader.FindPropertyIndex(propertyName);
+            if (propIdx >= 0)
+            {
+                var propType = ShaderUtil.GetPropertyType(shader, propIdx);
+                if (propType != ShaderUtil.ShaderPropertyType.Vector)
+                    return $"Error: Property '{propertyName}' is of type {propType}, not Vector. Use the matching getter instead.";
+            }
+
+            Vector4 v = mat.GetVector(propertyName);
+            return $"{propertyName} = ({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})";
+        }
+
+        [AgentTool(@"Dump ALL Vector4 properties of a GameObject's material in one call.
+Much cheaper than calling GetMaterialVector per-property when debugging shaders with many vector parameters.
+filter: optional substring match against property name (case-insensitive). Pass '' for all.")]
+        public static string GetAllMaterialVectors(string gameObjectName, int materialIndex = 0, string filter = "")
+        {
+            var go = MeshAnalysisTools.FindGameObject(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer == null) return $"Error: No Renderer found on '{gameObjectName}'.";
+
+            var materials = renderer.sharedMaterials;
+            if (materialIndex < 0 || materialIndex >= materials.Length)
+                return $"Error: Material index {materialIndex} out of range (0-{materials.Length - 1}).";
+
+            Material mat = materials[materialIndex];
+            if (mat == null) return $"Error: Material at index {materialIndex} is null.";
+
+            Shader shader = mat.shader;
+            int propCount = ShaderUtil.GetPropertyCount(shader);
+            string filterLower = string.IsNullOrEmpty(filter) ? null : filter.ToLowerInvariant();
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Material: {mat.name} (Shader: {shader.name})");
+            sb.AppendLine($"Vector4 properties" + (filterLower != null ? $" filter='{filter}'" : "") + ":");
+            sb.AppendLine("---");
+
+            int shown = 0;
+            for (int i = 0; i < propCount; i++)
+            {
+                if (ShaderUtil.GetPropertyType(shader, i) != ShaderUtil.ShaderPropertyType.Vector) continue;
+                string name = ShaderUtil.GetPropertyName(shader, i);
+                if (filterLower != null && name.ToLowerInvariant().IndexOf(filterLower, System.StringComparison.Ordinal) < 0) continue;
+
+                Vector4 v = mat.GetVector(name);
+                string desc = ShaderUtil.GetPropertyDescription(shader, i);
+                string descStr = string.IsNullOrEmpty(desc) ? "" : $" \"{desc}\"";
+                sb.AppendLine($"  {name}{descStr} = ({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})");
+                shown++;
+            }
+
+            if (shown == 0)
+                sb.AppendLine(filterLower != null ? $"  (no Vector4 properties matched '{filter}')" : "  (no Vector4 properties on this shader)");
+
+            return sb.ToString().TrimEnd();
+        }
+
         [AgentTool("Set a texture property on a material. texturePath is the asset path to the Texture.")]
         public static string SetMaterialTexture(string materialPath, string propertyName, string texturePath)
         {

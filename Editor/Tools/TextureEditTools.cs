@@ -896,8 +896,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     case ShaderUtil.ShaderPropertyType.Int:
                         valueStr = mat.GetInt(name).ToString();
                         break;
+                    case ShaderUtil.ShaderPropertyType.Vector:
+                        Vector4 v = mat.GetVector(name);
+                        valueStr = $"({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})";
+                        break;
                     default:
-                        valueStr = "?";
+                        valueStr = $"<unsupported type {type}>";
                         break;
                 }
 

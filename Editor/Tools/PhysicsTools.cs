@@ -583,5 +583,60 @@ constraints is a bitmask: 2=FreezePositionX, 4=Y, 8=Z, 16=FreezeRotationX, 32=Y,
             }
             return sb.ToString();
         }
+
+        // =================================================================
+        // Runtime Simulation
+        // =================================================================
+
+        [AgentTool(@"Run a Unity Physics.Raycast at the given origin/direction and report the first hit.
+Works in BOTH Edit and Play mode (calls Physics.SyncTransforms first to ensure colliders are up-to-date).
+origin / direction as comma-separated 'x,y,z'. direction is auto-normalized.
+distance default 100m. layerMask default -1 (all layers).
+Returns hit GameObject path, point, normal, distance, collider type, or 'No hit' on miss.
+Use to validate raycast-based shader / gameplay logic without entering Play mode.")]
+        public static string SimulatePhysicsRaycast(string origin, string direction, float distance = 100f, int layerMask = -1)
+        {
+            var o = ParseVector3(origin);
+            var d = ParseVector3(direction);
+            if (!o.HasValue) return "Error: origin must be 'x,y,z'.";
+            if (!d.HasValue) return "Error: direction must be 'x,y,z'.";
+            if (d.Value.sqrMagnitude < 1e-8f) return "Error: direction has zero length.";
+            if (distance <= 0f) return "Error: distance must be > 0.";
+
+            Physics.SyncTransforms();
+
+            var ray = new Ray(o.Value, d.Value.normalized);
+            RaycastHit hit;
+            bool didHit = Physics.Raycast(ray, out hit, distance, layerMask, QueryTriggerInteraction.Ignore);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Raycast from ({o.Value.x:F3}, {o.Value.y:F3}, {o.Value.z:F3}) dir=({d.Value.normalized.x:F3}, {d.Value.normalized.y:F3}, {d.Value.normalized.z:F3}) max={distance:F3}m layerMask=0x{layerMask:X}");
+            if (!didHit)
+            {
+                sb.AppendLine($"  -> No hit within {distance:F3}m.");
+                return sb.ToString().TrimEnd();
+            }
+
+            string goPath = GetFullPath(hit.collider.transform);
+            sb.AppendLine($"  -> HIT '{hit.collider.name}' at distance {hit.distance:F4}m");
+            sb.AppendLine($"     path: {goPath}");
+            sb.AppendLine($"     point: ({hit.point.x:F4}, {hit.point.y:F4}, {hit.point.z:F4})");
+            sb.AppendLine($"     normal: ({hit.normal.x:F4}, {hit.normal.y:F4}, {hit.normal.z:F4})");
+            sb.AppendLine($"     collider: {hit.collider.GetType().Name}  isTrigger={hit.collider.isTrigger}");
+            sb.AppendLine($"     layer: {hit.collider.gameObject.layer} ({LayerMask.LayerToName(hit.collider.gameObject.layer)})");
+            return sb.ToString().TrimEnd();
+        }
+
+        private static string GetFullPath(Transform t)
+        {
+            var sb = new StringBuilder(t.name);
+            var cur = t.parent;
+            while (cur != null)
+            {
+                sb.Insert(0, cur.name + "/");
+                cur = cur.parent;
+            }
+            return sb.ToString();
+        }
     }
 }

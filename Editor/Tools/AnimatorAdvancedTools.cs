@@ -791,6 +791,315 @@ weight: default weight (0-1).")]
             return result;
         }
 
+        // =================================================================
+        // Runtime Inspection (Play mode only)
+        // =================================================================
+
+        [AgentTool(@"Read the LIVE runtime value of an Animator parameter during Play mode.
+Returns the current float/bool/int value driven by the state machine (NOT the serialized default).
+Use to diagnose 'is this parameter actually being updated?' — e.g., VRC Contact proximity, OSC, gesture.
+Errors out in Edit mode. Use InspectAnimatorController for default values.")]
+        public static string GetAnimatorRuntimeParameterValue(string gameObjectName, string paramName)
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode. Use InspectAnimatorController for default values in Edit mode.";
+
+            var go = FindGO(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+
+            var animator = go.GetComponent<Animator>();
+            if (animator == null) return $"Error: No Animator component on '{gameObjectName}'.";
+
+            if (!animator.isActiveAndEnabled)
+                return $"Error: Animator on '{gameObjectName}' is disabled (isActiveAndEnabled=false).";
+
+            // NOTE: intentionally do NOT bail on runtimeAnimatorController == null.
+            // GestureManager / other Playable-graph drivers can feed parameters without
+            // assigning a runtimeAnimatorController. Fall back to parameterCount check below.
+            bool hasController = animator.runtimeAnimatorController != null;
+
+            var parameters = animator.parameters;
+            if (parameters == null || parameters.Length == 0)
+            {
+                if (!hasController)
+                    return $"Error: Animator on '{gameObjectName}' has no runtimeAnimatorController and no parameters.";
+                return $"Error: Animator on '{gameObjectName}' exposes no parameters.";
+            }
+            AnimatorControllerParameter target = null;
+            int targetIndex = -1;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (parameters[i].name == paramName)
+                {
+                    target = parameters[i];
+                    targetIndex = i;
+                    break;
+                }
+            }
+
+            if (target == null)
+            {
+                var names = parameters.Select(p => $"{p.name} ({p.type})").Take(20).ToArray();
+                string hint = names.Length == 0
+                    ? "(no parameters defined)"
+                    : string.Join(", ", names) + (parameters.Length > 20 ? ", ..." : "");
+                return $"Error: Parameter '{paramName}' not found. Available: {hint}";
+            }
+
+            bool drivenByCurve = animator.IsParameterControlledByCurve(target.nameHash);
+            string drivenSuffix = drivenByCurve ? " (driven by animation curve)" : "";
+
+            string valueStr;
+            switch (target.type)
+            {
+                case AnimatorControllerParameterType.Float:
+                    valueStr = animator.GetFloat(target.nameHash).ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+                    break;
+                case AnimatorControllerParameterType.Int:
+                    valueStr = animator.GetInteger(target.nameHash).ToString();
+                    break;
+                case AnimatorControllerParameterType.Bool:
+                case AnimatorControllerParameterType.Trigger:
+                    valueStr = animator.GetBool(target.nameHash).ToString();
+                    break;
+                default:
+                    valueStr = "<unknown type>";
+                    break;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Parameter '{target.name}' ({target.type}) = {valueStr}{drivenSuffix}");
+            sb.AppendLine($"  GameObject: {gameObjectName}");
+            sb.AppendLine($"  Parameter index: {targetIndex}/{parameters.Length}");
+            sb.AppendLine($"  Default value: {FormatDefault(target)}");
+            return sb.ToString().TrimEnd();
+        }
+
+        [AgentTool(@"Dump ALL current runtime values of an Animator's parameters in one call (Play mode only).
+Much cheaper than calling GetAnimatorRuntimeParameterValue repeatedly for avatars with many parameters.
+Works even when runtimeAnimatorController is null (e.g., GestureManager preview via PlayableGraph).
+Optional filter: substring match against parameter name (case-insensitive). Optional limit (default 200).")]
+        public static string ListAnimatorRuntimeParameters(string gameObjectName, string filter = "", int limit = 200)
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode.";
+
+            var go = FindGO(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+
+            var animator = go.GetComponent<Animator>();
+            if (animator == null) return $"Error: No Animator component on '{gameObjectName}'.";
+            if (!animator.isActiveAndEnabled)
+                return $"Error: Animator on '{gameObjectName}' is disabled (isActiveAndEnabled=false).";
+
+            var parameters = animator.parameters;
+            if (parameters == null || parameters.Length == 0)
+                return $"Animator on '{gameObjectName}' exposes no parameters. (runtimeAnimatorController={(animator.runtimeAnimatorController != null ? "set" : "null")})";
+
+            string filterLower = string.IsNullOrEmpty(filter) ? null : filter.ToLowerInvariant();
+            var sb = new StringBuilder();
+            sb.AppendLine($"Animator parameters on '{gameObjectName}' ({parameters.Length} total)"
+                + (filterLower != null ? $" filter='{filter}'" : "")
+                + (animator.runtimeAnimatorController == null ? " [controller=null]" : ""));
+            sb.AppendLine("---");
+
+            int shown = 0;
+            int skipped = 0;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var p = parameters[i];
+                if (filterLower != null && p.name.ToLowerInvariant().IndexOf(filterLower, System.StringComparison.Ordinal) < 0)
+                    continue;
+                if (shown >= limit)
+                {
+                    skipped = parameters.Length - i;
+                    break;
+                }
+
+                string valueStr;
+                switch (p.type)
+                {
+                    case AnimatorControllerParameterType.Float:
+                        valueStr = animator.GetFloat(p.nameHash).ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+                        break;
+                    case AnimatorControllerParameterType.Int:
+                        valueStr = animator.GetInteger(p.nameHash).ToString();
+                        break;
+                    case AnimatorControllerParameterType.Bool:
+                    case AnimatorControllerParameterType.Trigger:
+                        valueStr = animator.GetBool(p.nameHash).ToString();
+                        break;
+                    default:
+                        valueStr = "?";
+                        break;
+                }
+
+                bool driven = animator.IsParameterControlledByCurve(p.nameHash);
+                string drivenMark = driven ? " (curve)" : "";
+                sb.AppendLine($"  [{p.type}] {p.name} = {valueStr}{drivenMark}");
+                shown++;
+            }
+
+            if (skipped > 0)
+                sb.AppendLine($"  ... {skipped} more (raise 'limit' to see).");
+
+            if (shown == 0 && filterLower != null)
+                sb.AppendLine($"  (no parameters matched filter '{filter}')");
+
+            return sb.ToString().TrimEnd();
+        }
+
+        [AgentTool(@"Report the CURRENT runtime state of an Animator layer during Play mode (or GestureManager preview).
+Returns current state name, normalizedTime, speed, loop, isInTransition (with next state if transitioning),
+playing clips with weights, and BlendTree blend parameter + current value if the state is a BlendTree.
+layerName is a substring match (case-insensitive); pass empty '' or '*' to default to layer 0.
+Essential for debugging 'FX param changed but visuals don't react' — tells you whether the state machine actually moved.")]
+        public static string GetAnimatorCurrentStateInfo(string gameObjectName, string layerName = "")
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode (or GestureManager preview).";
+
+            var go = FindGO(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+
+            var animator = go.GetComponent<Animator>();
+            if (animator == null) return $"Error: No Animator component on '{gameObjectName}'.";
+            if (!animator.isActiveAndEnabled)
+                return $"Error: Animator on '{gameObjectName}' is disabled.";
+
+            int layerCount = animator.layerCount;
+            if (layerCount == 0)
+                return $"Error: Animator has 0 layers (runtimeAnimatorController={(animator.runtimeAnimatorController != null ? "set" : "null")}).";
+
+            int layerIndex = -1;
+            string resolvedLayerName = null;
+            string filterLower = layerName?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(filterLower) || filterLower == "*")
+            {
+                layerIndex = 0;
+                resolvedLayerName = animator.GetLayerName(0);
+            }
+            else
+            {
+                for (int i = 0; i < layerCount; i++)
+                {
+                    string n = animator.GetLayerName(i);
+                    if (n != null && n.ToLowerInvariant().IndexOf(filterLower, StringComparison.Ordinal) >= 0)
+                    {
+                        layerIndex = i;
+                        resolvedLayerName = n;
+                        break;
+                    }
+                }
+                if (layerIndex < 0)
+                {
+                    var allNames = new List<string>();
+                    for (int i = 0; i < layerCount; i++) allNames.Add($"[{i}] {animator.GetLayerName(i)}");
+                    return $"Error: No layer matches '{layerName}'. Available: {string.Join(", ", allNames)}";
+                }
+            }
+
+            var cur = animator.GetCurrentAnimatorStateInfo(layerIndex);
+            string stateName = ResolveStateName(animator, layerIndex, cur.fullPathHash, cur.shortNameHash);
+            var clips = animator.GetCurrentAnimatorClipInfo(layerIndex);
+            bool inTransition = animator.IsInTransition(layerIndex);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Layer[{layerIndex}] '{resolvedLayerName}' weight={animator.GetLayerWeight(layerIndex):F3}");
+            sb.AppendLine($"  currentState: {stateName}");
+            sb.AppendLine($"  normalizedTime: {cur.normalizedTime.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+            sb.AppendLine($"  length: {cur.length.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}s");
+            sb.AppendLine($"  speed: {cur.speed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} (x{cur.speedMultiplier.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)})");
+            sb.AppendLine($"  loop: {cur.loop}");
+            sb.AppendLine($"  isInTransition: {inTransition}");
+            if (inTransition)
+            {
+                var next = animator.GetNextAnimatorStateInfo(layerIndex);
+                string nextName = ResolveStateName(animator, layerIndex, next.fullPathHash, next.shortNameHash);
+                var tr = animator.GetAnimatorTransitionInfo(layerIndex);
+                sb.AppendLine($"  -> nextState: {nextName}");
+                sb.AppendLine($"  -> transition.normalizedTime: {tr.normalizedTime.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+            }
+
+            sb.AppendLine($"  playingClips ({clips.Length}):");
+            if (clips.Length == 0) sb.AppendLine("    (none)");
+            foreach (var ci in clips)
+                sb.AppendLine($"    - '{(ci.clip != null ? ci.clip.name : "<null>")}' weight={ci.weight.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            // BlendTree introspection via AnimatorController asset (may be null under GM PlayableGraph)
+            var acAsset = animator.runtimeAnimatorController as AnimatorController;
+            if (acAsset != null && layerIndex < acAsset.layers.Length)
+            {
+                var layer = acAsset.layers[layerIndex];
+                var stateMatch = FindStateByHash(layer.stateMachine, cur.fullPathHash, cur.shortNameHash, layer.name);
+                if (stateMatch != null && stateMatch.motion is BlendTree bt)
+                {
+                    sb.AppendLine($"  BlendTree: '{bt.name}' type={bt.blendType}");
+                    if (!string.IsNullOrEmpty(bt.blendParameter))
+                    {
+                        float bpv = animator.GetFloat(bt.blendParameter);
+                        sb.AppendLine($"    blendParameter: {bt.blendParameter} = {bpv.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
+                    }
+                    if (!string.IsNullOrEmpty(bt.blendParameterY) && (bt.blendType == BlendTreeType.SimpleDirectional2D || bt.blendType == BlendTreeType.FreeformDirectional2D || bt.blendType == BlendTreeType.FreeformCartesian2D))
+                    {
+                        float bpv = animator.GetFloat(bt.blendParameterY);
+                        sb.AppendLine($"    blendParameterY: {bt.blendParameterY} = {bpv.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
+                    }
+                    sb.AppendLine($"    children: {bt.children.Length}");
+                    foreach (var child in bt.children)
+                    {
+                        string motionName = child.motion != null ? child.motion.name : "<null>";
+                        sb.AppendLine($"      - '{motionName}' threshold={child.threshold.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} pos=({child.position.x.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)},{child.position.y.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}) timeScale={child.timeScale.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                    }
+                }
+            }
+            else
+            {
+                sb.AppendLine("  (AnimatorController asset not available — BlendTree details skipped; likely GestureManager PlayableGraph.)");
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
+        private static string ResolveStateName(Animator animator, int layerIndex, int fullHash, int shortHash)
+        {
+            var ac = animator.runtimeAnimatorController as AnimatorController;
+            if (ac == null || layerIndex >= ac.layers.Length) return $"<hash {fullHash:X8}>";
+            var found = FindStateByHash(ac.layers[layerIndex].stateMachine, fullHash, shortHash, ac.layers[layerIndex].name);
+            return found != null ? found.name : $"<hash {fullHash:X8}>";
+        }
+
+        private static AnimatorState FindStateByHash(AnimatorStateMachine sm, int fullHash, int shortHash, string pathPrefix)
+        {
+            if (sm == null) return null;
+            foreach (var s in sm.states)
+            {
+                if (s.state == null) continue;
+                int full = Animator.StringToHash($"{pathPrefix}.{s.state.name}");
+                if (full == fullHash || Animator.StringToHash(s.state.name) == shortHash)
+                    return s.state;
+            }
+            foreach (var sub in sm.stateMachines)
+            {
+                if (sub.stateMachine == null) continue;
+                var found = FindStateByHash(sub.stateMachine, fullHash, shortHash, $"{pathPrefix}.{sub.stateMachine.name}");
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static string FormatDefault(AnimatorControllerParameter p)
+        {
+            switch (p.type)
+            {
+                case AnimatorControllerParameterType.Float: return p.defaultFloat.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+                case AnimatorControllerParameterType.Int: return p.defaultInt.ToString();
+                case AnimatorControllerParameterType.Bool:
+                case AnimatorControllerParameterType.Trigger: return p.defaultBool.ToString();
+                default: return "?";
+            }
+        }
+
         private static bool TryParseOp(string input, string op, out string paramName, out float value)
         {
             int idx = input.IndexOf(op);
