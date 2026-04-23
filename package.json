@@ -1,7 +1,7 @@
 {
   "name": "com.ajisaiflow.unityagent",
   "displayName": "UnityAgent",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "unity": "2022.3",
   "description": "AI-powered Unity Editor agent for VRChat avatar creation. 400+ tools.",
   "author": {
@@ -14,7 +14,7 @@
     "url": "https://github.com/lighfu/unity-agent.git"
   },
   "vpmDependencies": {
-    "com.ajisaiflow.unityagent.sdk": ">=0.9.5",
+    "com.ajisaiflow.unityagent.sdk": ">=0.9.6",
     "net.ajisaiflow.md3sdk": ">=0.8.1"
   },
   "keywords": [
