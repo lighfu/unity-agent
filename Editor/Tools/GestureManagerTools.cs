@@ -89,10 +89,101 @@ Use before calling GestureManagerSetParam / ExitPreview to confirm a preview is 
 #endif
         }
 
+        [AgentTool(@"Enter Unity Play mode with GestureManager pre-targeted at the given avatar.
+Equivalent to: set GM 'Favourite Avatar' -> click 'Enter Play-Mode'.
+After domain reload Unity starts Play mode and GM auto-attaches to the favourite avatar.
+
+IMPORTANT: This triggers a domain reload. The MCP bridge WILL disconnect briefly and the next
+tool call may fail until the bridge reconnects. Pass confirm=true to acknowledge.
+
+If already in Play mode, this tool errors out (use ExitPlayMode + re-enter if needed).
+Avatar must have a VRCAvatarDescriptor. Spawns a GestureManager GameObject if none exists.")]
+        public static string GestureManagerEnterPlayMode(string avatarName, bool confirm = false)
+        {
+#if !GESTURE_MANAGER
+            return "Error: Gesture Manager package not installed.";
+#else
+            if (!confirm)
+                return "Error: Dangerous operation - pass confirm=true to proceed. This will trigger a Unity domain reload and briefly disconnect the MCP bridge.";
+
+            if (EditorApplication.isPlaying || EditorApplication.isPlayingOrWillChangePlaymode)
+                return "Error: Already in Play mode (or entering). Call ExitPlayMode first.";
+
+            if (EditorApplication.isCompiling)
+                return "Error: Unity is compiling. Wait and retry.";
+
+            var go = FindGO(avatarName);
+            if (go == null) return $"Error: GameObject '{avatarName}' not found.";
+
+            // Get VRCAvatarDescriptor via base SDK type (stored as VRC_AvatarDescriptor on settings.favourite).
+            var descriptor = go.GetComponent<VRC.SDKBase.VRC_AvatarDescriptor>();
+            if (descriptor == null)
+                return $"Error: '{avatarName}' has no VRC_AvatarDescriptor. GM cannot target it.";
+
+            // GM's TryInitialize only picks up avatars that are activeInHierarchy after domain reload.
+            // Silently activating would be surprising — but returning an error forces the AI to do
+            // SetActive + re-enter, which wastes a round trip + another domain reload. Compromise:
+            // activate here, record via Undo, and surface it in the success message.
+            bool activated = false;
+            if (!descriptor.gameObject.activeInHierarchy)
+            {
+                Undo.RecordObject(descriptor.gameObject, "Activate avatar for GM Enter Play-Mode");
+                descriptor.gameObject.SetActive(true);
+                activated = true;
+                if (!descriptor.gameObject.activeInHierarchy)
+                    return $"Error: '{avatarName}' is still inactive after SetActive(true) — an ancestor is disabled. Activate the parent chain manually and retry.";
+            }
+
+            var gm = FindInstance();
+            bool spawned = false;
+            if (gm == null)
+            {
+                var hostGo = new GameObject("GestureManager");
+                Undo.RegisterCreatedObjectUndo(hostGo, "Spawn GestureManager");
+                gm = hostGo.AddComponent<GestureManager>();
+                spawned = true;
+            }
+            else if (!gm.gameObject.activeInHierarchy)
+            {
+                gm.gameObject.SetActive(true);
+            }
+
+            if (gm.settings == null)
+                return "Error: GestureManager.settings is null. Open the GestureManager inspector once to initialize it, then retry.";
+
+            gm.settings.favourite = descriptor;
+            EditorUtility.SetDirty(gm);
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gm.gameObject.scene);
+
+            // Fire and forget - domain reload ahead.
+            EditorApplication.EnterPlaymode();
+
+            var parts = new System.Collections.Generic.List<string>();
+            if (spawned) parts.Add("spawned GestureManager");
+            if (activated) parts.Add($"activated inactive avatar '{avatarName}' (Undo-recorded)");
+            parts.Add($"set favourite='{avatarName}'");
+            parts.Add("EnterPlaymode requested");
+            return $"Success: {string.Join(", ", parts)}. MCP bridge will briefly disconnect during domain reload. After reload, GM auto-attaches.";
+#endif
+        }
+
+        [AgentTool(@"Exit Unity Play mode (returns to Edit mode).
+Wraps EditorApplication.ExitPlaymode(). Triggers a domain reload; same caveats as EnterPlayMode.
+Pass confirm=true to proceed.")]
+        public static string ExitPlayMode(bool confirm = false)
+        {
+            if (!confirm)
+                return "Error: Dangerous operation - pass confirm=true to proceed. This will trigger a Unity domain reload.";
+            if (!EditorApplication.isPlaying && !EditorApplication.isPlayingOrWillChangePlaymode)
+                return "Not in Play mode - nothing to exit.";
+            EditorApplication.ExitPlaymode();
+            return "Success: ExitPlaymode requested. MCP bridge will briefly disconnect during domain reload.";
+        }
+
         [AgentTool(@"Start a Gesture Manager preview on the given avatar GameObject.
 Equivalent to clicking 'Enter Play-Mode with this Avatar' in the GM inspector.
 Spawns a GestureManager GameObject if none exists. Avatar must have a VRCAvatarDescriptor.
-Does NOT enter Unity Play mode — GM is an Edit-mode simulator.")]
+Does NOT enter Unity Play mode - GM is an Edit-mode simulator.")]
         public static string GestureManagerEnterPreview(string avatarName)
         {
 #if !GESTURE_MANAGER
