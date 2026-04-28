@@ -42,7 +42,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         // PhysBone Add / Remove
         // ================================================================
 
-        [AgentTool("Add a VRCPhysBone component to a GameObject. rootTransformName: optional root bone name (defaults to self). Use ConfigurePhysBone or ApplyPhysBoneTemplate after adding.")]
+        [AgentTool("Add a VRCPhysBone component to a GameObject. rootTransformName: optional root bone name (defaults to self). Use ConfigureVRCPhysBone or ApplyVRCPhysBoneTemplate after adding.")]
         public static string AddPhysBone(string goName, string rootTransformName = "")
         {
             var pbType = FindType(PhysBoneTypeName);

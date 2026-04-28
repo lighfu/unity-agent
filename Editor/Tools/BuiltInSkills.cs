@@ -38,7 +38,7 @@ First, check the avatar's performance:
 ### 2. AvatarDescriptor Check
 Verify the configuration is correct:
 ```
-[InspectAvatarDescriptor('avatarRootName')]
+[InspectVRCAvatarDescriptor('avatarRootName')]
 ```
 
 ### 3. Common Issues to Check
@@ -683,17 +683,17 @@ VRChat avatar's 5 layers:
 
 ### Check Parameters
 ```
-[ListExpressionParameters('avatarRootName')]
+[ListVRCExpressionParameters('avatarRootName')]
 ```
 
 ### Add Parameter
 ```
-[AddExpressionParameter('avatarRootName', 'ParamName', 'Bool', 1.0, saved=true, synced=true)]
+[AddVRCExpressionParameter('avatarRootName', 'ParamName', 'Bool', 1.0, saved=true, synced=true)]
 ```
 
 ### Remove Parameter
 ```
-[RemoveExpressionParameter('avatarRootName', 'ParamName')]
+[RemoveVRCExpressionParameter('avatarRootName', 'ParamName')]
 ```
 
 ### Add Parameter to FX Controller
@@ -776,7 +776,7 @@ Creates two animation clips: ON (m_IsActive=1) and OFF (m_IsActive=0).
 
 ### Step 3: Check FX Controller
 ```
-[GetFXControllerPath('avatarRootName')]
+[GetVRCFXControllerPath('avatarRootName')]
 ```
 Get the FX AnimatorController asset path.
 
@@ -807,14 +807,14 @@ Get the FX AnimatorController asset path.
 
 ### Step 8: Add Expression Parameter
 ```
-[AddExpressionParameter('avatarRootName', 'toggleName', 'Bool', 1.0, saved=true, synced=true)]
+[AddVRCExpressionParameter('avatarRootName', 'toggleName', 'Bool', 1.0, saved=true, synced=true)]
 ```
 - Bool parameter, synced to other players
 - defaultValue: 1.0=default ON, 0.0=default OFF
 
 ### Step 9: Add Expression Menu Toggle
 ```
-[AddExpressionsMenuToggle('avatarRootName', 'toggleName', 'toggleName')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'toggleName', 'toggleName')]
 ```
 
 ## When Menu is Full (SubMenu Support)
@@ -823,22 +823,22 @@ Expression Menu allows a maximum of 8 controls per page. When full, use submenus
 
 ### Creating a SubMenu
 ```
-[AddExpressionsMenuSubMenu('avatarRootName', 'Outfits')]
+[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Outfits')]
 ```
 A new VRCExpressionsMenu asset is automatically generated and linked as a SubMenu control.
 
 ### Adding Controls to a SubMenu
 Use the `subMenuPath` parameter to add within a submenu:
 ```
-[AddExpressionsMenuToggle('avatarRootName', 'Hat', 'Hat', subMenuPath='Outfits')]
-[AddExpressionsMenuToggle('avatarRootName', 'Glasses', 'Glasses', subMenuPath='Outfits')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'Hat', 'Hat', subMenuPath='Outfits')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'Glasses', 'Glasses', subMenuPath='Outfits')]
 ```
 
 ### Nested SubMenus
 `subMenuPath` supports slash-separated nesting:
 ```
-[AddExpressionsMenuSubMenu('avatarRootName', 'Details', subMenuPath='Outfits')]
-[AddExpressionsMenuToggle('avatarRootName', 'Ring', 'Ring', subMenuPath='Outfits/Details')]
+[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Details', subMenuPath='Outfits')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'Ring', 'Ring', subMenuPath='Outfits/Details')]
 ```
 
 ## Tool Call Examples
@@ -859,13 +859,13 @@ AI: [SetupObjectToggle('Avatar', 'Glasses', defaultOn=false)]
 ### Example 3: SubMenu When Menu is Full
 ```
 User: ""The menu is full but I want to add another toggle""
-AI: [InspectExpressionsMenu('Avatar')]
+AI: [InspectVRCExpressionsMenu('Avatar')]
     → Confirm 8 controls
-    [AddExpressionsMenuSubMenu('Avatar', 'Accessories')]
+    [AddVRCExpressionsMenuSubMenu('Avatar', 'Accessories')]
     → Create submenu
     [SetupObjectToggle('Avatar', 'NewItem')]
     → If menu is full, manually add to submenu:
-    [AddExpressionsMenuToggle('Avatar', 'NewItem', 'NewItem', subMenuPath='Accessories')]
+    [AddVRCExpressionsMenuToggle('Avatar', 'NewItem', 'NewItem', subMenuPath='Accessories')]
 ```
 
 ## VRChat Expression Menu Basics
@@ -879,17 +879,17 @@ AI: [InspectExpressionsMenu('Avatar')]
 - See `vrchat-parameters` skill for details
 
 ### Expression Menu Control Types
-- **Toggle**: ON/OFF switch (for Bool parameters) → `AddExpressionsMenuToggle`
-- **Button**: ON only while pressed → `AddExpressionsMenuButton`
-- **SubMenu**: Navigate to submenu → `AddExpressionsMenuSubMenu`
-- **RadialPuppet**: Rotary slider (Float) → `AddExpressionsMenuRadialPuppet`
+- **Toggle**: ON/OFF switch (for Bool parameters) → `AddVRCExpressionsMenuToggle`
+- **Button**: ON only while pressed → `AddVRCExpressionsMenuButton`
+- **SubMenu**: Navigate to submenu → `AddVRCExpressionsMenuSubMenu`
+- **RadialPuppet**: Rotary slider (Float) → `AddVRCExpressionsMenuRadialPuppet`
 - **TwoAxisPuppet**: 2-axis joystick
 - **FourAxisPuppet**: 4-direction input
 
 ### Removing Controls
 ```
-[RemoveExpressionsMenuControl('avatarRootName', 'controlName')]
-[RemoveExpressionParameter('avatarRootName', 'parameterName')]
+[RemoveVRCExpressionsMenuControl('avatarRootName', 'controlName')]
+[RemoveVRCExpressionParameter('avatarRootName', 'parameterName')]
 ```
 
 ### FX Layer Rules
@@ -910,7 +910,7 @@ AI: [InspectExpressionsMenu('Avatar')]
 - Not showing in menu → Check that ExpressionsMenu is assigned in VRCAvatarDescriptor
 - Not visible to other players → Check that parameter Synced=true
 - Wrong default state → Check parameter defaultValue and FX initial state
-- Menu is full → Create a submenu with AddExpressionsMenuSubMenu and add via subMenuPath" },
+- Menu is full → Create a submenu with AddVRCExpressionsMenuSubMenu and add via subMenuPath" },
 
             { "weapon-gimmick-setup", @"---
 title: Weapon Gimmick Positioning
@@ -1744,13 +1744,13 @@ Fix method: See ReadSkill('avatar-optimization').
 → Sync parameter bit consumption. Exceeding 256 bits is an error.
 
 Solutions:
-- Remove unnecessary parameters: [RemoveExpressionParameter('avatarRootName', 'parameterName')]
+- Remove unnecessary parameters: [RemoveVRCExpressionParameter('avatarRootName', 'parameterName')]
 - Change to synced=false (local only)
 - Change Int→Bool (save 8bit→1bit)
 
 ### PhysBone Issues
 ```
-[ListPhysBones('avatarRootName')]
+[ListVRCPhysBones('avatarRootName')]
 ```
 → All PhysBones and their parameters.
 Identify excessive PhysBone count or inefficient settings.
@@ -1763,10 +1763,10 @@ Identify excessive PhysBone count or inefficient settings.
 | Toggles not working | CheckWriteDefaults | Unify WD (all ON or all OFF) |
 | Avatar is heavy | GetAvatarPerformanceStats | Identify bottleneck category → optimize |
 | Parameter budget exceeded | CheckParameterBudget | Remove unnecessary parameters or make local |
-| Hair/skirt not moving | ListPhysBones | Check PhysBone settings, pull/spring values |
+| Hair/skirt not moving | ListVRCPhysBones | Check PhysBone settings, pull/spring values |
 | Mesh disappearing | InspectGameObject → check active | Enable with SetActive |
 | Material is pink | InspectMaterial | Check shader, reconfigure |
-| Bones flying off | InspectPhysBone | Fix abnormal parameter values |
+| Bones flying off | InspectVRCPhysBone | Fix abnormal parameter values |
 | ""GameObject 'X' not found"" | Wrong path | ScanAvatarMeshes to discover correct paths |
 | ""Material not found at 'X'"" | Wrong material path | SearchAssets(name, ""Material"") |
 | ""Unknown color property"" | Raw property name used | Use friendly names (Main/Shadow/Rim) |
@@ -1793,7 +1793,7 @@ Use templates for efficient setup.
 ## Step 1: Check Existing PhysBones
 
 ```
-[ListPhysBones('avatarRootName')]
+[ListVRCPhysBones('avatarRootName')]
 ```
 → Check already configured PhysBones. Avoid duplicate additions.
 
@@ -1812,7 +1812,7 @@ Example: Adding PhysBone to Hair_front_Root → All children (Hair_front_0, Hair
 Apply a template based on the bone type:
 ```
 [AddPhysBone('boneName')]
-[ApplyPhysBoneTemplate('boneName', 'templateName')]
+[ApplyVRCPhysBoneTemplate('boneName', 'templateName')]
 ```
 
 ### Template List and Use Cases
@@ -1842,7 +1842,7 @@ Apply a template based on the bone type:
 
 Fine-tune after applying template:
 ```
-[ConfigurePhysBone('boneName', pull=0.3, gravity=0.2)]
+[ConfigureVRCPhysBone('boneName', pull=0.3, gravity=0.2)]
 ```
 
 ### Parameter Meanings and Tuning Guide
@@ -1893,7 +1893,7 @@ Check ranks for PhysBones, PB Transforms, PB Colliders, and PB Collision Checks.
 | Coat, coat, Cape | Skirt |
 | Ahoge, ahoge | Ribbon |
 
-If unclear, check existing settings with InspectPhysBone or ask the user.
+If unclear, check existing settings with InspectVRCPhysBone or ask the user.
 
 ## Notes
 - Add PhysBone to the **root of the chain** (not the tip)
@@ -1980,12 +1980,12 @@ When applying the same change to multiple materials, make consecutive tool calls
 
 ### Bulk PhysBone Check & Configure
 ```
-[ListPhysBones('avatarRootName')]
+[ListVRCPhysBones('avatarRootName')]
 ```
 → Full PhysBone list. Configure individually:
 ```
-[ConfigurePhysBone('Hair_Root', pull=0.2, spring=0.3)]
-[ConfigurePhysBone('Skirt_Root', pull=0.3, gravity=0.3)]
+[ConfigureVRCPhysBone('Hair_Root', pull=0.2, spring=0.3)]
+[ConfigureVRCPhysBone('Skirt_Root', pull=0.3, gravity=0.3)]
 ```
 
 ## Pattern 5: Bulk Object ON/OFF
@@ -2012,7 +2012,7 @@ Identify targets and rename individually:
 
 ## Efficient Operation Principles
 
-1. **Get the list first**: Use ListRenderers, ListPhysBones, ListChildren, etc. for overview
+1. **Get the list first**: Use ListRenderers, ListVRCPhysBones, ListChildren, etc. for overview
 2. **Identify patterns**: Use consecutive calls when repeating the same operation
 3. **Prefer dedicated batch tools**: BatchConfigureShadows, SetMultipleBlendShapes, etc.
 4. **Supplement with generic tools**: SetProperty works on any component property

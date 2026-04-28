@@ -41,8 +41,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return go.GetComponent(type);
         }
 
-        [AgentTool("Inspect VRCAvatarDescriptor settings (Viewpoint, LipSync, Layers, Expressions). Requires VRChat SDK.")]
-        public static string InspectAvatarDescriptor(string avatarRootName)
+        [AgentTool("Inspect VRCAvatarDescriptor settings (Viewpoint, LipSync, Eye Look, Playable Layers, Lower Body, Expressions, Colliders, Rig). Requires VRChat SDK.")]
+        public static string InspectVRCAvatarDescriptor(string avatarRootName)
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found. Ensure VRChat Avatar SDK is installed.";
@@ -57,19 +57,22 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var sb = new StringBuilder();
             sb.AppendLine($"VRCAvatarDescriptor on '{avatarRootName}':");
 
-            // Viewpoint
+            // Viewpoint (full precision)
             var viewPosition = so.FindProperty("ViewPosition");
             if (viewPosition != null)
-                sb.AppendLine($"  ViewPosition: {viewPosition.vector3Value}");
+            {
+                var v = viewPosition.vector3Value;
+                sb.AppendLine($"  ViewPosition: ({v.x:F6}, {v.y:F6}, {v.z:F6})");
+            }
 
             // LipSync
             var lipSync = so.FindProperty("lipSync");
             if (lipSync != null)
-                sb.AppendLine($"  LipSync: {(lipSync.enumDisplayNames != null && lipSync.enumValueIndex >= 0 && lipSync.enumValueIndex < lipSync.enumDisplayNames.Length ? lipSync.enumDisplayNames[lipSync.enumValueIndex] : lipSync.enumValueIndex.ToString())}");
+                sb.AppendLine($"  LipSync: {EnumDisplayName(lipSync)}");
 
             var lipSyncMesh = so.FindProperty("VisemeSkinnedMesh");
             if (lipSyncMesh != null && lipSyncMesh.objectReferenceValue != null)
-                sb.AppendLine($"  VisemeSkinnedMesh: {lipSyncMesh.objectReferenceValue.name}");
+                sb.AppendLine($"  VisemeSkinnedMesh: {FormatScenePath(lipSyncMesh.objectReferenceValue)}");
 
             // Visemes
             var visemeBlendShapes = so.FindProperty("VisemeBlendShapes");
@@ -84,70 +87,153 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 }
             }
 
+            // Eye Look
+            AppendEyeLook(sb, so);
+
             // Playable Layers
             var customizeAnimLayers = so.FindProperty("customizeAnimationLayers");
             if (customizeAnimLayers != null)
                 sb.AppendLine($"  CustomizeAnimationLayers: {customizeAnimLayers.boolValue}");
 
             var baseLayers = so.FindProperty("baseAnimationLayers");
-            if (baseLayers != null && baseLayers.isArray)
+            AppendAnimLayers(sb, baseLayers, "Base Animation Layers");
+
+            var specialLayers = so.FindProperty("specialAnimationLayers");
+            AppendAnimLayers(sb, specialLayers, "Special Animation Layers");
+
+            // Lower Body
+            var autoFootsteps = so.FindProperty("autoFootsteps");
+            var autoLocomotion = so.FindProperty("autoLocomotion");
+            if (autoFootsteps != null || autoLocomotion != null)
             {
-                sb.AppendLine($"  Base Animation Layers ({baseLayers.arraySize}):");
-                for (int i = 0; i < baseLayers.arraySize; i++)
-                {
-                    var layer = baseLayers.GetArrayElementAtIndex(i);
-                    var isDefault = layer.FindPropertyRelative("isDefault");
-                    var animController = layer.FindPropertyRelative("animatorController");
-                    string controllerName = animController != null && animController.objectReferenceValue != null
-                        ? animController.objectReferenceValue.name
-                        : "None";
-                    string defaultStr = isDefault != null ? (isDefault.boolValue ? " [Default]" : "") : "";
-                    sb.AppendLine($"    {i}: {controllerName}{defaultStr}");
-                }
+                sb.AppendLine("  Lower Body:");
+                if (autoFootsteps != null)
+                    sb.AppendLine($"    AutoFootsteps (3-4 point tracking): {autoFootsteps.boolValue}");
+                if (autoLocomotion != null)
+                    sb.AppendLine($"    ForceLocomotion (6 point tracking): {autoLocomotion.boolValue}");
             }
 
             // Expressions
             var expressionParams = so.FindProperty("expressionParameters");
-            if (expressionParams != null && expressionParams.objectReferenceValue != null)
-                sb.AppendLine($"  ExpressionParameters: {expressionParams.objectReferenceValue.name}");
-            else
-                sb.AppendLine("  ExpressionParameters: None");
+            sb.AppendLine($"  ExpressionParameters: {FormatAssetRef(expressionParams?.objectReferenceValue)}");
 
             var expressionsMenu = so.FindProperty("expressionsMenu");
-            if (expressionsMenu != null && expressionsMenu.objectReferenceValue != null)
-                sb.AppendLine($"  ExpressionsMenu: {expressionsMenu.objectReferenceValue.name}");
+            sb.AppendLine($"  ExpressionsMenu: {FormatAssetRef(expressionsMenu?.objectReferenceValue)}");
+
+            // Colliders
+            string[] colliderNames =
+            {
+                "collider_head", "collider_torso",
+                "collider_handL", "collider_handR",
+                "collider_footL", "collider_footR",
+                "collider_fingerIndexL", "collider_fingerIndexR",
+                "collider_fingerMiddleL", "collider_fingerMiddleR",
+                "collider_fingerRingL", "collider_fingerRingR",
+                "collider_fingerLittleL", "collider_fingerLittleR",
+            };
+            bool anyCollider = colliderNames.Any(n => so.FindProperty(n) != null);
+            if (anyCollider)
+            {
+                sb.AppendLine("  Colliders:");
+                foreach (var name in colliderNames)
+                {
+                    var prop = so.FindProperty(name);
+                    if (prop == null) continue;
+                    var stateProp = prop.FindPropertyRelative("state");
+                    string stateStr = stateProp != null ? EnumDisplayName(stateProp) : "?";
+                    sb.AppendLine($"    {name.Substring("collider_".Length)}: {stateStr}");
+                }
+            }
+
+            // Unity Version & Rig Type
+            var unityVersionProp = so.FindProperty("unityVersion");
+            if (unityVersionProp != null && !string.IsNullOrEmpty(unityVersionProp.stringValue))
+                sb.AppendLine($"  UnityVersion: {unityVersionProp.stringValue}");
+
+            var animator = go.GetComponent<Animator>();
+            if (animator != null && animator.avatar != null)
+            {
+                string rigType = animator.avatar.isHuman ? "Humanoid" : (animator.avatar.isValid ? "Generic" : "Invalid");
+                sb.AppendLine($"  RigType: {rigType}");
+            }
             else
-                sb.AppendLine("  ExpressionsMenu: None");
+            {
+                sb.AppendLine("  RigType: (no Animator/Avatar)");
+            }
 
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Inspect Eye Look settings on VRCAvatarDescriptor: Eye Movement (Calm/Excited, Shy/Confident), eye bone transforms, eyelid type, and rotation states.")]
-        public static string InspectEyeLook(string avatarRootName)
+        private static void AppendAnimLayers(StringBuilder sb, SerializedProperty layers, string label)
         {
-            var descriptorType = FindVrcType(VrcDescriptorTypeName);
-            if (descriptorType == null) return "Error: VRChat SDK not found.";
+            if (layers == null || !layers.isArray) return;
+            sb.AppendLine($"  {label} ({layers.arraySize}):");
+            for (int i = 0; i < layers.arraySize; i++)
+            {
+                var layer = layers.GetArrayElementAtIndex(i);
+                var typeProp = layer.FindPropertyRelative("type");
+                var isDefault = layer.FindPropertyRelative("isDefault");
+                var animController = layer.FindPropertyRelative("animatorController");
+                var maskProp = layer.FindPropertyRelative("mask");
 
-            var go = FindGO(avatarRootName);
-            if (go == null) return $"Error: GameObject '{avatarRootName}' not found.";
+                string typeName = typeProp != null ? EnumDisplayName(typeProp) : "?";
 
-            var descriptor = go.GetComponent(descriptorType);
-            if (descriptor == null) return $"Error: No VRCAvatarDescriptor found on '{avatarRootName}'.";
+                bool hasController = animController != null && animController.objectReferenceValue != null;
+                bool isDef = isDefault != null && isDefault.boolValue;
+                // VRC SDK inspector convention: when isDefault=true the controller field is ignored and shown as "Default"
+                string controllerName = isDef ? "Default" : (hasController ? FormatAssetRef(animController.objectReferenceValue) : "None");
+                string defaultStr = isDef ? " [Default]" : "";
+                string maskStr = maskProp != null && maskProp.objectReferenceValue != null ? $", mask={FormatAssetRef(maskProp.objectReferenceValue)}" : "";
+                sb.AppendLine($"    {i} {typeName}: {controllerName}{defaultStr}{maskStr}");
+            }
+        }
 
-            var so = new SerializedObject(descriptor);
-            var sb = new StringBuilder();
-            sb.AppendLine($"Eye Look Settings on '{avatarRootName}':");
+        private static string EnumDisplayName(SerializedProperty prop)
+        {
+            if (prop == null) return "?";
+            var names = prop.enumDisplayNames;
+            int idx = prop.enumValueIndex;
+            if (names != null && idx >= 0 && idx < names.Length) return names[idx];
+            return idx.ToString();
+        }
 
+        /// Returns the scene hierarchy path of a GameObject/Component (e.g. "Avatar/Armature/Hips").
+        /// AI agents need the full path to disambiguate same-named objects and to use it as input for other tools.
+        private static string FormatScenePath(UnityEngine.Object obj)
+        {
+            if (obj == null) return "None";
+            Transform t = obj is GameObject go ? go.transform : (obj as Component)?.transform;
+            if (t == null) return obj.name;
+
+            var sb = new StringBuilder(t.name);
+            for (var p = t.parent; p != null; p = p.parent)
+            {
+                sb.Insert(0, "/");
+                sb.Insert(0, p.name);
+            }
+            return sb.ToString();
+        }
+
+        /// Returns "name (Assets/.../foo.controller)" for assets, or just "name" if not an asset.
+        private static string FormatAssetRef(UnityEngine.Object obj)
+        {
+            if (obj == null) return "None";
+            var path = AssetDatabase.GetAssetPath(obj);
+            return string.IsNullOrEmpty(path) ? obj.name : $"{obj.name} ({path})";
+        }
+
+        private static void AppendEyeLook(StringBuilder sb, SerializedObject so)
+        {
             var enableEyeLook = so.FindProperty("enableEyeLook");
             if (enableEyeLook == null || !enableEyeLook.boolValue)
             {
                 sb.AppendLine("  Eye Look: Disabled");
-                return sb.ToString().TrimEnd();
+                return;
             }
             sb.AppendLine("  Eye Look: Enabled");
 
             var eyeSettings = so.FindProperty("customEyeLookSettings");
-            if (eyeSettings == null) return sb.ToString().TrimEnd();
+            if (eyeSettings == null) return;
 
             // Eye Movement sliders
             var eyeMovement = eyeSettings.FindPropertyRelative("eyeMovement");
@@ -166,52 +252,69 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var leftEye = eyeSettings.FindPropertyRelative("leftEye");
             var rightEye = eyeSettings.FindPropertyRelative("rightEye");
             sb.AppendLine("  Eye Transforms:");
-            sb.AppendLine($"    Left Eye: {(leftEye != null && leftEye.objectReferenceValue != null ? leftEye.objectReferenceValue.name : "None")}");
-            sb.AppendLine($"    Right Eye: {(rightEye != null && rightEye.objectReferenceValue != null ? rightEye.objectReferenceValue.name : "None")}");
+            sb.AppendLine($"    Left Eye: {FormatScenePath(leftEye?.objectReferenceValue)}");
+            sb.AppendLine($"    Right Eye: {FormatScenePath(rightEye?.objectReferenceValue)}");
 
-            // Eyelid type
+            // Eyelid type — use enumDisplayNames to avoid hard-coding enum order (VRC SDK: None, Bones, Blendshapes)
             var eyelidType = eyeSettings.FindPropertyRelative("eyelidType");
             if (eyelidType != null)
-            {
-                string[] eyelidTypeNames = { "None", "Blendshapes", "Bones" };
-                int idx = eyelidType.enumValueIndex;
-                string typeName = idx >= 0 && idx < eyelidTypeNames.Length ? eyelidTypeNames[idx] : idx.ToString();
-                sb.AppendLine($"  Eyelid Type: {typeName}");
-            }
+                sb.AppendLine($"  Eyelid Type: {EnumDisplayName(eyelidType)}");
 
-            // Eyelid mesh & blendshapes
+            // Eyelid mesh & blendshapes (resolve names from sharedMesh)
             var eyelidsMesh = eyeSettings.FindPropertyRelative("eyelidsSkinnedMesh");
+            SkinnedMeshRenderer eyelidsSmr = null;
             if (eyelidsMesh != null && eyelidsMesh.objectReferenceValue != null)
-                sb.AppendLine($"  Eyelids Mesh: {eyelidsMesh.objectReferenceValue.name}");
+            {
+                eyelidsSmr = eyelidsMesh.objectReferenceValue as SkinnedMeshRenderer;
+                sb.AppendLine($"  Eyelids Mesh: {FormatScenePath(eyelidsMesh.objectReferenceValue)}");
+            }
 
             var eyelidsBlendshapes = eyeSettings.FindPropertyRelative("eyelidsBlendshapes");
             if (eyelidsBlendshapes != null && eyelidsBlendshapes.isArray && eyelidsBlendshapes.arraySize > 0)
             {
                 string[] labels = { "Blink", "LookingUp", "LookingDown" };
                 sb.AppendLine("  Eyelid Blendshapes:");
+                Mesh sharedMesh = eyelidsSmr != null ? eyelidsSmr.sharedMesh : null;
                 for (int i = 0; i < eyelidsBlendshapes.arraySize && i < labels.Length; i++)
                 {
                     int blendIndex = eyelidsBlendshapes.GetArrayElementAtIndex(i).intValue;
-                    sb.AppendLine($"    {labels[i]}: index {blendIndex}");
+                    string blendName = "?";
+                    if (sharedMesh != null && blendIndex >= 0 && blendIndex < sharedMesh.blendShapeCount)
+                        blendName = sharedMesh.GetBlendShapeName(blendIndex);
+                    sb.AppendLine($"    {labels[i]}: {blendName} (index {blendIndex})");
                 }
             }
 
-            // Rotation states summary
+            // Rotation states (linked + euler values for left/right)
             foreach (string stateName in new[] { "eyesLookingStraight", "eyesLookingUp", "eyesLookingDown", "eyesLookingLeft", "eyesLookingRight" })
             {
                 var state = eyeSettings.FindPropertyRelative(stateName);
-                if (state != null)
-                {
-                    var linked = state.FindPropertyRelative("linked");
-                    sb.AppendLine($"  {stateName}: linked={linked?.boolValue}");
-                }
+                if (state == null) continue;
+                var linked = state.FindPropertyRelative("linked");
+                var leftQ = state.FindPropertyRelative("left");
+                var rightQ = state.FindPropertyRelative("right");
+                string leftEuler = leftQ != null ? FormatQuaternionEuler(leftQ.quaternionValue) : "?";
+                string rightEuler = rightQ != null ? FormatQuaternionEuler(rightQ.quaternionValue) : "?";
+                bool isLinked = linked != null && linked.boolValue;
+                if (isLinked)
+                    sb.AppendLine($"  {stateName}: linked=true, euler={leftEuler}");
+                else
+                    sb.AppendLine($"  {stateName}: linked=false, left={leftEuler}, right={rightEuler}");
             }
-
-            return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Set Eye Movement personality on VRCAvatarDescriptor. excitement: 0=Calm (less blinking) to 1=Excited (more blinking). confidence: 0=Shy (avoids eye contact) to 1=Confident (holds eye contact). Values are rounded to 0.1. Pass -1 to leave unchanged. Example: ConfigureEyeMovement(\"MyAvatar\", 0.3, 0.7) for a calm and confident character.")]
-        public static string ConfigureEyeMovement(string avatarRootName, float excitement = -1f, float confidence = -1f)
+        private static string FormatQuaternionEuler(Quaternion q)
+        {
+            var e = q.eulerAngles;
+            // Normalize to (-180, 180] for readability
+            if (e.x > 180f) e.x -= 360f;
+            if (e.y > 180f) e.y -= 360f;
+            if (e.z > 180f) e.z -= 360f;
+            return $"({e.x:F4}, {e.y:F4}, {e.z:F4})";
+        }
+
+        [AgentTool("Set Eye Movement personality on VRCAvatarDescriptor. excitement: 0=Calm (less blinking) to 1=Excited (more blinking). confidence: 0=Shy (avoids eye contact) to 1=Confident (holds eye contact). Values are rounded to 0.1. Pass -1 to leave unchanged. Example: ConfigureVRCEyeMovement(\"MyAvatar\", 0.3, 0.7) for a calm and confident character.")]
+        public static string ConfigureVRCEyeMovement(string avatarRootName, float excitement = -1f, float confidence = -1f)
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found.";
@@ -282,8 +385,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("List all VRCPhysBone components under an avatar with their parameters.")]
-        public static string ListPhysBones(string avatarRootName)
+        [AgentTool("List all VRCPhysBone paths under an avatar (overview). Use InspectVRCPhysBone for full per-bone details.")]
+        public static string ListVRCPhysBones(string avatarRootName)
         {
             var physBoneType = FindVrcType(VrcPhysBoneTypeName);
             if (physBoneType == null) return "Error: VRChat SDK not found. Ensure VRChat Avatar SDK is installed.";
@@ -296,42 +399,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"PhysBones under '{avatarRootName}' ({physBones.Length}):");
-
-            int limit = Math.Min(physBones.Length, 20);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < physBones.Length; i++)
             {
                 var pb = physBones[i];
-                var pbSo = new SerializedObject(pb);
                 string path = GetRelativePath(go.transform, pb.transform);
                 sb.AppendLine($"  [{i}] {path}");
-
-                // Root transform
-                var rootTransform = pbSo.FindProperty("rootTransform");
-                if (rootTransform != null && rootTransform.objectReferenceValue != null)
-                    sb.AppendLine($"    RootTransform: {rootTransform.objectReferenceValue.name}");
-
-                AppendFloatProperty(sb, pbSo, "pull", "    Pull");
-                AppendFloatProperty(sb, pbSo, "spring", "    Spring");
-                AppendFloatProperty(sb, pbSo, "stiffness", "    Stiffness");
-                AppendFloatProperty(sb, pbSo, "gravity", "    Gravity");
-                AppendFloatProperty(sb, pbSo, "gravityFalloff", "    GravityFalloff");
-                AppendFloatProperty(sb, pbSo, "immobile", "    Immobile");
-
-                var maxStretch = pbSo.FindProperty("maxStretch");
-                if (maxStretch != null) sb.AppendLine($"    MaxStretch: {maxStretch.floatValue:F2}");
-
-                var radius = pbSo.FindProperty("radius");
-                if (radius != null) sb.AppendLine($"    Radius: {radius.floatValue:F3}");
             }
-
-            if (physBones.Length > 20)
-                sb.AppendLine($"  ... and {physBones.Length - 20} more.");
-
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Inspect a VRCPhysBone component in detail. Shows all parameters: integration type, forces, limits, collision, grab/pose, stretch/squish, parameter name.")]
-        public static string InspectPhysBone(string goName)
+        [AgentTool("Inspect a VRCPhysBone component in full detail (mirrors the SDK Inspector): version, transforms, forces (Simplified/Advanced w/ Momentum), limits (Angle/Hinge/Polar with rotation), collision (radius + collider paths), stretch/squish, grab/pose, options. Pass the GameObject name that owns the PhysBone.")]
+        public static string InspectVRCPhysBone(string goName)
         {
             var physBoneType = FindVrcType(VrcPhysBoneTypeName);
             if (physBoneType == null) return "Error: VRChat SDK not found. Ensure VRChat Avatar SDK is installed.";
@@ -344,107 +422,128 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var so = new SerializedObject(physBone);
             var sb = new StringBuilder();
-            sb.AppendLine($"VRCPhysBone on '{goName}':");
+            sb.AppendLine($"VRCPhysBone on '{FormatScenePath(physBone)}':");
 
-            // Integration type
-            var integrationType = so.FindProperty("integrationType");
-            if (integrationType != null)
-                sb.AppendLine($"  IntegrationType: {(integrationType.intValue == 0 ? "Simplified" : "Advanced")}");
+            // Header
+            var version = so.FindProperty("version");
+            if (version != null)
+                sb.AppendLine($"  Version: {EnumDisplayName(version)}");
 
-            // Root & endpoint
+            // Transforms
+            sb.AppendLine("  --- Transforms ---");
             var rootTransform = so.FindProperty("rootTransform");
-            if (rootTransform != null && rootTransform.objectReferenceValue != null)
-                sb.AppendLine($"  RootTransform: {rootTransform.objectReferenceValue.name}");
-            else
-                sb.AppendLine($"  RootTransform: (self)");
+            sb.AppendLine($"    RootTransform: {(rootTransform?.objectReferenceValue != null ? FormatScenePath(rootTransform.objectReferenceValue) : "(self)")}");
+
+            var ignoreTransforms = so.FindProperty("ignoreTransforms");
+            if (ignoreTransforms != null && ignoreTransforms.isArray)
+            {
+                sb.AppendLine($"    IgnoreTransforms: {ignoreTransforms.arraySize}");
+                for (int i = 0; i < ignoreTransforms.arraySize; i++)
+                {
+                    var t = ignoreTransforms.GetArrayElementAtIndex(i).objectReferenceValue;
+                    sb.AppendLine($"      [{i}] {(t != null ? FormatScenePath(t) : "None")}");
+                }
+            }
+
+            AppendBool(sb, so, "ignoreOtherPhysBones", "    IgnoreOtherPhysBones");
 
             var endpointPosition = so.FindProperty("endpointPosition");
             if (endpointPosition != null)
-                sb.AppendLine($"  EndpointPosition: {endpointPosition.vector3Value}");
+            {
+                var ep = endpointPosition.vector3Value;
+                sb.AppendLine($"    EndpointPosition: ({ep.x:F4}, {ep.y:F4}, {ep.z:F4})");
+            }
 
             var multiChildType = so.FindProperty("multiChildType");
             if (multiChildType != null)
-            {
-                string[] multiChildNames = { "Ignore", "First", "Average" };
-                int mcVal = multiChildType.intValue;
-                sb.AppendLine($"  MultiChildType: {(mcVal >= 0 && mcVal < multiChildNames.Length ? multiChildNames[mcVal] : mcVal.ToString())}");
-            }
+                sb.AppendLine($"    MultiChildType: {EnumDisplayName(multiChildType)}");
 
             // Forces
             sb.AppendLine("  --- Forces ---");
-            AppendFloatProperty(sb, so, "pull", "  Pull");
-            AppendFloatProperty(sb, so, "spring", "  Spring");
-            AppendFloatProperty(sb, so, "stiffness", "  Stiffness");
-            AppendFloatProperty(sb, so, "gravity", "  Gravity");
-            AppendFloatProperty(sb, so, "gravityFalloff", "  GravityFalloff");
-            AppendFloatProperty(sb, so, "immobile", "  Immobile");
+            var integrationType = so.FindProperty("integrationType");
+            bool isAdvanced = integrationType != null && integrationType.intValue != 0;
+            if (integrationType != null)
+                sb.AppendLine($"    IntegrationType: {EnumDisplayName(integrationType)}");
+            AppendFloatProperty(sb, so, "pull", "    Pull");
+            // VRC SDK reuses the `spring` field; the Inspector relabels it "Momentum" when IntegrationType=Advanced
+            AppendFloatProperty(sb, so, "spring", isAdvanced ? "    Momentum" : "    Spring");
+            AppendFloatProperty(sb, so, "stiffness", "    Stiffness");
+            AppendFloatProperty(sb, so, "gravity", "    Gravity");
+            AppendFloatProperty(sb, so, "gravityFalloff", "    GravityFalloff");
+            var immobileType = so.FindProperty("immobileType");
+            if (immobileType != null)
+                sb.AppendLine($"    ImmobileType: {EnumDisplayName(immobileType)}");
+            AppendFloatProperty(sb, so, "immobile", "    Immobile");
 
-            // Limits
+            // Limits — always emit underlying fields so AI can see persisted data even when
+            // the inspector hides them due to LimitType. Append "(inactive: LimitType=None)" etc.
             sb.AppendLine("  --- Limits ---");
             var limitType = so.FindProperty("limitType");
             if (limitType != null)
+                sb.AppendLine($"    LimitType: {EnumDisplayName(limitType)}");
+            int ltVal = limitType != null ? limitType.intValue : 0;
+            // 0=None, 1=Angle, 2=Hinge, 3=Polar
+            string maxAngleXLabel = ltVal switch
             {
-                string[] limitNames = { "None", "Angle", "Hinge", "Polar" };
-                int ltVal = limitType.intValue;
-                sb.AppendLine($"  LimitType: {(ltVal >= 0 && ltVal < limitNames.Length ? limitNames[ltVal] : ltVal.ToString())}");
+                1 or 2 => "    MaxAngle",
+                3 => "    MaxAngleX",
+                _ => "    MaxAngleX (inactive)",
+            };
+            AppendFloatProperty(sb, so, "maxAngleX", maxAngleXLabel);
+            string maxAngleZLabel = ltVal == 3 ? "    MaxAngleZ" : "    MaxAngleZ (inactive)";
+            AppendFloatProperty(sb, so, "maxAngleZ", maxAngleZLabel);
+            var limitRotation = so.FindProperty("limitRotation");
+            if (limitRotation != null)
+            {
+                var lr = limitRotation.vector3Value;
+                string rotLabel = ltVal != 0 ? "    Rotation" : "    Rotation (inactive)";
+                sb.AppendLine($"{rotLabel}: ({lr.x:F4}, {lr.y:F4}, {lr.z:F4})");
             }
-            AppendFloatProperty(sb, so, "maxAngleX", "  MaxAngleX");
-            AppendFloatProperty(sb, so, "maxAngleZ", "  MaxAngleZ");
 
             // Collision
             sb.AppendLine("  --- Collision ---");
-            AppendFloatProperty(sb, so, "radius", "  Radius");
+            AppendFloatProperty(sb, so, "radius", "    Radius");
             var allowCollision = so.FindProperty("allowCollision");
             if (allowCollision != null)
-            {
-                string[] collisionNames = { "True", "False", "Other" };
-                int acVal = allowCollision.intValue;
-                sb.AppendLine($"  AllowCollision: {(acVal >= 0 && acVal < collisionNames.Length ? collisionNames[acVal] : acVal.ToString())}");
-            }
+                sb.AppendLine($"    AllowCollision: {EnumDisplayName(allowCollision)}");
             var colliders = so.FindProperty("colliders");
             if (colliders != null && colliders.isArray)
-                sb.AppendLine($"  Colliders: {colliders.arraySize}");
-
-            // Grab & Pose
-            sb.AppendLine("  --- Grab/Pose ---");
-            var allowGrabbing = so.FindProperty("allowGrabbing");
-            if (allowGrabbing != null)
             {
-                string[] grabNames = { "True", "False", "Other" };
-                int agVal = allowGrabbing.intValue;
-                sb.AppendLine($"  AllowGrabbing: {(agVal >= 0 && agVal < grabNames.Length ? grabNames[agVal] : agVal.ToString())}");
+                sb.AppendLine($"    Colliders: {colliders.arraySize}");
+                for (int i = 0; i < colliders.arraySize; i++)
+                {
+                    var c = colliders.GetArrayElementAtIndex(i).objectReferenceValue;
+                    sb.AppendLine($"      [{i}] {(c != null ? FormatScenePath(c) : "None")}");
+                }
             }
-            var allowPosing = so.FindProperty("allowPosing");
-            if (allowPosing != null)
-            {
-                string[] poseNames = { "True", "False", "Other" };
-                int apVal = allowPosing.intValue;
-                sb.AppendLine($"  AllowPosing: {(apVal >= 0 && apVal < poseNames.Length ? poseNames[apVal] : apVal.ToString())}");
-            }
-            AppendFloatProperty(sb, so, "grabMovement", "  GrabMovement");
-            var snapToHand = so.FindProperty("snapToHand");
-            if (snapToHand != null) sb.AppendLine($"  SnapToHand: {snapToHand.boolValue}");
 
             // Stretch & Squish
-            sb.AppendLine("  --- Stretch/Squish ---");
-            AppendFloatProperty(sb, so, "maxStretch", "  MaxStretch");
-            AppendFloatProperty(sb, so, "maxSquish", "  MaxSquish");
-            AppendFloatProperty(sb, so, "stretchMotion", "  StretchMotion");
+            sb.AppendLine("  --- Stretch & Squish ---");
+            AppendFloatProperty(sb, so, "stretchMotion", "    StretchMotion");
+            AppendFloatProperty(sb, so, "maxStretch", "    MaxStretch");
+            AppendFloatProperty(sb, so, "maxSquish", "    MaxSquish");
+
+            // Grab & Pose
+            sb.AppendLine("  --- Grab & Pose ---");
+            var allowGrabbing = so.FindProperty("allowGrabbing");
+            if (allowGrabbing != null)
+                sb.AppendLine($"    AllowGrabbing: {EnumDisplayName(allowGrabbing)}");
+            var allowPosing = so.FindProperty("allowPosing");
+            if (allowPosing != null)
+                sb.AppendLine($"    AllowPosing: {EnumDisplayName(allowPosing)}");
+            AppendFloatProperty(sb, so, "grabMovement", "    GrabMovement");
+            AppendBool(sb, so, "snapToHand", "    SnapToHand");
 
             // Options
             sb.AppendLine("  --- Options ---");
             var parameter = so.FindProperty("parameter");
             if (parameter != null)
-                sb.AppendLine($"  Parameter: {(string.IsNullOrEmpty(parameter.stringValue) ? "(none)" : parameter.stringValue)}");
+                sb.AppendLine($"    Parameter: {(string.IsNullOrEmpty(parameter.stringValue) ? "(none)" : parameter.stringValue)}");
+            AppendBool(sb, so, "isAnimated", "    IsAnimated");
+            AppendBool(sb, so, "resetWhenDisabled", "    ResetWhenDisabled");
 
-            var isAnimated = so.FindProperty("isAnimated");
-            if (isAnimated != null) sb.AppendLine($"  IsAnimated: {isAnimated.boolValue}");
-
-            var resetWhenDisabled = so.FindProperty("resetWhenDisabled");
-            if (resetWhenDisabled != null) sb.AppendLine($"  ResetWhenDisabled: {resetWhenDisabled.boolValue}");
-
-            // Affected transforms count
-            var exclusionsProp = so.FindProperty("exclusions");
+            // Affected transforms count (auxiliary, not in inspector but useful)
+            var exclusionsProp = so.FindProperty("ignoreTransforms");
             var exclusions = new HashSet<Transform>();
             if (exclusionsProp != null && exclusionsProp.isArray)
             {
@@ -455,14 +554,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         exclusions.Add((Transform)excl.objectReferenceValue);
                 }
             }
-
             Transform root = (rootTransform != null && rootTransform.objectReferenceValue != null)
                 ? (Transform)rootTransform.objectReferenceValue
                 : physBone.transform;
             int affectedCount = CountTransformsRecursive(root, exclusions) - 1;
-            sb.AppendLine($"  Affected Transforms: {affectedCount}");
+            sb.AppendLine($"  AffectedTransforms: {affectedCount}");
 
             return sb.ToString().TrimEnd();
+        }
+
+        private static void AppendBool(StringBuilder sb, SerializedObject so, string name, string label)
+        {
+            var p = so.FindProperty(name);
+            if (p != null) sb.AppendLine($"{label}: {p.boolValue}");
         }
 
         private static int CountTransformsRecursive(Transform t, HashSet<Transform> exclusions)
@@ -474,8 +578,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return count;
         }
 
-        [AgentTool("List expression parameters from VRCAvatarDescriptor (name, type, default, saved, synced).")]
-        public static string ListExpressionParameters(string avatarRootName)
+        [AgentTool("List expression parameters from the VRCExpressionParameters asset assigned to the avatar (raw VRC SDK only — does NOT include NDMF/MA/VRCFury build-time additions). For the full post-build view including non-destructive contributors, use ListNDMFParameters.")]
+        public static string ListVRCExpressionParameters(string avatarRootName)
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found. Ensure VRChat Avatar SDK is installed.";
@@ -497,7 +601,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return "Error: Could not read parameters array.";
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Expression Parameters on '{avatarRootName}' ({parameters.arraySize}):");
+            sb.AppendLine($"Expression Parameters on '{avatarRootName}' (asset='{exprParamsProp.objectReferenceValue.name}', {parameters.arraySize}):");
 
             int totalCost = 0;
             for (int i = 0; i < parameters.arraySize; i++)
@@ -528,20 +632,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 bool isSynced = networkSynced != null && networkSynced.boolValue;
                 if (isSynced) totalCost += cost;
 
-                string defaultStr = defaultValue != null ? defaultValue.floatValue.ToString("F1") : "?";
-                string savedStr = saved != null ? (saved.boolValue ? "Saved" : "") : "";
+                float defV = defaultValue?.floatValue ?? 0f;
+                string defaultStr = typeStr == "Bool"
+                    ? (defV != 0f ? "1" : "0")
+                    : typeStr == "Int" ? ((int)Mathf.Round(defV)).ToString() : defV.ToString("F2");
+                string savedStr = saved != null && saved.boolValue ? " Saved" : "";
                 string syncedStr = isSynced ? "Synced" : "Local";
 
-                sb.AppendLine($"  {nameStr} ({typeStr}) = {defaultStr} [{syncedStr}] {savedStr} (cost: {cost})");
+                sb.AppendLine($"  {nameStr} ({typeStr}) = {defaultStr} [{syncedStr}]{savedStr} (cost: {cost})");
             }
 
-            sb.AppendLine($"  Total Synced Cost: {totalCost}/256 bits");
+            sb.AppendLine($"  Static Synced Cost: {totalCost}/256 bits");
+            sb.AppendLine("(Hint: NDMF/MA/VRCFury may add more parameters at build — see ListNDMFParameters.)");
 
             return sb.ToString().TrimEnd();
         }
 
         [AgentTool("Inspect VRC Expressions Menu structure recursively (controls, submenus).")]
-        public static string InspectExpressionsMenu(string avatarRootName)
+        public static string InspectVRCExpressionsMenu(string avatarRootName)
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found. Ensure VRChat Avatar SDK is installed.";
@@ -621,8 +729,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // Performance stats moved to VRChatPerformanceTools.cs
 
-        [AgentTool("Configure VRCPhysBone parameters. Use -999 for unchanged float values, -1 for unchanged int values. Parameters: pull, spring, stiffness, gravity, gravityFalloff, immobile, radius, maxStretch, maxSquish, limitType (0=None,1=Angle,2=Hinge,3=Polar), maxAngleX, maxAngleZ, allowGrabbing (0=False,1=True), allowPosing (0=False,1=True), allowCollision (0=False,1=True), isAnimated (0=false,1=true), parameter (null=unchanged).")]
-        public static string ConfigurePhysBone(string goName, float pull = -999, float spring = -999, float stiffness = -999, float gravity = -999, float gravityFalloff = -999, float immobile = -999, float radius = -999, float maxStretch = -999, float maxSquish = -999, int limitType = -1, float maxAngleX = -999, float maxAngleZ = -999, int allowGrabbing = -1, int allowPosing = -1, int allowCollision = -1, int isAnimated = -1, string parameter = null)
+        [AgentTool("Configure VRCPhysBone parameters (full inspector parity). Sentinels for 'unchanged': float=-999, int=-1, string=null. Forces: pull, spring (= 'Momentum' when integrationType=Advanced), stiffness, gravity, gravityFalloff, immobile, integrationType (0=Simplified,1=Advanced), immobileType (0=All,1=World). Limits: limitType (0=None,1=Angle,2=Hinge,3=Polar), maxAngleX, maxAngleZ, limitRotation ('x,y,z' euler). Collision: radius, allowCollision (Permission: 0=True,1=False,2=Other). Stretch&Squish: stretchMotion, maxStretch, maxSquish. Grab&Pose: allowGrabbing (Permission), allowPosing (Permission), grabMovement, snapToHand (0=false,1=true). Transforms: multiChildType (0=Ignore,1=First,2=Average), ignoreOtherPhysBones (0=false,1=true), endpointPosition ('x,y,z'). Options: isAnimated (0=false,1=true), resetWhenDisabled (0=false,1=true), parameter.")]
+        public static string ConfigureVRCPhysBone(
+            string goName,
+            // Forces
+            float pull = -999, float spring = -999, float stiffness = -999,
+            float gravity = -999, float gravityFalloff = -999, float immobile = -999,
+            int integrationType = -1, int immobileType = -1,
+            // Limits
+            int limitType = -1, float maxAngleX = -999, float maxAngleZ = -999, string limitRotation = null,
+            // Collision
+            float radius = -999, int allowCollision = -1,
+            // Stretch & Squish
+            float stretchMotion = -999, float maxStretch = -999, float maxSquish = -999,
+            // Grab & Pose
+            int allowGrabbing = -1, int allowPosing = -1, float grabMovement = -999, int snapToHand = -1,
+            // Transforms
+            int multiChildType = -1, int ignoreOtherPhysBones = -1, string endpointPosition = null,
+            // Options
+            int isAnimated = -1, int resetWhenDisabled = -1, string parameter = null)
         {
             var physBoneType = FindVrcType(VrcPhysBoneTypeName);
             if (physBoneType == null) return "Error: VRChat SDK not found. Ensure VRChat Avatar SDK is installed.";
@@ -640,32 +765,45 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var sb = new StringBuilder();
             sb.AppendLine($"Configured PhysBone on '{goName}':");
 
+            // Forces
             changed += SetFloatIfChanged(so, sb, "pull", pull);
             changed += SetFloatIfChanged(so, sb, "spring", spring);
             changed += SetFloatIfChanged(so, sb, "stiffness", stiffness);
             changed += SetFloatIfChanged(so, sb, "gravity", gravity);
             changed += SetFloatIfChanged(so, sb, "gravityFalloff", gravityFalloff);
             changed += SetFloatIfChanged(so, sb, "immobile", immobile);
-            changed += SetFloatIfChanged(so, sb, "radius", radius);
-            changed += SetFloatIfChanged(so, sb, "maxStretch", maxStretch);
-            changed += SetFloatIfChanged(so, sb, "maxSquish", maxSquish);
+            changed += SetIntIfChanged(so, sb, "integrationType", integrationType);
+            changed += SetIntIfChanged(so, sb, "immobileType", immobileType);
+
+            // Limits
+            changed += SetIntIfChanged(so, sb, "limitType", limitType);
             changed += SetFloatIfChanged(so, sb, "maxAngleX", maxAngleX);
             changed += SetFloatIfChanged(so, sb, "maxAngleZ", maxAngleZ);
-            changed += SetIntIfChanged(so, sb, "limitType", limitType);
-            changed += SetIntIfChanged(so, sb, "allowGrabbing", allowGrabbing);
-            changed += SetIntIfChanged(so, sb, "allowPosing", allowPosing);
+            changed += SetVector3IfChanged(so, sb, "limitRotation", limitRotation);
+
+            // Collision
+            changed += SetFloatIfChanged(so, sb, "radius", radius);
             changed += SetIntIfChanged(so, sb, "allowCollision", allowCollision);
 
-            if (isAnimated >= 0)
-            {
-                var prop = so.FindProperty("isAnimated");
-                if (prop != null)
-                {
-                    prop.boolValue = isAnimated != 0;
-                    sb.AppendLine($"  isAnimated: {prop.boolValue}");
-                    changed++;
-                }
-            }
+            // Stretch & Squish
+            changed += SetFloatIfChanged(so, sb, "stretchMotion", stretchMotion);
+            changed += SetFloatIfChanged(so, sb, "maxStretch", maxStretch);
+            changed += SetFloatIfChanged(so, sb, "maxSquish", maxSquish);
+
+            // Grab & Pose
+            changed += SetIntIfChanged(so, sb, "allowGrabbing", allowGrabbing);
+            changed += SetIntIfChanged(so, sb, "allowPosing", allowPosing);
+            changed += SetFloatIfChanged(so, sb, "grabMovement", grabMovement);
+            changed += SetBoolIfChanged(so, sb, "snapToHand", snapToHand);
+
+            // Transforms
+            changed += SetIntIfChanged(so, sb, "multiChildType", multiChildType);
+            changed += SetBoolIfChanged(so, sb, "ignoreOtherPhysBones", ignoreOtherPhysBones);
+            changed += SetVector3IfChanged(so, sb, "endpointPosition", endpointPosition);
+
+            // Options
+            changed += SetBoolIfChanged(so, sb, "isAnimated", isAnimated);
+            changed += SetBoolIfChanged(so, sb, "resetWhenDisabled", resetWhenDisabled);
 
             if (parameter != null)
             {
@@ -681,9 +819,39 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (changed == 0) return $"No changes made to PhysBone on '{goName}' (all values unchanged).";
 
             so.ApplyModifiedProperties();
+            EditorUtility.SetDirty(physBone);
             sb.AppendLine($"  ({changed} parameter(s) updated)");
 
             return sb.ToString().TrimEnd();
+        }
+
+        private static int SetBoolIfChanged(SerializedObject so, StringBuilder sb, string propName, int value)
+        {
+            if (value < 0) return 0;
+            var prop = so.FindProperty(propName);
+            if (prop == null) return 0;
+            prop.boolValue = value != 0;
+            sb.AppendLine($"  {propName}: {prop.boolValue}");
+            return 1;
+        }
+
+        private static int SetVector3IfChanged(SerializedObject so, StringBuilder sb, string propName, string xyz)
+        {
+            if (string.IsNullOrEmpty(xyz)) return 0;
+            var parts = xyz.Split(',');
+            if (parts.Length != 3) { sb.AppendLine($"  (skipped {propName}: expected 'x,y,z', got '{xyz}')"); return 0; }
+            if (!float.TryParse(parts[0].Trim(), out var x) ||
+                !float.TryParse(parts[1].Trim(), out var y) ||
+                !float.TryParse(parts[2].Trim(), out var z))
+            {
+                sb.AppendLine($"  (skipped {propName}: parse failed for '{xyz}')");
+                return 0;
+            }
+            var prop = so.FindProperty(propName);
+            if (prop == null) return 0;
+            prop.vector3Value = new Vector3(x, y, z);
+            sb.AppendLine($"  {propName}: ({x:F4}, {y:F4}, {z:F4})");
+            return 1;
         }
 
         private static int SetFloatIfChanged(SerializedObject so, StringBuilder sb, string propName, float value)
@@ -789,7 +957,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         // ─── Expression Parameter / Menu / Toggle Tools ───
 
         [AgentTool("Add a parameter to VRCExpressionParameters. type: Bool, Int, or Float. saved=true persists between sessions. synced=true syncs to other players.")]
-        public static string AddExpressionParameter(string avatarRootName, string paramName, string type = "Bool", float defaultValue = 0f, bool saved = true, bool synced = true)
+        public static string AddVRCExpressionParameter(string avatarRootName, string paramName, string type = "Bool", float defaultValue = 0f, bool saved = true, bool synced = true)
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found.";
@@ -848,7 +1016,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Add a Toggle control to VRC Expressions Menu. paramName must match an ExpressionParameters entry. subMenuPath: if specified, adds to a submenu (creates if needed). value is the activation value (default 1).")]
-        public static string AddExpressionsMenuToggle(string avatarRootName, string controlName, string paramName, float value = 1f, string subMenuPath = "")
+        public static string AddVRCExpressionsMenuToggle(string avatarRootName, string controlName, string paramName, float value = 1f, string subMenuPath = "")
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found.";
@@ -1313,7 +1481,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
 
                     if (foundSubMenu == null)
-                    { errorMsg = $"Error: Submenu '{part}' not found in menu. Create it first with AddExpressionsMenuSubMenu or omit subMenuPath."; return null; }
+                    { errorMsg = $"Error: Submenu '{part}' not found in menu. Create it first with AddVRCExpressionsMenuSubMenu or omit subMenuPath."; return null; }
                     targetMenu = foundSubMenu;
                 }
             }
@@ -1340,7 +1508,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Add a Button control to VRC Expressions Menu. Button sets param while held, resets after ~1s. subMenuPath navigates to a submenu first.")]
-        public static string AddExpressionsMenuButton(string avatarRootName, string controlName, string paramName, float value = 1f, string subMenuPath = "")
+        public static string AddVRCExpressionsMenuButton(string avatarRootName, string controlName, string paramName, float value = 1f, string subMenuPath = "")
         {
             var targetMenu = NavigateToTargetMenu(avatarRootName, subMenuPath, out string err);
             if (targetMenu == null) return err;
@@ -1377,7 +1545,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Add a SubMenu control to VRC Expressions Menu. Creates a new menu asset and links it. savePath: where to save the new menu asset (auto-generated if empty). subMenuPath navigates to a submenu first.")]
-        public static string AddExpressionsMenuSubMenu(string avatarRootName, string controlName, string savePath = "", string subMenuPath = "")
+        public static string AddVRCExpressionsMenuSubMenu(string avatarRootName, string controlName, string savePath = "", string subMenuPath = "")
         {
             var targetMenu = NavigateToTargetMenu(avatarRootName, subMenuPath, out string err);
             if (targetMenu == null) return err;
@@ -1431,7 +1599,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Add a RadialPuppet control to VRC Expressions Menu. Controls a float parameter (0-1) with a radial slider. subMenuPath navigates to a submenu first.")]
-        public static string AddExpressionsMenuRadialPuppet(string avatarRootName, string controlName, string paramName, string subMenuPath = "")
+        public static string AddVRCExpressionsMenuRadialPuppet(string avatarRootName, string controlName, string paramName, string subMenuPath = "")
         {
             var targetMenu = NavigateToTargetMenu(avatarRootName, subMenuPath, out string err);
             if (targetMenu == null) return err;
@@ -1470,7 +1638,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Remove a control from VRC Expressions Menu by name. Requires user confirmation. subMenuPath navigates to a submenu first.")]
-        public static string RemoveExpressionsMenuControl(string avatarRootName, string controlName, string subMenuPath = "")
+        public static string RemoveVRCExpressionsMenuControl(string avatarRootName, string controlName, string subMenuPath = "")
         {
             var targetMenu = NavigateToTargetMenu(avatarRootName, subMenuPath, out string err);
             if (targetMenu == null) return err;
@@ -1504,7 +1672,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Remove a parameter from VRCExpressionParameters by name. Requires user confirmation.")]
-        public static string RemoveExpressionParameter(string avatarRootName, string paramName)
+        public static string RemoveVRCExpressionParameter(string avatarRootName, string paramName)
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found.";
@@ -1579,7 +1747,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Get the FX AnimatorController path from an avatar's VRCAvatarDescriptor.")]
-        public static string GetFXControllerPath(string avatarRootName)
+        public static string GetVRCFXControllerPath(string avatarRootName)
         {
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found.";
@@ -1635,7 +1803,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         };
 
         [AgentTool("Apply a predefined PhysBone template. Templates: 'Hair', 'Skirt', 'Tail', 'Breast', 'Ears', 'Ribbon'. Adjusts pull, spring, stiffness, gravity, limits, grab/pose.")]
-        public static string ApplyPhysBoneTemplate(string goName, string template)
+        public static string ApplyVRCPhysBoneTemplate(string goName, string template)
         {
             var physBoneType = FindVrcType(VrcPhysBoneTypeName);
             if (physBoneType == null) return "Error: VRChat SDK not found.";

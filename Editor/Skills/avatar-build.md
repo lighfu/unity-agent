@@ -26,7 +26,7 @@ First, check the avatar's performance:
 ### 2. AvatarDescriptor Check
 Verify the configuration is correct:
 ```
-[InspectAvatarDescriptor('avatarRootName')]
+[InspectVRCAvatarDescriptor('avatarRootName')]
 ```
 
 ### 3. Common Issues to Check

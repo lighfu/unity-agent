@@ -1516,11 +1516,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             sb.AppendLine("- Partial coloring: EnableIslandSelectionMode → user clicks → GetSelectedIslands → apply with islandIndices. Do NOT use for full-object changes.");
             sb.AppendLine("- lilToon effects: ReadSkill('liltoon-effects'). ScrollRotate ONLY works when a TEXTURE is assigned.");
             sb.AppendLine("- Shader creation: WriteFile + ChangeMaterialShader, or CreateShaderFile.");
-            sb.AppendLine("- PhysBone setup: ReadSkill('physbone-setup'). ApplyPhysBoneTemplate → ConfigurePhysBone.");
+            sb.AppendLine("- PhysBone setup: ReadSkill('physbone-setup'). ApplyVRCPhysBoneTemplate → ConfigureVRCPhysBone.");
             sb.AppendLine("- Troubleshooting: ReadSkill('troubleshooting'). ALWAYS ValidateAvatar + GetAvatarPerformanceStats first.");
-            sb.AppendLine("- Batch changes: ReadSkill('batch-operations'). ListRenderers/ListPhysBones to enumerate first.");
+            sb.AppendLine("- Batch changes: ReadSkill('batch-operations'). ListRenderers/ListVRCPhysBones to enumerate first.");
             sb.AppendLine("- Vague references (\"○○みたいにして\"): [AskUser(\"具体的に教えてください\", ...)] で確認。想像で適用しない。");
-            sb.AppendLine("- PhysBone adjustments: InspectPhysBone first → AskUser with current values → apply after approval.");
+            sb.AppendLine("- PhysBone adjustments: InspectVRCPhysBone first → AskUser with current values → apply after approval.");
             sb.AppendLine("</anti_patterns>");
 
             // Section 6: Skill References

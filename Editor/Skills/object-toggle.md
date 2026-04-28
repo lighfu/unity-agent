@@ -61,7 +61,7 @@ Creates two animation clips: ON (m_IsActive=1) and OFF (m_IsActive=0).
 
 ### Step 3: Check FX Controller
 ```
-[GetFXControllerPath('avatarRootName')]
+[GetVRCFXControllerPath('avatarRootName')]
 ```
 Get the FX AnimatorController asset path.
 
@@ -92,14 +92,14 @@ Get the FX AnimatorController asset path.
 
 ### Step 8: Add Expression Parameter
 ```
-[AddExpressionParameter('avatarRootName', 'toggleName', 'Bool', 1.0, saved=true, synced=true)]
+[AddVRCExpressionParameter('avatarRootName', 'toggleName', 'Bool', 1.0, saved=true, synced=true)]
 ```
 - Bool parameter, synced to other players
 - defaultValue: 1.0=default ON, 0.0=default OFF
 
 ### Step 9: Add Expression Menu Toggle
 ```
-[AddExpressionsMenuToggle('avatarRootName', 'toggleName', 'toggleName')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'toggleName', 'toggleName')]
 ```
 
 ## When Menu is Full (SubMenu Support)
@@ -108,22 +108,22 @@ Expression Menu allows a maximum of 8 controls per page. When full, use submenus
 
 ### Creating a SubMenu
 ```
-[AddExpressionsMenuSubMenu('avatarRootName', 'Outfits')]
+[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Outfits')]
 ```
 A new VRCExpressionsMenu asset is automatically generated and linked as a SubMenu control.
 
 ### Adding Controls to a SubMenu
 Use the `subMenuPath` parameter to add within a submenu:
 ```
-[AddExpressionsMenuToggle('avatarRootName', 'Hat', 'Hat', subMenuPath='Outfits')]
-[AddExpressionsMenuToggle('avatarRootName', 'Glasses', 'Glasses', subMenuPath='Outfits')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'Hat', 'Hat', subMenuPath='Outfits')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'Glasses', 'Glasses', subMenuPath='Outfits')]
 ```
 
 ### Nested SubMenus
 `subMenuPath` supports slash-separated nesting:
 ```
-[AddExpressionsMenuSubMenu('avatarRootName', 'Details', subMenuPath='Outfits')]
-[AddExpressionsMenuToggle('avatarRootName', 'Ring', 'Ring', subMenuPath='Outfits/Details')]
+[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Details', subMenuPath='Outfits')]
+[AddVRCExpressionsMenuToggle('avatarRootName', 'Ring', 'Ring', subMenuPath='Outfits/Details')]
 ```
 
 ## Tool Call Examples
@@ -144,13 +144,13 @@ AI: [SetupObjectToggle('Avatar', 'Glasses', defaultOn=false)]
 ### Example 3: SubMenu When Menu is Full
 ```
 User: "The menu is full but I want to add another toggle"
-AI: [InspectExpressionsMenu('Avatar')]
+AI: [InspectVRCExpressionsMenu('Avatar')]
     → Confirm 8 controls
-    [AddExpressionsMenuSubMenu('Avatar', 'Accessories')]
+    [AddVRCExpressionsMenuSubMenu('Avatar', 'Accessories')]
     → Create submenu
     [SetupObjectToggle('Avatar', 'NewItem')]
     → If menu is full, manually add to submenu:
-    [AddExpressionsMenuToggle('Avatar', 'NewItem', 'NewItem', subMenuPath='Accessories')]
+    [AddVRCExpressionsMenuToggle('Avatar', 'NewItem', 'NewItem', subMenuPath='Accessories')]
 ```
 
 ## VRChat Expression Menu Basics
@@ -164,17 +164,17 @@ AI: [InspectExpressionsMenu('Avatar')]
 - See `vrchat-parameters` skill for details
 
 ### Expression Menu Control Types
-- **Toggle**: ON/OFF switch (for Bool parameters) → `AddExpressionsMenuToggle`
-- **Button**: ON only while pressed → `AddExpressionsMenuButton`
-- **SubMenu**: Navigate to submenu → `AddExpressionsMenuSubMenu`
-- **RadialPuppet**: Rotary slider (Float) → `AddExpressionsMenuRadialPuppet`
+- **Toggle**: ON/OFF switch (for Bool parameters) → `AddVRCExpressionsMenuToggle`
+- **Button**: ON only while pressed → `AddVRCExpressionsMenuButton`
+- **SubMenu**: Navigate to submenu → `AddVRCExpressionsMenuSubMenu`
+- **RadialPuppet**: Rotary slider (Float) → `AddVRCExpressionsMenuRadialPuppet`
 - **TwoAxisPuppet**: 2-axis joystick
 - **FourAxisPuppet**: 4-direction input
 
 ### Removing Controls
 ```
-[RemoveExpressionsMenuControl('avatarRootName', 'controlName')]
-[RemoveExpressionParameter('avatarRootName', 'parameterName')]
+[RemoveVRCExpressionsMenuControl('avatarRootName', 'controlName')]
+[RemoveVRCExpressionParameter('avatarRootName', 'parameterName')]
 ```
 
 ### FX Layer Rules
@@ -195,4 +195,4 @@ AI: [InspectExpressionsMenu('Avatar')]
 - Not showing in menu → Check that ExpressionsMenu is assigned in VRCAvatarDescriptor
 - Not visible to other players → Check that parameter Synced=true
 - Wrong default state → Check parameter defaultValue and FX initial state
-- Menu is full → Create a submenu with AddExpressionsMenuSubMenu and add via subMenuPath
+- Menu is full → Create a submenu with AddVRCExpressionsMenuSubMenu and add via subMenuPath

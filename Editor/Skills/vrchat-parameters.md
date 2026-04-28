@@ -130,17 +130,17 @@ VRChat avatar's 5 layers:
 
 ### Check Parameters
 ```
-[ListExpressionParameters('avatarRootName')]
+[ListVRCExpressionParameters('avatarRootName')]
 ```
 
 ### Add Parameter
 ```
-[AddExpressionParameter('avatarRootName', 'ParamName', 'Bool', 1.0, saved=true, synced=true)]
+[AddVRCExpressionParameter('avatarRootName', 'ParamName', 'Bool', 1.0, saved=true, synced=true)]
 ```
 
 ### Remove Parameter
 ```
-[RemoveExpressionParameter('avatarRootName', 'ParamName')]
+[RemoveVRCExpressionParameter('avatarRootName', 'ParamName')]
 ```
 
 ### Add Parameter to FX Controller
