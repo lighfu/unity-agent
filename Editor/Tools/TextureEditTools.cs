@@ -845,7 +845,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
         }
 
-        [AgentTool("List all properties of a material on a GameObject. Shows property name, type, and current value. Useful for discovering which properties to modify.")]
+        [AgentTool(@"List all properties of a material on a GameObject. Shows property name, type, and current value.
+Checks the renderer's MaterialPropertyBlock (MPB) first and marks overridden values with [MPB]. Values with
+no MPB override are marked [shared]. The distinction matters during Play mode / GM preview because Animator-
+driven material animations usually write through MPB, and the sharedMaterial value lags behind what the
+shader actually sees. A '[MPB]' row shows the live animated value, with the shared base shown alongside.")]
         public static string ListMaterialProperties(string gameObjectName, int materialIndex = 0)
         {
             var go = FindGO(gameObjectName);
@@ -863,8 +867,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Shader shader = mat.shader;
             int propCount = ShaderUtil.GetPropertyCount(shader);
 
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb, materialIndex);
+            bool mpbEmpty = mpb.isEmpty;
+
             var sb = new StringBuilder();
             sb.AppendLine($"Material: {mat.name} (Shader: {shader.name})");
+            sb.AppendLine($"MPB has overrides: {!mpbEmpty}");
             sb.AppendLine($"Properties ({propCount}):");
             sb.AppendLine("---");
 
@@ -874,39 +883,61 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 string desc = ShaderUtil.GetPropertyDescription(shader, i);
                 var type = ShaderUtil.GetPropertyType(shader, i);
 
-                string valueStr;
+                string sharedStr;
+                string mpbStr = null;
                 switch (type)
                 {
                     case ShaderUtil.ShaderPropertyType.Color:
                         Color c = mat.GetColor(name);
-                        valueStr = $"({c.r:F2}, {c.g:F2}, {c.b:F2}, {c.a:F2})";
+                        sharedStr = $"({c.r:F2}, {c.g:F2}, {c.b:F2}, {c.a:F2})";
+                        if (!mpbEmpty && mpb.HasColor(name))
+                        {
+                            Color mc = mpb.GetColor(name);
+                            mpbStr = $"({mc.r:F2}, {mc.g:F2}, {mc.b:F2}, {mc.a:F2})";
+                        }
                         break;
                     case ShaderUtil.ShaderPropertyType.Float:
-                        valueStr = mat.GetFloat(name).ToString("F3");
+                        sharedStr = mat.GetFloat(name).ToString("F3");
+                        if (!mpbEmpty && mpb.HasFloat(name)) mpbStr = mpb.GetFloat(name).ToString("F3");
                         break;
                     case ShaderUtil.ShaderPropertyType.Range:
                         float rangeMin = ShaderUtil.GetRangeLimits(shader, i, 1);
                         float rangeMax = ShaderUtil.GetRangeLimits(shader, i, 2);
-                        valueStr = $"{mat.GetFloat(name):F3} (range: {rangeMin}-{rangeMax})";
+                        sharedStr = $"{mat.GetFloat(name):F3} (range: {rangeMin}-{rangeMax})";
+                        if (!mpbEmpty && mpb.HasFloat(name)) mpbStr = $"{mpb.GetFloat(name):F3}";
                         break;
                     case ShaderUtil.ShaderPropertyType.TexEnv:
                         var tex = mat.GetTexture(name);
-                        valueStr = tex != null ? tex.name : "None";
+                        sharedStr = tex != null ? tex.name : "None";
+                        if (!mpbEmpty && mpb.HasTexture(name))
+                        {
+                            var mt = mpb.GetTexture(name);
+                            mpbStr = mt != null ? mt.name : "None";
+                        }
                         break;
                     case ShaderUtil.ShaderPropertyType.Int:
-                        valueStr = mat.GetInt(name).ToString();
+                        sharedStr = mat.GetInt(name).ToString();
+                        if (!mpbEmpty && mpb.HasInt(name)) mpbStr = mpb.GetInt(name).ToString();
                         break;
                     case ShaderUtil.ShaderPropertyType.Vector:
                         Vector4 v = mat.GetVector(name);
-                        valueStr = $"({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})";
+                        sharedStr = $"({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})";
+                        if (!mpbEmpty && mpb.HasVector(name))
+                        {
+                            Vector4 mv = mpb.GetVector(name);
+                            mpbStr = $"({mv.x:F4}, {mv.y:F4}, {mv.z:F4}, {mv.w:F4})";
+                        }
                         break;
                     default:
-                        valueStr = $"<unsupported type {type}>";
+                        sharedStr = $"<unsupported type {type}>";
                         break;
                 }
 
                 string descStr = string.IsNullOrEmpty(desc) ? "" : $" \"{desc}\"";
-                sb.AppendLine($"  [{type}] {name}{descStr} = {valueStr}");
+                if (mpbStr != null)
+                    sb.AppendLine($"  [{type}] {name}{descStr} = {mpbStr}  [MPB]  shared={sharedStr}");
+                else
+                    sb.AppendLine($"  [{type}] {name}{descStr} = {sharedStr}  [shared]");
             }
 
             return sb.ToString();

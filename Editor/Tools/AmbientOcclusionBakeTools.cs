@@ -31,20 +31,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         private const float DefaultBias = 0.001f;
         private const int FallbackResolution = 1024;
         private const int ProgressYieldInterval = 256; // yield every N texels/verts
+        // Padding grown outward from baked texels so bilinear/mip sampling does not
+        // hit the unwritten background across UV-island seams. 4px handles up to
+        // trilinear+mip1 on typical atlases; larger at a small cost.
+        private const int SeamPadding = 4;
 
         private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
 
         [AgentTool(
             "メッシュに対して Raycast ベースの AO (ambient occlusion) を焼く。" +
             "mode=\"texel\": UV 展開に従い各テクセルに AO を焼き PNG を生成 (Assets/UnityAgent_Generated/AmbientOcclusion/...)。" +
+            "マテリアル (submesh) ごとに個別の PNG を出力し、解像度は各 material の _MainTex から決定 (無ければ 1024)。" +
+            "UV シーム対策として 4px の dilation (seam padding) を自動適用。" +
             "mode=\"vertex\": 各頂点に AO を焼き mesh.colors に書き込んだ新規 .asset を作成し Renderer に差し替え。" +
             "occluderHierarchyPaths はセミコロン区切りで遮蔽物 (例 'Avatar/Body') を指定、空なら self のみ。" +
             "quality=low(32)/medium(64)/high(128)。samplesOverride>0 なら上書き。" +
             "maxDistance はメートル (0=0.5m)、biasAmount (0=0.001)、intensity (<=0=1.0)。" +
-            "outputPath が空なら自動命名。" +
+            "outputPath が空なら自動命名 (決定的パス—再焼きで上書き)。multi-submesh + 明示指定時は '{stem}_mat{i}_{matname}{ext}' に展開。" +
             "Note: SkinnedMeshRenderer を vertex モードで焼くとその時のポーズが焼き込まれるので、T-pose (Animator disabled 等) 状態で呼ぶこと。",
             Author = "ajisaiflow",
-            Version = "0.1.0",
+            Version = "0.2.0",
             Category = "Baking",
             Risk = ToolRisk.Caution)]
         public static IEnumerator BakeAmbientOcclusion(
@@ -209,64 +215,80 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             int samples, float maxDistance, float biasAmount, float intensity,
             string outputPath)
         {
-            // Baked world-space vertices / normals on the target
-            var wv = GetWorldBakedVertices(targetRenderer);
-            var wn = GetWorldBakedNormals(targetRenderer);
-            if (wv == null || wn == null || wv.Length == 0)
+            // Baked world-space vertices / normals on the target — one BakeMesh per call.
+            if (!GetWorldBakedGeometry(targetRenderer, out var wv, out var wn) || wv.Length == 0)
             {
                 yield return "Error: failed to bake target vertices/normals.";
                 yield break;
             }
+            if (wn == null || wn.Length != wv.Length)
+            {
+                yield return "Error: target mesh is missing per-vertex normals.";
+                yield break;
+            }
 
             var uvs = targetMesh.uv;
-            var tris = targetMesh.triangles;
             if (uvs == null || uvs.Length == 0)
             {
                 yield return "Error: target mesh has no UVs.";
                 yield break;
             }
 
-            // Resolution: use _MainTex size if present, else fallback
-            int res = ResolveResolution(targetRenderer);
+            int submeshCount = Mathf.Max(1, targetMesh.subMeshCount);
+            var mats = targetRenderer.sharedMaterials;
 
-            var pixels = new Color[res * res];
-            for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.white;
-
-            var islands = UVIslandDetector.DetectIslands(targetMesh, false);
+            // Total triangles across submeshes for stable progress reporting
             int totalTris = 0;
-            foreach (var isl in islands) totalTris += isl.triangleIndices.Count;
+            for (int sm = 0; sm < submeshCount; sm++)
+                totalTris += targetMesh.GetTriangles(sm).Length / 3;
             if (totalTris == 0)
             {
                 yield return "Error: no triangles found in target mesh.";
                 yield break;
             }
 
-            int processedTris = 0;
+            string meshName = SanitizeName(targetMesh.name);
+            var savedEntries = new List<string>();
+            string firstSavedPath = null;
+            int cumulativeTris = 0;
             int yieldCounter = 0;
             float lastReportedProgress = -1f;
-            string meshName = SanitizeName(targetMesh.name);
 
-            foreach (var isl in islands)
+            for (int sm = 0; sm < submeshCount; sm++)
             {
-                foreach (int triIdx in isl.triangleIndices)
+                var smTris = targetMesh.GetTriangles(sm);
+                if (smTris.Length == 0) continue;
+                int smTriCount = smTris.Length / 3;
+
+                Material mat = (mats != null && sm < mats.Length) ? mats[sm] : null;
+                ResolveResolution(mat, out int resW, out int resH);
+
+                var pixels = new Color[resW * resH];
+                var written = new bool[resW * resH];
+
+                for (int t = 0; t < smTris.Length; t += 3)
                 {
-                    int i0 = tris[triIdx * 3 + 0];
-                    int i1 = tris[triIdx * 3 + 1];
-                    int i2 = tris[triIdx * 3 + 2];
+                    int i0 = smTris[t];
+                    int i1 = smTris[t + 1];
+                    int i2 = smTris[t + 2];
+
+                    // Guard both uv and world-baked buffer lengths — BakeMesh can
+                    // return fewer verts than sharedMesh.uv on some SMR configurations.
+                    if (i0 >= uvs.Length || i1 >= uvs.Length || i2 >= uvs.Length) continue;
+                    if (i0 >= wv.Length || i1 >= wv.Length || i2 >= wv.Length) continue;
 
                     Vector2 uv0 = uvs[i0], uv1 = uvs[i1], uv2 = uvs[i2];
                     Vector3 p0 = wv[i0], p1 = wv[i1], p2 = wv[i2];
                     Vector3 n0 = wn[i0], n1 = wn[i1], n2 = wn[i2];
 
-                    // Rasterize triangle into pixel grid
-                    Vector2 px0 = new Vector2(uv0.x * res, uv0.y * res);
-                    Vector2 px1 = new Vector2(uv1.x * res, uv1.y * res);
-                    Vector2 px2 = new Vector2(uv2.x * res, uv2.y * res);
+                    Vector2 px0 = new Vector2(uv0.x * resW, uv0.y * resH);
+                    Vector2 px1 = new Vector2(uv1.x * resW, uv1.y * resH);
+                    Vector2 px2 = new Vector2(uv2.x * resW, uv2.y * resH);
 
-                    int minX = Mathf.Clamp(Mathf.FloorToInt(Mathf.Min(px0.x, Mathf.Min(px1.x, px2.x))), 0, res - 1);
-                    int maxX = Mathf.Clamp(Mathf.CeilToInt(Mathf.Max(px0.x, Mathf.Max(px1.x, px2.x))), 0, res - 1);
-                    int minY = Mathf.Clamp(Mathf.FloorToInt(Mathf.Min(px0.y, Mathf.Min(px1.y, px2.y))), 0, res - 1);
-                    int maxY = Mathf.Clamp(Mathf.CeilToInt(Mathf.Max(px0.y, Mathf.Max(px1.y, px2.y))), 0, res - 1);
+                    int minX = Mathf.Clamp(Mathf.FloorToInt(Mathf.Min(px0.x, Mathf.Min(px1.x, px2.x))), 0, resW - 1);
+                    int maxX = Mathf.Clamp(Mathf.CeilToInt(Mathf.Max(px0.x, Mathf.Max(px1.x, px2.x))), 0, resW - 1);
+                    int minY = Mathf.Clamp(Mathf.FloorToInt(Mathf.Min(px0.y, Mathf.Min(px1.y, px2.y))), 0, resH - 1);
+                    int maxY = Mathf.Clamp(Mathf.CeilToInt(Mathf.Max(px0.y, Mathf.Max(px1.y, px2.y))), 0, resH - 1);
 
                     for (int y = minY; y <= maxY; y++)
                     {
@@ -280,20 +302,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                             Vector3 wnrm = (n0 * bc.x + n1 * bc.y + n2 * bc.z).normalized;
                             if (wnrm.sqrMagnitude < 1e-6f) continue;
 
+                            int idx = y * resW + x;
                             float ao = ComputeAOAtPoint(wp, wnrm, samples, maxDistance, biasAmount, intensity,
                                 Hash2(x, y));
-                            pixels[y * res + x] = new Color(ao, ao, ao, 1f);
+                            pixels[idx] = new Color(ao, ao, ao, 1f);
+                            written[idx] = true;
                         }
                     }
 
-                    processedTris++;
+                    cumulativeTris++;
                     yieldCounter++;
 
-                    float progress = (float)processedTris / totalTris;
+                    float progress = (float)cumulativeTris / totalTris;
                     if (progress - lastReportedProgress >= 0.005f)
                     {
-                        ToolProgress.Report(progress, "Baking AO (texel)",
-                            $"{processedTris}/{totalTris} triangles, {samples} samples");
+                        ToolProgress.Report(progress,
+                            $"Baking AO (texel, submesh {sm + 1}/{submeshCount})",
+                            $"{cumulativeTris}/{totalTris} triangles, {samples} samples, {resW}×{resH}");
                         lastReportedProgress = progress;
                     }
                     if (yieldCounter >= ProgressYieldInterval)
@@ -302,32 +327,113 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         yield return null;
                     }
                 }
+
+                // Grow baked texels outward across UV-island seams (bilinear/mip safety)
+                DilateSeams(pixels, written, resW, resH, SeamPadding);
+
+                // Any still-unwritten pixel (beyond dilation reach) → white (no AO)
+                for (int i = 0; i < pixels.Length; i++)
+                    if (!written[i]) pixels[i] = Color.white;
+
+                // Save
+                var tex = new Texture2D(resW, resH, TextureFormat.RGBA32, false);
+                tex.SetPixels(pixels);
+                tex.Apply();
+
+                string savedPath = null;
+                string saveError = null;
+                try
+                {
+                    string materialName = mat != null ? mat.name : null;
+                    savedPath = SaveAOTexture(
+                        tex, targetRenderer, meshName, outputPath,
+                        sm, submeshCount, materialName);
+                }
+                catch (Exception e) { saveError = e.Message; }
+                UnityEngine.Object.DestroyImmediate(tex);
+
+                if (saveError != null)
+                {
+                    yield return $"Error: failed to save AO texture (submesh {sm}): {saveError}";
+                    yield break;
+                }
+
+                if (firstSavedPath == null) firstSavedPath = savedPath;
+                savedEntries.Add($"'{savedPath}' ({resW}×{resH}, {smTriCount} tris)");
             }
 
-            // ─── Save PNG ───
-            var tex = new Texture2D(res, res, TextureFormat.RGBA32, false);
-            tex.SetPixels(pixels);
-            tex.Apply();
-
-            string savedPath = null;
-            string saveError = null;
-            try
+            if (savedEntries.Count == 0)
             {
-                savedPath = SaveAOTexture(tex, targetRenderer, meshName, outputPath);
-            }
-            catch (Exception e)
-            {
-                saveError = e.Message;
-            }
-            UnityEngine.Object.DestroyImmediate(tex);
-
-            if (saveError != null)
-            {
-                yield return $"Error: failed to save AO texture: {saveError}";
+                yield return "Error: no submeshes produced output.";
                 yield break;
             }
 
-            yield return $"Success: AO baked to '{savedPath}' ({res}×{res}, {samples} samples, {totalTris} triangles).";
+            int skippedSubmeshes = submeshCount - savedEntries.Count;
+            string skipNote = skippedSubmeshes > 0
+                ? $" [skipped {skippedSubmeshes} empty submesh{(skippedSubmeshes == 1 ? "" : "es")}]"
+                : "";
+
+            if (savedEntries.Count == 1)
+            {
+                yield return $"Success: AO baked to {savedEntries[0]}, {samples} samples{skipNote}.";
+            }
+            else
+            {
+                // Keep the first saved path quoted early so downstream parsers (e.g.
+                // the test window's "Ping last output" button) can still extract it.
+                yield return $"Success: AO baked to '{firstSavedPath}' and {savedEntries.Count - 1} more ({samples} samples){skipNote}:\n  "
+                    + string.Join("\n  ", savedEntries);
+            }
+        }
+
+        // ───────────────────────── Seam dilation ─────────────────────────
+
+        // Iteratively grow the written mask by one pixel per pass, filling each new
+        // pixel with the average of its already-written 8-neighbors. O(w·h·passes).
+        // NOTE: operates on the red channel only, then broadcasts to RGB. AO bakes
+        // are monochrome by construction (new Color(ao, ao, ao, 1)); extending this
+        // helper to colored inputs would require averaging all three channels.
+        private static void DilateSeams(Color[] pixels, bool[] written, int width, int height, int passes)
+        {
+            if (passes <= 0) return;
+            var nextWritten = new bool[written.Length];
+            for (int pass = 0; pass < passes; pass++)
+            {
+                Array.Copy(written, nextWritten, written.Length);
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        int idx = y * width + x;
+                        if (written[idx]) continue;
+
+                        float sum = 0f;
+                        int count = 0;
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            int ny = y + dy;
+                            if ((uint)ny >= (uint)height) continue;
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                if (dx == 0 && dy == 0) continue;
+                                int nx = x + dx;
+                                if ((uint)nx >= (uint)width) continue;
+                                int nIdx = ny * width + nx;
+                                if (!written[nIdx]) continue;
+                                sum += pixels[nIdx].r;
+                                count++;
+                            }
+                        }
+                        if (count > 0)
+                        {
+                            float v = sum / count;
+                            pixels[idx] = new Color(v, v, v, 1f);
+                            nextWritten[idx] = true;
+                        }
+                    }
+                }
+                Array.Copy(nextWritten, written, written.Length);
+            }
         }
 
         // ───────────────────────── Vertex-mode bake ─────────────────────────
@@ -337,11 +443,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             int samples, float maxDistance, float biasAmount, float intensity,
             string outputPath)
         {
-            var wv = GetWorldBakedVertices(targetRenderer);
-            var wn = GetWorldBakedNormals(targetRenderer);
-            if (wv == null || wn == null || wv.Length == 0)
+            if (!GetWorldBakedGeometry(targetRenderer, out var wv, out var wn) || wv.Length == 0)
             {
                 yield return "Error: failed to bake target vertices/normals.";
+                yield break;
+            }
+            if (wn == null || wn.Length != wv.Length)
+            {
+                yield return "Error: target mesh is missing per-vertex normals.";
                 yield break;
             }
 
@@ -387,12 +496,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             string dir = PackagePaths.GetGeneratedDir("AmbientOcclusion");
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             string assetPath = !string.IsNullOrWhiteSpace(outputPath)
-                ? outputPath
-                : AssetDatabase.GenerateUniqueAssetPath($"{dir}/{SanitizeName(targetMesh.name)}_AOVC.asset");
+                ? outputPath.Replace("\\", "/")
+                : $"{dir}/{SanitizeName(targetMesh.name)}_AOVC.asset";
 
             string assetError = null;
             try
             {
+                // Stable path: overwrite by deleting the prior asset if present.
+                // CreateAsset otherwise fails ("already exists") and the caller
+                // would end up accumulating _1/_2 variants via GenerateUniqueAssetPath.
+                if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath) != null)
+                {
+                    AssetDatabase.DeleteAsset(assetPath);
+                }
                 AssetDatabase.CreateAsset(newMesh, assetPath);
                 AssetDatabase.SaveAssets();
             }
@@ -499,19 +615,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
         }
 
-        private static int ResolveResolution(Renderer renderer)
+        // Non-square-aware: returns the _MainTex's native dimensions so UV mapping
+        // stays isotropic on wide atlases (e.g. 2048×1024). Falls back to a square
+        // FallbackResolution when the material has no usable main texture.
+        private static void ResolveResolution(Material mat, out int width, out int height)
         {
-            if (renderer.sharedMaterial != null)
+            if (mat != null && mat.HasProperty("_MainTex"))
             {
-                var mat = renderer.sharedMaterial;
-                if (mat.HasProperty("_MainTex"))
+                var main = mat.GetTexture("_MainTex");
+                if (main != null && main.width >= 16 && main.height >= 16)
                 {
-                    var main = mat.GetTexture("_MainTex");
-                    if (main != null && main.width >= 16 && main.height >= 16)
-                        return Mathf.Min(main.width, main.height);
+                    width = main.width;
+                    height = main.height;
+                    return;
                 }
             }
-            return FallbackResolution;
+            width = FallbackResolution;
+            height = FallbackResolution;
         }
 
         private static Mesh GetSharedMesh(Renderer r)
@@ -521,60 +641,69 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return null;
         }
 
-        private static Vector3[] GetWorldBakedVertices(Renderer r)
+        // Single-pass world-space vertex+normal bake. Previously split into two methods
+        // that each called SMR.BakeMesh — doubling skinning cost and leaving a
+        // non-atomic window where a pose tick between calls could desync verts/normals.
+        private static bool GetWorldBakedGeometry(Renderer r, out Vector3[] worldVerts, out Vector3[] worldNormals)
         {
-            if (r is SkinnedMeshRenderer smr)
-            {
-                var baked = new Mesh();
-                smr.BakeMesh(baked);
-                var locals = baked.vertices;
-                var world = new Vector3[locals.Length];
-                var pos = smr.transform.position;
-                var rot = smr.transform.rotation;
-                for (int i = 0; i < locals.Length; i++) world[i] = pos + rot * locals[i];
-                UnityEngine.Object.DestroyImmediate(baked);
-                return world;
-            }
-            if (r is MeshRenderer)
-            {
-                var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
-                if (mesh == null) return null;
-                var locals = mesh.vertices;
-                var world = new Vector3[locals.Length];
-                var ltw = r.transform.localToWorldMatrix;
-                for (int i = 0; i < locals.Length; i++) world[i] = ltw.MultiplyPoint3x4(locals[i]);
-                return world;
-            }
-            return null;
-        }
+            worldVerts = null;
+            worldNormals = null;
 
-        private static Vector3[] GetWorldBakedNormals(Renderer r)
-        {
             if (r is SkinnedMeshRenderer smr)
             {
                 var baked = new Mesh();
-                smr.BakeMesh(baked);
-                var locals = baked.normals;
-                var world = new Vector3[locals.Length];
-                var rot = smr.transform.rotation;
-                for (int i = 0; i < locals.Length; i++) world[i] = (rot * locals[i]).normalized;
-                UnityEngine.Object.DestroyImmediate(baked);
-                return world;
+                try
+                {
+                    smr.BakeMesh(baked);
+                    var localVerts = baked.vertices;
+                    var localNorms = baked.normals;
+                    if (localVerts == null || localVerts.Length == 0) return false;
+
+                    var pos = smr.transform.position;
+                    var rot = smr.transform.rotation;
+
+                    worldVerts = new Vector3[localVerts.Length];
+                    for (int i = 0; i < localVerts.Length; i++)
+                        worldVerts[i] = pos + rot * localVerts[i];
+
+                    if (localNorms != null && localNorms.Length == localVerts.Length)
+                    {
+                        worldNormals = new Vector3[localNorms.Length];
+                        for (int i = 0; i < localNorms.Length; i++)
+                            worldNormals[i] = (rot * localNorms[i]).normalized;
+                    }
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(baked);
+                }
+                return worldVerts != null;
             }
+
             if (r is MeshRenderer)
             {
                 var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
-                if (mesh == null) return null;
-                var locals = mesh.normals;
-                var world = new Vector3[locals.Length];
-                // Use inverse-transpose for normals; for uniform scale the rotation part of
-                // localToWorldMatrix is sufficient, but we want correctness for non-uniform.
-                var m = r.transform.localToWorldMatrix.inverse.transpose;
-                for (int i = 0; i < locals.Length; i++)
-                    world[i] = m.MultiplyVector(locals[i]).normalized;
-                return world;
+                if (mesh == null) return false;
+                var localVerts = mesh.vertices;
+                var localNorms = mesh.normals;
+                if (localVerts == null || localVerts.Length == 0) return false;
+
+                var ltw = r.transform.localToWorldMatrix;
+                worldVerts = new Vector3[localVerts.Length];
+                for (int i = 0; i < localVerts.Length; i++)
+                    worldVerts[i] = ltw.MultiplyPoint3x4(localVerts[i]);
+
+                if (localNorms != null && localNorms.Length == localVerts.Length)
+                {
+                    // Inverse-transpose keeps normals correct under non-uniform scale.
+                    var m = r.transform.localToWorldMatrix.inverse.transpose;
+                    worldNormals = new Vector3[localNorms.Length];
+                    for (int i = 0; i < localNorms.Length; i++)
+                        worldNormals[i] = m.MultiplyVector(localNorms[i]).normalized;
+                }
+                return true;
             }
-            return null;
+            return false;
         }
 
         private struct TempCollider
@@ -630,27 +759,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return result;
         }
 
-        private static string SaveAOTexture(Texture2D tex, Renderer targetRenderer, string meshName, string outputPath)
+        private static string SaveAOTexture(
+            Texture2D tex, Renderer targetRenderer,
+            string meshName, string outputPath,
+            int subMeshIndex, int subMeshCount, string materialName)
         {
             byte[] bytes = tex.EncodeToPNG();
             if (bytes == null) throw new Exception("EncodeToPNG returned null.");
 
-            string avatarName = ResolveAvatarName(targetRenderer);
-            string fullPath;
-            if (!string.IsNullOrWhiteSpace(outputPath))
-            {
-                fullPath = outputPath.Replace("\\", "/");
-                string parent = Path.GetDirectoryName(fullPath);
-                if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
-                    Directory.CreateDirectory(parent);
-            }
-            else
-            {
-                string folder = Path.Combine(PackagePaths.GetGeneratedDir("AmbientOcclusion"), avatarName).Replace("\\", "/");
-                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
-                fullPath = Path.Combine(folder, meshName + "_AO.png").Replace("\\", "/");
-                fullPath = AssetDatabase.GenerateUniqueAssetPath(fullPath);
-            }
+            string fullPath = BuildAOTexturePath(outputPath, targetRenderer, meshName,
+                subMeshIndex, subMeshCount, materialName);
+
+            string parent = Path.GetDirectoryName(fullPath)?.Replace("\\", "/");
+            if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+                Directory.CreateDirectory(parent);
 
             File.WriteAllBytes(fullPath, bytes);
             AssetDatabase.ImportAsset(fullPath);
@@ -666,6 +788,37 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
 
             return fullPath;
+        }
+
+        // Deterministic path — re-bake overwrites rather than piling _1/_2/_3 variants.
+        // For multi-submesh bakes, injects "_mat{i}_{matname}" before the extension
+        // so each submesh gets its own distinct file even when outputPath is explicit.
+        private static string BuildAOTexturePath(
+            string outputPath, Renderer r, string meshName,
+            int subMeshIndex, int subMeshCount, string materialName)
+        {
+            string suffix = subMeshCount > 1
+                ? $"_mat{subMeshIndex}_{SanitizeName(materialName ?? "unnamed")}"
+                : "";
+
+            if (!string.IsNullOrWhiteSpace(outputPath))
+            {
+                string normalized = outputPath.Replace("\\", "/");
+                if (subMeshCount <= 1) return normalized;
+
+                string dir = Path.GetDirectoryName(normalized)?.Replace("\\", "/") ?? "";
+                string stem = Path.GetFileNameWithoutExtension(normalized);
+                string ext = Path.GetExtension(normalized);
+                if (string.IsNullOrEmpty(ext)) ext = ".png";
+                return string.IsNullOrEmpty(dir)
+                    ? $"{stem}{suffix}{ext}"
+                    : $"{dir}/{stem}{suffix}{ext}";
+            }
+
+            string avatarName = ResolveAvatarName(r);
+            string folder = Path.Combine(PackagePaths.GetGeneratedDir("AmbientOcclusion"), avatarName)
+                .Replace("\\", "/");
+            return $"{folder}/{meshName}_AO{suffix}.png";
         }
 
         private static string ResolveAvatarName(Renderer r)

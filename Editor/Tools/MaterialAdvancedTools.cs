@@ -176,8 +176,14 @@ Use ListMaterialProperties (in TextureEditTools) to discover property names.")]
         }
 
         [AgentTool(@"Get a Vector4 property value from a GameObject's material (read-only).
-Useful when ListMaterialProperties is not enough and you need the raw x,y,z,w components.
-Returns 'propertyName = (x, y, z, w)' or an error if the property does not exist or is not a Vector.")]
+Reads BOTH the MaterialPropertyBlock (MPB) and the shared material, because Unity's Animator
+routes material-property animations through MPB in most modern paths — a value that looks animated
+on screen is often missing from sharedMaterial.GetVector().
+
+Returns:
+  - 'propertyName = (x, y, z, w)  [source=MPB]'   when the value is live-driven via MPB
+  - 'propertyName = (x, y, z, w)  [source=sharedMaterial]'   when no MPB override exists
+If both are present, both values are shown so the caller can see the base vs animated delta.")]
         public static string GetMaterialVector(string gameObjectName, string propertyName, int materialIndex = 0)
         {
             var go = MeshAnalysisTools.FindGameObject(gameObjectName);
@@ -204,12 +210,179 @@ Returns 'propertyName = (x, y, z, w)' or an error if the property does not exist
                     return $"Error: Property '{propertyName}' is of type {propType}, not Vector. Use the matching getter instead.";
             }
 
-            Vector4 v = mat.GetVector(propertyName);
-            return $"{propertyName} = ({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})";
+            // MPB check — Animator-driven material properties usually land here (not in sharedMaterial)
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb, materialIndex);
+            bool mpbHasProp = !mpb.isEmpty && mpb.HasVector(propertyName);
+            Vector4 shared = mat.GetVector(propertyName);
+
+            if (mpbHasProp)
+            {
+                Vector4 live = mpb.GetVector(propertyName);
+                return $"{propertyName} = ({live.x:F4}, {live.y:F4}, {live.z:F4}, {live.w:F4})  [source=MPB]\n"
+                     + $"  sharedMaterial base = ({shared.x:F4}, {shared.y:F4}, {shared.z:F4}, {shared.w:F4})";
+            }
+            return $"{propertyName} = ({shared.x:F4}, {shared.y:F4}, {shared.z:F4}, {shared.w:F4})  [source=sharedMaterial]\n"
+                 + $"  (no MPB override. If an Animator is animating this property in Play mode, the shader uses an "
+                 + $"instance material written by Unity's animation binding system — call "
+                 + $"GetRendererInstanceMaterialVector during Play mode to see that value.)";
+        }
+
+        [AgentTool(@"Read a Vector4 from the renderer's INSTANCE material (renderer.materials[i]).
+Unity's Animator animates material properties by writing to the per-renderer instance, not to the shared
+asset and not via MaterialPropertyBlock. sharedMaterial.GetVector returns the baked asset value; this tool
+returns what the shader actually renders with. Requires Play mode: accessing renderer.materials[i] in Edit
+mode would leak a material instance.
+
+Output format:
+  propertyName = (x, y, z, w)  [source=instance]
+    shared base = (...)
+    MPB value = (...) (only when an additional MPB override exists)")]
+        public static string GetRendererInstanceMaterialVector(string gameObjectName, string propertyName, int materialIndex = 0)
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode. Accessing renderer.materials[i] in Edit mode would leak a material instance. Use GetMaterialVector (shared+MPB) for Edit-mode reads.";
+
+            var go = MeshAnalysisTools.FindGameObject(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer == null) return $"Error: No Renderer found on '{gameObjectName}'.";
+
+            var shareds = renderer.sharedMaterials;
+            if (materialIndex < 0 || materialIndex >= shareds.Length)
+                return $"Error: Material index {materialIndex} out of range (0-{shareds.Length - 1}).";
+            var sharedMat = shareds[materialIndex];
+            if (sharedMat == null) return $"Error: Material at index {materialIndex} is null.";
+            if (!sharedMat.HasProperty(propertyName))
+                return $"Error: Material '{sharedMat.name}' has no property '{propertyName}'.";
+
+            int propIdx = sharedMat.shader.FindPropertyIndex(propertyName);
+            if (propIdx >= 0)
+            {
+                var propType = ShaderUtil.GetPropertyType(sharedMat.shader, propIdx);
+                if (propType != ShaderUtil.ShaderPropertyType.Vector)
+                    return $"Error: Property '{propertyName}' is of type {propType}, not Vector.";
+            }
+
+            // This access instantiates if not already (safe in Play mode, auto-cleaned on exit).
+            var instances = renderer.materials;
+            if (materialIndex >= instances.Length)
+                return $"Error: renderer.materials length ({instances.Length}) is smaller than materialIndex ({materialIndex}).";
+            var inst = instances[materialIndex];
+            if (inst == null) return "Error: instance material is null.";
+
+            Vector4 instV = inst.GetVector(propertyName);
+            Vector4 sharedV = sharedMat.GetVector(propertyName);
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb, materialIndex);
+            bool mpbHas = !mpb.isEmpty && mpb.HasVector(propertyName);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"{propertyName} = ({instV.x:F4}, {instV.y:F4}, {instV.z:F4}, {instV.w:F4})  [source=instance]");
+            sb.AppendLine($"  shared base = ({sharedV.x:F4}, {sharedV.y:F4}, {sharedV.z:F4}, {sharedV.w:F4})");
+            if (mpbHas)
+            {
+                Vector4 mv = mpb.GetVector(propertyName);
+                sb.AppendLine($"  MPB value = ({mv.x:F4}, {mv.y:F4}, {mv.z:F4}, {mv.w:F4})");
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        [AgentTool(@"Read a float/range from the renderer's INSTANCE material (renderer.materials[i]).
+Same Animator-driven-value semantics as GetRendererInstanceMaterialVector. Play mode only.")]
+        public static string GetRendererInstanceMaterialFloat(string gameObjectName, string propertyName, int materialIndex = 0)
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode.";
+            var go = MeshAnalysisTools.FindGameObject(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer == null) return $"Error: No Renderer found on '{gameObjectName}'.";
+            var shareds = renderer.sharedMaterials;
+            if (materialIndex < 0 || materialIndex >= shareds.Length)
+                return $"Error: Material index {materialIndex} out of range (0-{shareds.Length - 1}).";
+            var sharedMat = shareds[materialIndex];
+            if (sharedMat == null || !sharedMat.HasProperty(propertyName))
+                return $"Error: Property '{propertyName}' not found.";
+            var inst = renderer.materials[materialIndex];
+            float instF = inst.GetFloat(propertyName);
+            float sharedF = sharedMat.GetFloat(propertyName);
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb, materialIndex);
+            bool mpbHas = !mpb.isEmpty && mpb.HasFloat(propertyName);
+            var sb = new StringBuilder();
+            sb.AppendLine($"{propertyName} = {instF.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}  [source=instance]");
+            sb.AppendLine($"  shared base = {sharedF.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
+            if (mpbHas) sb.AppendLine($"  MPB value = {mpb.GetFloat(propertyName).ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
+            return sb.ToString().TrimEnd();
+        }
+
+        [AgentTool(@"Read a Color from the renderer's INSTANCE material (renderer.materials[i]).
+Same Animator-driven-value semantics as GetRendererInstanceMaterialVector. Play mode only.")]
+        public static string GetRendererInstanceMaterialColor(string gameObjectName, string propertyName, int materialIndex = 0)
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode.";
+            var go = MeshAnalysisTools.FindGameObject(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer == null) return $"Error: No Renderer found on '{gameObjectName}'.";
+            var shareds = renderer.sharedMaterials;
+            if (materialIndex < 0 || materialIndex >= shareds.Length)
+                return $"Error: Material index {materialIndex} out of range (0-{shareds.Length - 1}).";
+            var sharedMat = shareds[materialIndex];
+            if (sharedMat == null || !sharedMat.HasProperty(propertyName))
+                return $"Error: Property '{propertyName}' not found.";
+            var inst = renderer.materials[materialIndex];
+            Color instC = inst.GetColor(propertyName);
+            Color sharedC = sharedMat.GetColor(propertyName);
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb, materialIndex);
+            bool mpbHas = !mpb.isEmpty && mpb.HasColor(propertyName);
+            var sb = new StringBuilder();
+            sb.AppendLine($"{propertyName} = ({instC.r:F3}, {instC.g:F3}, {instC.b:F3}, {instC.a:F3})  [source=instance]");
+            sb.AppendLine($"  shared base = ({sharedC.r:F3}, {sharedC.g:F3}, {sharedC.b:F3}, {sharedC.a:F3})");
+            if (mpbHas)
+            {
+                Color mc = mpb.GetColor(propertyName);
+                sb.AppendLine($"  MPB value = ({mc.r:F3}, {mc.g:F3}, {mc.b:F3}, {mc.a:F3})");
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        [AgentTool(@"Read an int from the renderer's INSTANCE material (renderer.materials[i]).
+Same Animator-driven-value semantics as GetRendererInstanceMaterialVector. Play mode only.")]
+        public static string GetRendererInstanceMaterialInt(string gameObjectName, string propertyName, int materialIndex = 0)
+        {
+            if (!EditorApplication.isPlaying)
+                return "Error: Requires Play mode.";
+            var go = MeshAnalysisTools.FindGameObject(gameObjectName);
+            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer == null) return $"Error: No Renderer found on '{gameObjectName}'.";
+            var shareds = renderer.sharedMaterials;
+            if (materialIndex < 0 || materialIndex >= shareds.Length)
+                return $"Error: Material index {materialIndex} out of range (0-{shareds.Length - 1}).";
+            var sharedMat = shareds[materialIndex];
+            if (sharedMat == null || !sharedMat.HasProperty(propertyName))
+                return $"Error: Property '{propertyName}' not found.";
+            var inst = renderer.materials[materialIndex];
+            int instI = inst.GetInt(propertyName);
+            int sharedI = sharedMat.GetInt(propertyName);
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb, materialIndex);
+            bool mpbHas = !mpb.isEmpty && mpb.HasInt(propertyName);
+            var sb = new StringBuilder();
+            sb.AppendLine($"{propertyName} = {instI}  [source=instance]");
+            sb.AppendLine($"  shared base = {sharedI}");
+            if (mpbHas) sb.AppendLine($"  MPB value = {mpb.GetInt(propertyName)}");
+            return sb.ToString().TrimEnd();
         }
 
         [AgentTool(@"Dump ALL Vector4 properties of a GameObject's material in one call.
-Much cheaper than calling GetMaterialVector per-property when debugging shaders with many vector parameters.
+Each row shows the MaterialPropertyBlock value (if overridden) and/or the sharedMaterial value.
+The source column ('MPB' / 'shared' / 'MPB+shared') makes it obvious which values are Animator-driven
+vs baked into the asset — essential when debugging 'shader renders but GetVector returns zero'.
 filter: optional substring match against property name (case-insensitive). Pass '' for all.")]
         public static string GetAllMaterialVectors(string gameObjectName, int materialIndex = 0, string filter = "")
         {
@@ -230,8 +403,13 @@ filter: optional substring match against property name (case-insensitive). Pass 
             int propCount = ShaderUtil.GetPropertyCount(shader);
             string filterLower = string.IsNullOrEmpty(filter) ? null : filter.ToLowerInvariant();
 
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb, materialIndex);
+            bool mpbEmpty = mpb.isEmpty;
+
             var sb = new StringBuilder();
             sb.AppendLine($"Material: {mat.name} (Shader: {shader.name})");
+            sb.AppendLine($"MPB has overrides: {!mpbEmpty}");
             sb.AppendLine($"Vector4 properties" + (filterLower != null ? $" filter='{filter}'" : "") + ":");
             sb.AppendLine("---");
 
@@ -243,9 +421,18 @@ filter: optional substring match against property name (case-insensitive). Pass 
                 if (filterLower != null && name.ToLowerInvariant().IndexOf(filterLower, System.StringComparison.Ordinal) < 0) continue;
 
                 Vector4 v = mat.GetVector(name);
+                bool mpbHas = !mpbEmpty && mpb.HasVector(name);
+                Vector4 mpbV = mpbHas ? mpb.GetVector(name) : default;
                 string desc = ShaderUtil.GetPropertyDescription(shader, i);
                 string descStr = string.IsNullOrEmpty(desc) ? "" : $" \"{desc}\"";
-                sb.AppendLine($"  {name}{descStr} = ({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})");
+                if (mpbHas)
+                {
+                    sb.AppendLine($"  {name}{descStr} = ({mpbV.x:F4}, {mpbV.y:F4}, {mpbV.z:F4}, {mpbV.w:F4})  [MPB]  shared=({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})");
+                }
+                else
+                {
+                    sb.AppendLine($"  {name}{descStr} = ({v.x:F4}, {v.y:F4}, {v.z:F4}, {v.w:F4})  [shared]");
+                }
                 shown++;
             }
 
