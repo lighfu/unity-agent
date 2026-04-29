@@ -22,6 +22,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         MD3Chip _modelChip;
         VisualElement _attachPreview;
         Image _attachImage;
+        VisualElement _shareWarning;
         bool _isProcessing;
 
         public Action OnSendClicked;
@@ -30,6 +31,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         public Action OnProviderChipClicked;
         public Action OnModelChipClicked;
         public Action OnSaveLogClicked;
+        public Action OnShareWarningClicked;
         public Func<string> GetUserQuery;
         public Action<string> SetUserQuery;
 
@@ -51,6 +53,44 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
         void BuildUI()
         {
+            // ── 開発者共有が有効な時の警告ストリップ ──
+            // AgentSettings.DiscordLoggingEnabled = true の間だけ表示。
+            // 入力欄の直上に置くことで「これから打つメッセージが共有される」と気付きやすい。
+            _shareWarning = new VisualElement();
+            _shareWarning.style.display = DisplayStyle.None;
+            _shareWarning.style.flexDirection = FlexDirection.Row;
+            _shareWarning.style.alignItems = Align.Center;
+            _shareWarning.style.paddingLeft = 10;
+            _shareWarning.style.paddingRight = 10;
+            _shareWarning.style.paddingTop = 6;
+            _shareWarning.style.paddingBottom = 6;
+            _shareWarning.style.marginBottom = 6;
+            _shareWarning.style.backgroundColor = _theme.TertiaryContainer;
+            _shareWarning.style.borderTopLeftRadius = 6;
+            _shareWarning.style.borderTopRightRadius = 6;
+            _shareWarning.style.borderBottomLeftRadius = 6;
+            _shareWarning.style.borderBottomRightRadius = 6;
+
+            var warningLabel = new Label(M("⚠ 会話ログ送信が有効です — 個人情報を入力しないでください"));
+            warningLabel.style.color = _theme.OnTertiaryContainer;
+            warningLabel.style.flexGrow = 1;
+            warningLabel.style.whiteSpace = WhiteSpace.Normal;
+            warningLabel.style.fontSize = 11;
+            warningLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+            _shareWarning.Add(warningLabel);
+
+            var openSettingsBtn = new MD3Button(M("設定"), MD3ButtonStyle.Text, size: MD3ButtonSize.Small);
+            openSettingsBtn.clicked += () => OnShareWarningClicked?.Invoke();
+            _shareWarning.Add(openSettingsBtn);
+
+            _shareWarning.RegisterCallback<ClickEvent>(evt =>
+            {
+                if (evt.target is MD3Button) return;
+                OnShareWarningClicked?.Invoke();
+            });
+
+            Add(_shareWarning);
+
             // ── Chip row (プロバイダー + モデル) ──
             var chipRow = new MD3Row(gap: 6f);
             chipRow.style.marginBottom = 6;
@@ -219,6 +259,15 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         {
             _attachImage.image = null;
             _attachPreview.style.display = DisplayStyle.None;
+        }
+
+        /// <summary>
+        /// 「AIとのチャットを開発者に共有することを許可する」が有効な時、入力欄上部に警告ストリップを表示する。
+        /// </summary>
+        public void SetSharingEnabled(bool enabled)
+        {
+            if (_shareWarning == null) return;
+            _shareWarning.style.display = enabled ? DisplayStyle.Flex : DisplayStyle.None;
         }
     }
 }

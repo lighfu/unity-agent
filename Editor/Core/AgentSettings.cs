@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using AjisaiFlow.MD3SDK.Editor;
@@ -236,10 +237,21 @@ namespace AjisaiFlow.UnityAgent.Editor
             set => SettingsStore.SetBool(ConfirmDestructiveKey, value);
         }
 
+        /// <summary>
+        /// 値が変化した瞬間に発火される。チャット画面の警告ストリップ等が購読する。
+        /// </summary>
+        public static event Action<bool> DiscordLoggingEnabledChanged;
+
         public static bool DiscordLoggingEnabled
         {
             get => SettingsStore.GetBool(DiscordLoggingEnabledKey, false);
-            set => SettingsStore.SetBool(DiscordLoggingEnabledKey, value);
+            set
+            {
+                var prev = SettingsStore.GetBool(DiscordLoggingEnabledKey, false);
+                SettingsStore.SetBool(DiscordLoggingEnabledKey, value);
+                if (prev != value)
+                    DiscordLoggingEnabledChanged?.Invoke(value);
+            }
         }
 
         public static bool DebugMode

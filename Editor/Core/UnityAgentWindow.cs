@@ -225,6 +225,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             MCP.AgentMCPServer.OnCallStart += HandleMCPCallStart;
             MCP.AgentMCPServer.OnCallFinish += HandleMCPCallFinish;
             MCP.AgentMCPServer.OnUserChoiceRequested += HandleMCPUserChoiceRequested;
+
+            // 設定画面で「開発者に共有」が切り替わった時に入力欄の警告ストリップを反映
+            AgentSettings.DiscordLoggingEnabledChanged += HandleDiscordLoggingChanged;
+        }
+
+        private void HandleDiscordLoggingChanged(bool enabled)
+        {
+            _inputBar?.SetSharingEnabled(enabled);
         }
 
         private void CreateGUI()
@@ -316,6 +324,8 @@ namespace AjisaiFlow.UnityAgent.Editor
             // Input bar
             _inputBar = new InputBar(_theme);
             _inputBar.OnSaveLogClicked = () => SaveFullLog();
+            _inputBar.OnShareWarningClicked = () => UnityAgentSettingsWindow.Open();
+            _inputBar.SetSharingEnabled(AgentSettings.DiscordLoggingEnabled);
             rootVisualElement.Add(_inputBar);
 
             // Quick menu overlay (absolute positioned)
@@ -486,6 +496,8 @@ namespace AjisaiFlow.UnityAgent.Editor
             MCP.AgentMCPServer.OnCallStart -= HandleMCPCallStart;
             MCP.AgentMCPServer.OnCallFinish -= HandleMCPCallFinish;
             MCP.AgentMCPServer.OnUserChoiceRequested -= HandleMCPUserChoiceRequested;
+
+            AgentSettings.DiscordLoggingEnabledChanged -= HandleDiscordLoggingChanged;
         }
 
         /// <summary>外部エージェントがツールを呼び始めたとき、chat に Info エントリを追加する。</summary>
