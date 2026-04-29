@@ -278,7 +278,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Configure VRCPhysBone parameters (full inspector parity). Sentinels for 'unchanged': float=-999, int=-1, string=null. Forces: pull, spring (= 'Momentum' when integrationType=Advanced), stiffness, gravity, gravityFalloff, immobile, integrationType (0=Simplified,1=Advanced), immobileType (0=All,1=World). Limits: limitType (0=None,1=Angle,2=Hinge,3=Polar), maxAngleX, maxAngleZ, limitRotation ('x,y,z' euler). Collision: radius, allowCollision (Permission: 0=True,1=False,2=Other). Stretch&Squish: stretchMotion, maxStretch, maxSquish. Grab&Pose: allowGrabbing (Permission), allowPosing (Permission), grabMovement, snapToHand (0=false,1=true). Transforms: multiChildType (0=Ignore,1=First,2=Average), ignoreOtherPhysBones (0=false,1=true), endpointPosition ('x,y,z'). Options: isAnimated (0=false,1=true), resetWhenDisabled (0=false,1=true), parameter.")]
+        [AgentTool("Configure VRCPhysBone parameters (full inspector parity). Sentinels for 'unchanged': float=-999, int=-1, string=null. Forces: pull, spring (= 'Momentum' when integrationType=Advanced), stiffness, gravity, gravityFalloff, immobile, integrationType (0=Simplified,1=Advanced), immobileType (0=All,1=World). Limits: limitType (0=None,1=Angle,2=Hinge,3=Polar), maxAngleX, maxAngleZ, limitRotation ('x,y,z' euler). Collision: radius, allowCollision (Permission: 0=False,1=True,2=Other). Stretch&Squish: stretchMotion, maxStretch, maxSquish. Grab&Pose: allowGrabbing (Permission: 0=False,1=True,2=Other), allowPosing (Permission: 0=False,1=True,2=Other), grabMovement, snapToHand (0=false,1=true). Transforms: multiChildType (0=Ignore,1=First,2=Average), ignoreOtherPhysBones (0=false,1=true), endpointPosition ('x,y,z'). Options: isAnimated (0=false,1=true), resetWhenDisabled (0=false,1=true), parameter.")]
         public static string ConfigureVRCPhysBone(
             string goName,
             // Forces
@@ -435,8 +435,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             SetInt("limitType", tmpl.limitType);
             if (tmpl.limitType != 0)
                 SetFloat("maxAngleX", tmpl.maxAngleX);
-            SetInt("allowGrabbing", tmpl.allowGrabbing ? 0 : 1); // 0=True, 1=False
-            SetInt("allowPosing", tmpl.allowPosing ? 0 : 1);
+            // VRC SDK Permission enum: 0=False, 1=True, 2=Other (verified empirically via enumDisplayNames).
+            SetInt("allowGrabbing", tmpl.allowGrabbing ? 1 : 0);
+            SetInt("allowPosing", tmpl.allowPosing ? 1 : 0);
 
             so.ApplyModifiedProperties();
             EditorUtility.SetDirty(physBone);

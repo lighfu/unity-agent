@@ -372,7 +372,7 @@
     "InspectVRCPhysBone": "詳細檢查 VRCPhysBone 元件。顯示所有參數：積分類型、力、限制、碰撞、抓取/擺姿勢、伸展/擠壓、參數名稱。",
     "ListVRCExpressionParameters": "列出 VRCAvatarDescriptor 的表情參數（名稱、類型、預設值、儲存狀態、同步狀態）。",
     "InspectVRCExpressionsMenu": "遞迴檢查 VRC Expressions Menu 結構（控制項、子選單）。",
-    "ConfigureVRCPhysBone": "配置 VRCPhysBone 參數。使用 -999 表示不更改 float，-1 表示不更改 int。參數：pull, spring, stiffness, gravity, gravityFalloff, immobile, radius, maxStretch, maxSquish, limitType (0=None, 1=Angle, 2=Hinge, 3=Polar), maxAngleX, maxAngleZ, allowGrabbing (0=True, 1=False), allowPosing (0=True, 1=False), allowCollision (0=True, 1=False), isAnimated (0=false, 1=true), parameter (null=不更改)。",
+    "ConfigureVRCPhysBone": "配置 VRCPhysBone 參數。使用 -999 表示不更改 float，-1 表示不更改 int。參數：pull, spring, stiffness, gravity, gravityFalloff, immobile, radius, maxStretch, maxSquish, limitType (0=None, 1=Angle, 2=Hinge, 3=Polar), maxAngleX, maxAngleZ, allowGrabbing (0=False, 1=True), allowPosing (0=False, 1=True), allowCollision (0=False, 1=True), isAnimated (0=false, 1=true), parameter (null=不更改)。",
     "AddVRCExpressionParameter": "向 VRCExpressionParameters 新增參數。類型：Bool, Int 或 Float。saved=true 會在跨工作階段保留。synced=true 會同步給其他玩家。",
     "AddVRCExpressionsMenuToggle": "向 VRC Expressions Menu 新增開關 (Toggle) 控制。paramName 必須與 ExpressionParameters 中的項目匹配。subMenuPath：若指定，則新增至子選單（必要時會建立）。value 為啟動值（預設 1）。",
     "CreateToggleAnimations": "為 GameObject 建立 ON/OFF 開關動畫片段（啟用/停用）。建立兩個片段：一個啟用物件，另一個停用物件。targetPath 是相對於 Avatar 根部的路徑（例如 'Sailor-Jersey' 或 'Armature/Hips/Object'）。回傳建立的片段路徑。",

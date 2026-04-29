@@ -372,7 +372,7 @@
     "InspectVRCPhysBone": "VRCPhysBone 컴포넌트를 상세히 조사합니다. 통합 타입, 힘, 리미트, 충돌, Grab/Pose, Stretch/Squish, 파라미터 이름 등 모든 파라미터를 표시합니다.",
     "ListVRCExpressionParameters": "VRCAvatarDescriptor에서 표현 파라미터 목록(이름, 타입, 기본값, 저장 여부, 동기화 여부)을 가져옵니다.",
     "InspectVRCExpressionsMenu": "VRC Expressions Menu 구조(컨트롤, 서브메뉴)를 재귀적으로 조사합니다.",
-    "ConfigureVRCPhysBone": "VRCPhysBone 파라미터를 설정합니다. 변경하지 않을 값은 float의 경우 -999, int의 경우 -1을 사용하세요. 파라미터: pull, spring, stiffness, gravity, gravityFalloff, immobile, radius, maxStretch, maxSquish, limitType (0=None, 1=Angle, 2=Hinge, 3=Polar), maxAngleX, maxAngleZ, allowGrabbing (0=True, 1=False), allowPosing (0=True, 1=False), allowCollision (0=True, 1=False), isAnimated (0=false, 1=true), parameter (null=변경 없음).",
+    "ConfigureVRCPhysBone": "VRCPhysBone 파라미터를 설정합니다. 변경하지 않을 값은 float의 경우 -999, int의 경우 -1을 사용하세요. 파라미터: pull, spring, stiffness, gravity, gravityFalloff, immobile, radius, maxStretch, maxSquish, limitType (0=None, 1=Angle, 2=Hinge, 3=Polar), maxAngleX, maxAngleZ, allowGrabbing (0=False, 1=True), allowPosing (0=False, 1=True), allowCollision (0=False, 1=True), isAnimated (0=false, 1=true), parameter (null=변경 없음).",
     "AddVRCExpressionParameter": "VRCExpressionParameters에 파라미터를 추가합니다. 타입: Bool, Int, 또는 Float. saved=true는 세션 간 유지, synced=true는 다른 플레이어에게 동기화됨을 의미합니다.",
     "AddVRCExpressionsMenuToggle": "VRC Expressions Menu에 Toggle 컨트롤을 추가합니다. paramName은 ExpressionParameters 항목과 일치해야 합니다. subMenuPath가 지정되면 해당 서브메뉴에 추가합니다(필요 시 생성). value는 활성화 시의 값입니다 (기본값 1).",
     "CreateToggleAnimations": "GameObject의 활성화/비활성화를 위한 ON/OFF 토글 애니메이션 클립을 생성합니다. 오브젝트를 활성화하는 클립과 비활성화하는 클립 두 개를 생성합니다. targetPath는 아바타 루트 기준 경로입니다 (예: 'Sailor-Jersey' 또는 'Armature/Hips/Object'). 생성된 클립 경로를 반환합니다.",
