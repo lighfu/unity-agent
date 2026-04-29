@@ -2305,12 +2305,38 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             _rightPanel.Clear();
 
+            // ── Logo banner (scroll の外に出して右パネル幅いっぱいに広げる) ──
+            var logoTexture = LoadLogoForTheme();
+            if (logoTexture != null)
+            {
+                var logoImage = new Image
+                {
+                    image = logoTexture,
+                    scaleMode = ScaleMode.ScaleToFit,
+                };
+                // 横幅は右パネル幅にフル追従、縦は元画像のアスペクト比 (2400×800 = 3:1) で算出
+                logoImage.style.alignSelf = Align.Stretch;
+                float texW = logoTexture.width > 0 ? logoTexture.width : 2400f;
+                float texH = logoTexture.height > 0 ? logoTexture.height : 800f;
+                float aspect = texH / texW;
+                logoImage.RegisterCallback<GeometryChangedEvent>(evt =>
+                {
+                    float w = evt.newRect.width;
+                    if (w <= 0f) return;
+                    float h = w * aspect;
+                    if (Mathf.Abs(h - logoImage.resolvedStyle.height) > 0.5f)
+                        logoImage.style.height = h;
+                });
+                _rightPanel.Add(logoImage);
+            }
+            else
+            {
+                _rightPanel.Add(new MD3Text("Unity AI Agent", MD3TextStyle.DisplayLarge,
+                    color: _theme.OnSurface));
+            }
+
             var scroll = new MD3ScrollColumn(8, 16);
             _rightPanel.Add(scroll);
-
-            // ── Tool info ──
-            scroll.Add(new MD3Text("Unity AI Agent", MD3TextStyle.DisplayLarge,
-                color: _theme.OnSurface));
 
             var verRow = new MD3Row(8);
             verRow.Add(new MD3Text($"v{UpdateChecker.CurrentVersion}", MD3TextStyle.HeadlineSmall,
@@ -2379,6 +2405,24 @@ namespace AjisaiFlow.UnityAgent.Editor
             scroll.Add(supporterContainer);
 
             LoadSupportersFromJson(supporterContainer);
+        }
+
+        private Texture2D LoadLogoForTheme()
+        {
+            bool dark = _theme != null && _theme.IsDark;
+            string fileName = dark ? "unityagent-dark.png" : "unityagent-light.png";
+
+            string[] candidates =
+            {
+                "Packages/com.ajisaiflow.unityagent/Editor/Settings/Logos/" + fileName,
+                "Assets/紫陽花広場/UnityAgent/Editor/Settings/Logos/" + fileName,
+            };
+            foreach (var path in candidates)
+            {
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                if (tex != null) return tex;
+            }
+            return null;
         }
 
         private const string SupporterJsonUrl = "https://raw.githubusercontent.com/lighfu/ajisaiflow-assets/main/docs/supporters.json";

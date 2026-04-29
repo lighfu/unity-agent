@@ -32,6 +32,10 @@ Fonts/*.otf.meta
 *.zip
 *.zip.meta
 
+# Logo assets that ship with the package (release zip needs these)
+!Editor/Settings/Logos/*.png
+!Editor/Settings/Logos/*.png.meta
+
 # Bridge binaries: built locally via Editor/Bridge~/UnityAgentBridge/build.{ps1,sh}
 # or in CI at release time.
 #
