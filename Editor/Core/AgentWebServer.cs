@@ -395,7 +395,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 <head>
 <meta charset=""utf-8"">
 <meta name=""viewport"" content=""width=device-width, initial-scale=1"">
-<title>Unity AI Agent Monitor</title>
+<title>UnityAgent Monitor</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {

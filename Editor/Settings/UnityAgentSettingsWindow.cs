@@ -2331,7 +2331,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
             else
             {
-                _rightPanel.Add(new MD3Text("Unity AI Agent", MD3TextStyle.DisplayLarge,
+                _rightPanel.Add(new MD3Text("UnityAgent", MD3TextStyle.DisplayLarge,
                     color: _theme.OnSurface));
             }
 

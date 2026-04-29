@@ -39,7 +39,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             string apiKey = GetApiKey();
             if (apiKey == null)
             {
-                yield return "Error: Meshy API key not configured. Set it in the Unity AI Agent settings (Advanced tab).";
+                yield return "Error: Meshy API key not configured. Set it in the UnityAgent settings (Advanced tab).";
                 yield break;
             }
 
@@ -141,7 +141,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             string apiKey = GetApiKey();
             if (apiKey == null)
             {
-                yield return "Error: Meshy API key not configured. Set it in the Unity AI Agent settings (Advanced tab).";
+                yield return "Error: Meshy API key not configured. Set it in the UnityAgent settings (Advanced tab).";
                 yield break;
             }
 

@@ -111,7 +111,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             // Instruction
             card.Add(new MD3Text(
-                string.Format(M("ALCOM/VCC のプロジェクトのパッケージ管理から Unity AI Agent を v{0} に更新してください。"), latest.version),
+                string.Format(M("ALCOM/VCC のプロジェクトのパッケージ管理から UnityAgent を v{0} に更新してください。"), latest.version),
                 MD3TextStyle.BodySmall, fgColor));
 
             // Changelog

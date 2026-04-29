@@ -40,7 +40,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         void BuildUI()
         {
             // Title
-            var title = new MD3Text(M("UnityAI Agent へようこそ"), MD3TextStyle.DisplaySmall);
+            var title = new MD3Text(M("UnityAgent へようこそ"), MD3TextStyle.DisplaySmall);
             title.style.color = _theme.OnSurface;
             title.style.unityTextAlign = TextAnchor.MiddleCenter;
             title.style.marginBottom = 16;

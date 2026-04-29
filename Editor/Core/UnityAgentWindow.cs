@@ -203,10 +203,10 @@ namespace AjisaiFlow.UnityAgent.Editor
         //  Lifecycle
         // ═══════════════════════════════════════════════════════
 
-        [MenuItem("Window/紫陽花広場/Unity AI Agent")]
+        [MenuItem("Window/紫陽花広場/UnityAgent")]
         public static void ShowWindow()
         {
-            GetWindow<UnityAgentWindow>(M("Unity AIエージェント"));
+            GetWindow<UnityAgentWindow>(M("UnityAgent"));
         }
 
         private void OnEnable()
