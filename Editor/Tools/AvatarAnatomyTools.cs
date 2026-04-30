@@ -78,6 +78,64 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         // ─────────────────────────────────────────────
+        // Internal API (used by FaceProfileTools)
+        // ─────────────────────────────────────────────
+
+        // 顔 SMR を特定する internal helper。FaceProfileTools が profile 構築時に使用。
+        internal static SkinnedMeshRenderer FindFaceSmrInternal(GameObject avatarRoot, out string tier, out string reason)
+        {
+            tier = "none";
+            reason = string.Empty;
+            if (avatarRoot == null) return null;
+            var bodyResult = FindBodySmr(avatarRoot);
+            var faceResult = FindFaceSmr(avatarRoot, bodyResult.Smr);
+            tier = faceResult.Tier;
+            reason = faceResult.Reason ?? string.Empty;
+            return faceResult.Smr;
+        }
+
+        internal static SkinnedMeshRenderer FindBodySmrInternal(GameObject avatarRoot)
+        {
+            if (avatarRoot == null) return null;
+            return FindBodySmr(avatarRoot).Smr;
+        }
+
+        // Head/Neck/Jaw ボーンを共有していて blendShape を持つ追加 SMR (eyelash/tongue/teeth など) を返す。
+        // faceSmr と bodySmr 自身は除外される。
+        internal static List<SkinnedMeshRenderer> FindExtraFaceSmrsInternal(
+            GameObject avatarRoot, SkinnedMeshRenderer faceSmr, SkinnedMeshRenderer bodySmr)
+        {
+            var extras = new List<SkinnedMeshRenderer>();
+            if (avatarRoot == null) return extras;
+
+            var animator = avatarRoot.GetComponent<Animator>();
+            if (animator == null || !animator.isHuman) return extras;
+            var headBone = animator.GetBoneTransform(HumanBodyBones.Head);
+            if (headBone == null) return extras;
+
+            var headArea = new HashSet<Transform> { headBone };
+            var neckBone = animator.GetBoneTransform(HumanBodyBones.Neck);
+            var jawBone = animator.GetBoneTransform(HumanBodyBones.Jaw);
+            if (neckBone != null) headArea.Add(neckBone);
+            if (jawBone != null) headArea.Add(jawBone);
+
+            var allSmrs = avatarRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            foreach (var smr in allSmrs)
+            {
+                if (smr == null || smr.sharedMesh == null) continue;
+                if (smr == faceSmr || smr == bodySmr) continue;
+                if (smr.sharedMesh.blendShapeCount == 0) continue;
+                if (!BonesTouch(smr.bones, headArea)) continue;
+                int diversity = CountBoneRegionDiversity(smr.bones, animator);
+                if (diversity > MaxFaceDiversity) continue;
+                extras.Add(smr);
+            }
+            return extras;
+        }
+
+        internal static string GetHierarchyPathInternal(GameObject go) => HierarchyPath(go);
+
+        // ─────────────────────────────────────────────
         // Body detection
         // ─────────────────────────────────────────────
 

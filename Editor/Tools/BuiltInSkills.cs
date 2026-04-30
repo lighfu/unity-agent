@@ -155,6 +155,19 @@ It manages gesture-to-AnimationClip switching and generates FX layers via NDMF/M
 - **Registered** expressions: max **7** (shown in Expression Menu)
 - **Unregistered** expressions: unlimited (not in menu, gesture-only)
 
+## ⚠️ CRITICAL RULES (NEVER VIOLATE)
+
+1. **NEVER guess mesh names.** Always call `IdentifyFaceSmr` or `AnalyzeFaceBlendShapes` first.
+   Aliases like `'Body'` or `'Face'` are unreliable — Chiffon-style avatars name the face mesh `Body`.
+2. **BlendShape weights use 0-100, NEVER 0-1.** Do not confuse with VRChat Expression Parameter floats.
+   Passing `eye_joy=0.8` instead of `eye_joy=80` results in invisible expression changes.
+3. **Run AnalyzeFaceBlendShapes once per avatar before any preview/build work.**
+   It caches face SMR + extra SMRs (eyelash/tongue) + categorized shapes + preset candidates,
+   so subsequent calls are instant and consistent.
+4. **Use SetExpressionPreviewMulti, not SetExpressionPreview, for cross-SMR expressions.**
+   Some avatars split eyes/lashes/tongue across multiple SMRs. SetExpressionPreviewMulti
+   auto-routes shapes to the correct SMR via the cached profile.
+
 ## Tool Reference
 
 ### Detection & Inspection
@@ -166,14 +179,27 @@ It manages gesture-to-AnimationClip switching and generates FX layers via NDMF/M
 [LaunchFaceEmoWindow('FaceEmo')] — Open the FaceEmo editor window
 ```
 
-### Expression Building
-Build expressions entirely within FaceEmo tools. NEVER guess BlendShape names.
+### ★ Face Profile (always call first)
 ```
-[SearchExpressionShapes('Body', 'eye')] — Search blend shapes by keyword filter
-[SetExpressionPreview('Body', 'eye_joy=100;mouth_smile=80')] — Set blend shape values for preview
-[CaptureExpressionPreview('Avatar')] — Focus camera on face + capture preview image
-[ResetExpressionPreview('Body')] — Reset all blend shapes to 0
-[GetCurrentExpressionValues('Body')] — Get current non-zero blend shape values
+[IdentifyFaceSmr('Avatar')] — Pick face SMR by viseme count + bone heuristic
+[AnalyzeFaceBlendShapes('Avatar')] — Build profile: face SMR + extras + categorized + presets
+[SuggestExpressionShapes('Avatar', 'smile')] — Get preset shape mix (returns 'shape=value;...')
+[SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')] — Multi-category search across SMRs
+```
+
+### Expression Building (preferred — multi-SMR safe)
+```
+[SetExpressionPreviewMulti('Avatar', 'eye_joy=80;mouth_smile=100')] — Apply across SMRs (values 0-100)
+[CaptureFacePreview('Avatar')] — Stable face capture (dedicated camera, fixed FOV/distance)
+[GetCurrentExpressionValues('<faceSmrPath>')] — Inspect current non-zero values per SMR
+```
+
+### Expression Building (legacy — single SMR fallback)
+```
+[SearchExpressionShapes('<faceSmrPath>', 'eye')] — Single-mesh search (synonym expansion only)
+[SetExpressionPreview('<faceSmrPath>', 'eye_joy=100;mouth_smile=80')] — Single-mesh preview
+[CaptureExpressionPreview('Avatar')] — SceneView-dependent capture (less stable)
+[ResetExpressionPreview('<faceSmrPath>')] — Reset blend shapes on a single SMR
 ```
 
 ### Expression Registration & Management
@@ -245,43 +271,43 @@ Hand: Left / Right / Either / Both / OneSide
 This is the primary workflow when user asks to ""apply"" or ""set up"" FaceEmo on an avatar.
 ImportExpressions reads the existing FX Animator and recreates the expression setup in FaceEmo.
 
-### B. Assign Expression to Gesture (""人差し指で驚いた表情にして"")
+### B. Create Expression from Preset (RECOMMENDED — fastest path) (""笑顔の表情を作って"")
 ```
-1. [ListFaceEmoExpressions()] → Check if the requested gesture already has an expression
-2. If gesture already assigned → [AskUser] whether to overwrite
-   - If denied → stop
-3. [SearchExpressionShapes('Body', 'eye')] → Find relevant blend shapes
-   [SearchExpressionShapes('Body', 'mouth')] → (search multiple keywords as needed)
-4. [SetExpressionPreview('Body', 'eye_surprised=100;mouth_open=60')] → Build expression
-5. [CaptureExpressionPreview('Avatar')] → Capture for visual verification
-6. [AskUser] → Confirm expression appearance
-7. [CreateAndRegisterExpression('Body', 'Surprised', 'Assets/.../surprised.anim')] → Save + register
-8. [AddGestureBranch('Surprised', 'Left=FingerPoint')] → Assign gesture condition
-9. [ResetExpressionPreview('Body')] → Clean up
+1. [AnalyzeFaceBlendShapes('Avatar')] → Build/refresh profile (one-time per avatar)
+2. [SuggestExpressionShapes('Avatar', 'smile')] → Returns 'shape1=80;shape2=100;...' from preset
+3. [SetExpressionPreviewMulti('Avatar', '<shapeData from step 2>')] → Apply across SMRs
+4. [CaptureFacePreview('Avatar')] → Stable preview image
+5. [AskUser] → Confirm appearance
+6. [CreateAndRegisterExpression('<faceSmrPath>', 'Smile', 'Assets/.../smile.anim')] → Save + register
+7. [AddGestureBranch('Smile', 'Left=Fist')] → Assign gesture (if user specified)
+8. (Reset omitted — Apply step replaces values; reset only when leaving preview)
+```
+intent keywords supported: smile / angry / surprised / sad / cry / wink / sleep / kiss / shy
+plus Japanese aliases (笑顔/怒り/驚き/...). If preset confidence is low, fall back to Workflow C.
+
+### C. Create Expression Manually (preset miss / fine-tuning) (""人差し指で驚いた表情にして"")
+```
+1. [ListFaceEmoExpressions()] → Check existing assignments
+2. If gesture already assigned → [AskUser] whether to overwrite (deny → stop)
+3. [AnalyzeFaceBlendShapes('Avatar')] → Get face SMR path + categorized shapes
+4. [SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')] → Find candidates across categories
+5. [SetExpressionPreviewMulti('Avatar', 'eye_surprised=100;mouth_open=60;brow_up=80')] → Build (values 0-100)
+6. [CaptureFacePreview('Avatar')] → Verify
+7. [AskUser] → Confirm appearance
+8. [CreateAndRegisterExpression('<faceSmrPath>', 'Surprised', 'Assets/.../surprised.anim')] → Save + register
+9. [AddGestureBranch('Surprised', 'Left=FingerPoint')] → Assign gesture
 ```
 If overwriting: remove the old expression first with [RemoveExpression], then proceed from step 3.
-IMPORTANT: Always use SearchExpressionShapes with filter. NEVER guess BlendShape names.
-
-### C. Create Expression from Scratch
-```
-1. [SearchExpressionShapes('Body', 'eye')] → Find shapes by keyword
-2. [SetExpressionPreview('Body', 'eye_joy=100;mouth_smile=80')] → Set preview
-3. [CaptureExpressionPreview('Avatar')] → Capture for visual verification
-4. [AskUser] → Confirm with user
-5. [CreateAndRegisterExpression('Body', 'Smile', 'Assets/.../smile.anim')] → Save + register
-6. [AddGestureBranch('Smile', 'Left=Fist')] → Assign gesture (if user specified)
-7. [ResetExpressionPreview('Body')] → Clean up
-```
-IMPORTANT: Always use SearchExpressionShapes with filter. NEVER guess BlendShape names.
+NEVER pass `'Body'` literally — derive `<faceSmrPath>` from AnalyzeFaceBlendShapes output.
 
 ### D. Edit Existing Expression
 ```
-1. [PreviewFaceEmoExpression('Smile', 'Body')] → Preview current expression
-2. [SearchExpressionShapes('Body', 'mouth')] → Search for shapes to adjust
-3. [SetExpressionPreview('Body', 'mouth_smile=100;mouth_open=30')] → Adjust
-4. [CaptureExpressionPreview('Avatar')] → Verify
-5. [UpdateExpressionAnimation('Smile', 'Body', 'Assets/.../smile_v2.anim')] → Update clip + FaceEmo
-6. [ResetExpressionPreview('Body')] → Clean up
+1. [AnalyzeFaceBlendShapes('Avatar')] → Get face SMR path
+2. [PreviewFaceEmoExpression('Smile', '<faceSmrPath>')] → Preview current expression
+3. [SearchExpressionShapesV2('Avatar', 'mouth')] → Find shapes to adjust
+4. [SetExpressionPreviewMulti('Avatar', 'mouth_smile=100;mouth_open=30')] → Adjust (values 0-100)
+5. [CaptureFacePreview('Avatar')] → Verify
+6. [UpdateExpressionAnimation('Smile', '<faceSmrPath>', 'Assets/.../smile_v2.anim')] → Update clip + FaceEmo
 ```
 
 ### E. Register Existing .anim File
@@ -305,11 +331,11 @@ Run this after finishing all expression edits to generate the FX layer and param
 
 ### H. Preview / List Registered Expressions (""今どんな表情が入ってる？"")
 ```
-1. [ListFaceEmoExpressions()] → List all expressions with gesture assignments
-2. For each expression the user wants to see:
-   [PreviewFaceEmoExpression('Smile', 'Body')] → Apply blend shapes to mesh
-   [CaptureExpressionPreview('Avatar')] → Capture face image for user
-   [ResetExpressionPreview('Body')] → Reset before next preview
+1. [AnalyzeFaceBlendShapes('Avatar')] → Get face SMR path
+2. [ListFaceEmoExpressions()] → List all expressions with gesture assignments
+3. For each expression the user wants to see:
+   [PreviewFaceEmoExpression('Smile', '<faceSmrPath>')] → Apply blend shapes to mesh
+   [CaptureFacePreview('Avatar')] → Capture face image for user
 ```
 
 ### I. Delete Expression (""怒りの表情を消して"")
@@ -339,13 +365,13 @@ The default expression is shown when no gesture is active.
 ### L. Configure AFK Expression (""AFK中は寝顔にして"")
 ```
 1. Check if the desired .anim clip already exists
-2. If not → create it first (Workflow C, but skip FaceEmo registration)
-   [SearchExpressionShapes('Body', 'sleep')] → Find shapes
-   [SetExpressionPreview('Body', 'eye_close=100;mouth_relax=50')] → Build expression
-   [CaptureExpressionPreview('Avatar')] → Verify
+2. If not → create it first:
+   [AnalyzeFaceBlendShapes('Avatar')] → Get profile
+   [SuggestExpressionShapes('Avatar', 'sleep')] → Get preset shapeData
+   [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → Apply
+   [CaptureFacePreview('Avatar')] → Verify
    Use CreateExpressionClip or CreateExpressionClipFromData to save the .anim file
 3. [ConfigureAfkFace(enableAfk='true', afkFacePath='Assets/.../sleeping.anim')] → Set AFK clip
-4. [ResetExpressionPreview('Body')] → Clean up
 ```
 ConfigureAfkFace params: enableAfk, afkEnterFacePath, afkFacePath, afkExitFacePath, exitDuration.
 
@@ -362,47 +388,46 @@ Either hand: `'Either=Fist'`.
 
 ### N. Batch Create Multiple Expressions (""表情を全部作り直して"")
 ```
-1. [ListFaceEmoExpressions()] → Check current state
-2. [AskUser] → Confirm which expressions to create/replace
-3. For each expression, repeat Workflow C:
-   a. [SearchExpressionShapes] → Find shapes
-   b. [SetExpressionPreview] → Build expression
-   c. [CaptureExpressionPreview] → Verify
+1. [AnalyzeFaceBlendShapes('Avatar')] → Build profile once (cached for the rest of the batch)
+2. [ListFaceEmoExpressions()] → Check current state
+3. [AskUser] → Confirm which expressions to create/replace
+4. For each expression, repeat Workflow B (preset path):
+   a. [SuggestExpressionShapes('Avatar', '<intent>')] → Get shapeData
+   b. [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → Apply
+   c. [CaptureFacePreview('Avatar')] → Verify
    d. [AskUser] → Confirm
    e. [CreateAndRegisterExpression] → Save + register
    f. [AddGestureBranch] → Assign gesture
-   g. [ResetExpressionPreview] → Clean up before next
+   (no per-iteration reset needed — next preview overwrites)
 ```
 
-## Emotion-to-BlendShape Guide
-When users describe expressions by emotion (e.g. ""ウインク"", ""泣いている"", ""照れ""),
-search for relevant blend shapes using these keyword groups:
+## Emotion-to-Preset Guide
+For natural-language expression requests, prefer `SuggestExpressionShapes` with one of the
+canonical intent keywords below (Japanese aliases auto-resolve to the same preset):
 
-| Emotion | Search keywords (use with SearchExpressionShapes) |
-|---------|--------------------------------------------------|
-| 笑顔 / Smile | smile, happy, joy, mouth, cheek |
-| 怒り / Angry | angry, brow_down, mouth, eye |
-| 驚き / Surprised | surprised, eye_wide, mouth_open, brow_up |
-| 悲しみ / Sad | sad, brow, mouth_down, eye |
-| 泣き / Crying | tear, eye_close, sad, mouth |
-| 照れ / Embarrassed | shy, blush, cheek, eye_half |
-| ウインク / Wink | wink, eye_close, blink (search _L and _R separately) |
-| じと目 / Stare | eye_half, jito, narrow, lid |
-| 舌出し / Tongue out | tongue, bero, tung |
-| ドヤ顔 / Smug | smug, eye_half, mouth, smile |
-| 寝顔 / Sleeping | sleep, eye_close, relax, mouth |
-| キス / Kiss | kiss, mouth, lip, chu |
+| Emotion | Preset intent | Japanese aliases |
+|---------|---------------|-------------------|
+| 笑顔 / Smile | `smile` | 笑, 笑顔, にこ, joy, happy, fun, cheerful |
+| 怒り / Angry | `angry` | 怒, おこ, mad, irritated, rage |
+| 驚き / Surprised | `surprised` | 驚, びっくり, astonished, shock |
+| 悲しみ / Sad | `sad` | 悲, sorrow, down |
+| 泣き / Crying | `cry` | 泣, tear, weep |
+| 照れ / Embarrassed | `shy` | 照, てれ, blush, embarrass |
+| ウインク / Wink | `wink` | ウインク, ウィンク |
+| 寝顔 / Sleeping | `sleep` | 眠, 寝, drowsy |
+| キス / Kiss | `kiss` | キス, ちゅ, chu |
 
-IMPORTANT: These are **search hints only**. Actual BlendShape names vary per avatar model.
-ALWAYS use SearchExpressionShapes to find the real names. NEVER hardcode or guess.
+If the preset's confidence is low (< 0.5), fall back to Workflow C with
+`SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')` to inspect categorized shapes manually.
 
 ## Important Notes
 - **Registered max 7**: Exceeding this causes an error. Use Unregistered or groups.
 - **Avatar=None**: Use ConfigureTargetAvatar to resolve. Check with FindFaceEmo first.
-- **NEVER guess BlendShape names** — always use SearchExpressionShapes with filter.
+- **NEVER guess mesh or BlendShape names** — call AnalyzeFaceBlendShapes first; use Suggest/SearchV2.
+- **Values 0-100, NEVER 0-1**. SetExpressionPreviewMulti will reject `0.8`-style inputs with a clear error.
+- **Multi-SMR aware**: SetExpressionPreviewMulti routes shapes to face / eyelash / tongue / teeth automatically.
 - **FaceEmo is for facial expressions only**. Object toggles use SetupObjectToggle.
-- **Apply after editing**: Run ApplyFaceEmoToAvatar to generate the FX layer after changes.
-- **Emotion keywords**: Use the Emotion-to-BlendShape Guide above to translate natural language into search keywords." },
+- **Apply after editing**: Run ApplyFaceEmoToAvatar to generate the FX layer after changes." },
 
             { "avatar-optimization", @"---
 title: Avatar Optimization
