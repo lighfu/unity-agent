@@ -1,0 +1,77 @@
+/*
+ * Flowchart graph view stylesheet.
+ *
+ * GraphView ships with a Pro-skin-leaning chrome that clashes with MD3 surfaces.
+ * Here we recolor the grid background and node frames to fit the agent window's
+ * theme tokens. Node kind-specific tints (Start/End/AIDecide/...) come from
+ * `ua-flow-node--<kind>` classes added by FlowchartNodeBase.
+ */
+
+.ua-flow-graphview {
+    --grid-line-color: rgba(255, 255, 255, 0.06);
+    --grid-thick-line-color: rgba(255, 255, 255, 0.12);
+    --grid-background-color: rgba(0, 0, 0, 0.0);
+}
+
+.ua-flow-graphview > GridBackground {
+    --grid-line-color: var(--grid-line-color);
+    --grid-thick-line-color: var(--grid-thick-line-color);
+    --grid-background-color: var(--grid-background-color);
+}
+
+/* ── Node chrome ─────────────────────────────────────────────────────── */
+
+.ua-flow-node {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.ua-flow-node #title {
+    background-color: rgba(255, 255, 255, 0.04);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.ua-flow-node #contents {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Per-kind accents ────────────────────────────────────────────────── */
+
+.ua-flow-node--start #title {
+    background-color: rgba(110, 200, 130, 0.20);
+}
+
+.ua-flow-node--end #title {
+    background-color: rgba(220, 110, 110, 0.20);
+}
+
+.ua-flow-node--toolcall #title {
+    background-color: rgba(120, 160, 220, 0.20);
+}
+
+.ua-flow-node--aidecide #title {
+    background-color: rgba(220, 180, 100, 0.20);
+}
+
+.ua-flow-node--subflowchart #title {
+    background-color: rgba(180, 130, 220, 0.20);
+}
+
+/* ── Ports ───────────────────────────────────────────────────────────── */
+
+.ua-flow-node .port {
+    --port-color: rgba(255, 255, 255, 0.55);
+}
+
+.ua-flow-node .port > #connector {
+    border-color: rgba(255, 255, 255, 0.55);
+}

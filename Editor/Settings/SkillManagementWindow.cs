@@ -428,6 +428,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _selectedTags.Clear();
                 _customTagInput = "";
             }
+            if (GUILayout.Button("+ " + M("フローチャートで新規"), GUILayout.Width(180), GUILayout.Height(28)))
+            {
+                Flowchart.UI.FlowchartEditorWindow.OpenNew();
+            }
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
 
