@@ -69,14 +69,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return 4;
         }
 
-        [AgentTool("Get comprehensive avatar performance stats with all VRChat categories and accurate PC ranking. Shows triangles, textures, meshes, materials, PhysBones, contacts, constraints, particles, cloth, audio, etc.")]
+        [AgentTool("Get comprehensive avatar performance stats with all VRChat categories and accurate PC ranking. Custom counter that walks scene components directly. For the official VRC SDK calculator combined with NDMF post-build parameter view, prefer AnalyzeAvatarPerformance.")]
         public static string GetAvatarPerformanceStats(string avatarRootName)
         {
             var go = FindGO(avatarRootName);
             if (go == null) return $"Error: GameObject '{avatarRootName}' not found.";
+            return GetAvatarPerformanceStatsForGameObject(go, avatarRootName);
+        }
+
+        /// <summary>
+        /// GameObject-based variant for callers that already have the avatar reference (e.g. NDMF
+        /// bake clones). Identical output to the string-based <see cref="GetAvatarPerformanceStats(string)"/>
+        /// but skips the name lookup, so it is safe to call on transient cloned GameObjects.
+        /// </summary>
+        internal static string GetAvatarPerformanceStatsForGameObject(GameObject go, string displayName)
+        {
+            if (go == null) return $"Error: GameObject '{displayName}' is null.";
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Performance Stats for '{avatarRootName}':");
+            sb.AppendLine($"Performance Stats for '{displayName}':");
 
             int worstRankIdx = 0; // Track worst rank
 

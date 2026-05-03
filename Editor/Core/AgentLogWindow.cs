@@ -27,7 +27,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 TagFilterLabels[i + 1] = names[i];
         }
 
-        [MenuItem("Window/紫陽花広場/Agent Log")]
+        [MenuItem("UnityAgent/Agent Log")]
         public static void Open()
         {
             var window = GetWindow<AgentLogWindow>();

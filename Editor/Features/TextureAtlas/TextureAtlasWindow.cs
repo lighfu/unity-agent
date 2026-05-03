@@ -54,7 +54,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             new Color(0.65f, 0.65f, 0.95f, 0.6f),
         };
 
-        [MenuItem("Window/紫陽花広場/Texture Atlas")]
+        [MenuItem("UnityAgent/Texture Atlas")]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

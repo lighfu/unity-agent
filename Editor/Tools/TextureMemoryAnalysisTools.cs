@@ -137,13 +137,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         {
             var go = FindGO(avatarRootName);
             if (go == null) return $"Error: GameObject '{avatarRootName}' not found.";
+            return AnalyzeTextureMemoryForGameObject(go, avatarRootName);
+        }
+
+        /// <summary>
+        /// GameObject-based variant for callers that already have the avatar reference (e.g. NDMF
+        /// bake clones). Identical output to <see cref="AnalyzeTextureMemory(string)"/>.
+        /// </summary>
+        internal static string AnalyzeTextureMemoryForGameObject(GameObject go, string displayName)
+        {
+            if (go == null) return $"Error: GameObject '{displayName}' is null.";
 
             var textures = CollectAllTextures(go);
-            if (textures.Count == 0) return $"No textures found on avatar '{avatarRootName}'.";
+            if (textures.Count == 0) return $"No textures found on avatar '{displayName}'.";
 
             long totalVRAM = 0;
             var sb = new StringBuilder();
-            sb.AppendLine($"Texture Memory Analysis for '{avatarRootName}':");
+            sb.AppendLine($"Texture Memory Analysis for '{displayName}':");
             sb.AppendLine($"{"#",-3} {"Texture",-30} {"Size",-12} {"Format",-16} {"VRAM",-10} {"Mip",-4} References");
             sb.AppendLine(new string('-', 110));
 

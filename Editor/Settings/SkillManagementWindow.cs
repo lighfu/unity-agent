@@ -63,7 +63,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private static readonly Color CustomColor = new Color(0.5f, 1f, 0.6f);
         private static readonly Color OverrideColor = new Color(1f, 0.8f, 0.4f);
 
-        [MenuItem("Window/紫陽花広場/Skill Management")]
+        [MenuItem("UnityAgent/Skill Management")]
         public static void Open()
         {
             if (UpdateChecker.IsBlocked)

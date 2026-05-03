@@ -35,7 +35,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private List<(string code, string label, int untranslated, int total)> _cachedBulkProgress;
         private int _cachedBulkTotalUntranslated;
 
-        [MenuItem("Window/紫陽花広場/Translation Management")]
+        [MenuItem("UnityAgent/Translation Management")]
         public static void Open()
         {
             if (UpdateChecker.IsBlocked)

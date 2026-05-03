@@ -12,7 +12,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Flowchart
     /// </summary>
     internal static class FlowchartDebugMenu
     {
-        [MenuItem("Window/紫陽花広場/_Debug/Flowchart: Compile Sample to Console")]
+        [MenuItem("UnityAgent/_Debug/Flowchart: Compile Sample to Console")]
         public static void CompileSampleToConsole()
         {
             var graph = BuildSampleGraph();
@@ -23,7 +23,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Flowchart
             Debug.Log("Hash: " + result.hash);
         }
 
-        [MenuItem("Window/紫陽花広場/_Debug/Flowchart: Save Sample to Disk")]
+        [MenuItem("UnityAgent/_Debug/Flowchart: Save Sample to Disk")]
         public static void SaveSampleToDisk()
         {
             var graph = BuildSampleGraph();

@@ -88,7 +88,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             public string fullPath;
         }
 
-        [MenuItem("Window/紫陽花広場/Mesh Painter")]
+        [MenuItem("UnityAgent/Mesh Painter")]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

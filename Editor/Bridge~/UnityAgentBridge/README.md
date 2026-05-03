@@ -65,7 +65,7 @@ Unity will then connect over TCP and HTTP MCP clients can hit `http://127.0.0.1:
 
 In Unity:
 
-1. Window → 紫陽花広場 → UnityAgent → Settings → MCP tab
+1. UnityAgent → UnityAgent → Settings → MCP tab
 2. Set `Server Mode` to `Bridge`
 3. Enable `MCP Server`
 4. The bridge is auto-spawned by `AgentMCPServerBootstrap` and Unity connects automatically

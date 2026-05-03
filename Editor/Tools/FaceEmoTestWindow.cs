@@ -15,7 +15,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public class FaceEmoTestWindow : EditorWindow
     {
-        [MenuItem("Window/紫陽花広場/FaceEmo Test")]
+        [MenuItem("UnityAgent/FaceEmo Test")]
         public static void ShowWindow()
         {
             var w = GetWindow<FaceEmoTestWindow>("FaceEmo Test");

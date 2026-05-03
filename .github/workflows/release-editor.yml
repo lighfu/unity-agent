@@ -82,7 +82,8 @@ jobs:
 
           zip -r "com.ajisaiflow.unityagent-${{ steps.version.outputs.version }}.zip" . \
             -x ".git/*" ".github/*" "README.md" "CHANGELOG.md" ".gitignore" \
-            -x "SDK/*" "SDK.meta"
+            -x "SDK/*" "SDK.meta" \
+            -x "docs/*" "docs.meta"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

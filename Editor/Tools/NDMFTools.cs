@@ -147,9 +147,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             sb.AppendLine($"  Plugins detected: {pluginCount}");
             if (pluginCount > 0)
             {
-                foreach (var p in pluginTypes.Take(10))
+                foreach (var p in pluginTypes)
                     sb.AppendLine($"    - {p.FullName}");
-                if (pluginCount > 10) sb.AppendLine($"    ... +{pluginCount - 10} more");
             }
 
             var processAvatarType = FindNdmfType("AvatarProcessor");

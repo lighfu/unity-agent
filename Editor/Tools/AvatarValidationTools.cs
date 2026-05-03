@@ -56,7 +56,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         {
             var descriptor = FindDescriptor(avatarRootName, out string err);
             if (descriptor == null) return err;
+            return ValidateAvatarFromDescriptor(descriptor, avatarRootName);
+        }
 
+        /// <summary>
+        /// GameObject-based variant for callers that already have the avatar reference (e.g. NDMF
+        /// bake clones). Finds the VRCAvatarDescriptor on the supplied GameObject, then runs the
+        /// same validation pipeline as <see cref="ValidateAvatar(string)"/>.
+        /// </summary>
+        internal static string ValidateAvatarForGameObject(GameObject go, string displayName)
+        {
+            if (go == null) return $"Error: GameObject '{displayName}' is null.";
+            var descriptorType = VRChatTools.FindVrcType(VRChatTools.VrcDescriptorTypeName);
+            var descriptor = descriptorType != null ? go.GetComponent(descriptorType) : null;
+            if (descriptor == null) return $"Error: No VRCAvatarDescriptor found on '{displayName}'.";
+            return ValidateAvatarFromDescriptor(descriptor, displayName);
+        }
+
+        private static string ValidateAvatarFromDescriptor(Component descriptor, string avatarRootName)
+        {
             var go = descriptor.gameObject;
             var so = new SerializedObject(descriptor);
             var issues = new List<(string severity, string message)>();

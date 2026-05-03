@@ -42,7 +42,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         // Styles
         private GUIStyle _autoKeyOnStyle;
 
-        [MenuItem("Window/紫陽花広場/Bone Pose Editor")]
+        [MenuItem("UnityAgent/Bone Pose Editor")]
         private static void Open()
         {
             if (UpdateChecker.IsBlocked)

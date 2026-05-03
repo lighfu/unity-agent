@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="meta.title">UnityAgent — AI-powered Unity Editor for VRChat avatars</title>
+  <meta name="description" data-i18n="meta.description" content="LLM で Unity Editor を自然言語操作。VRChat アバター制作に特化した 500+ ツールを搭載した AI エージェント。" />
+  <meta name="theme-color" content="#0E0E12" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="UnityAgent — AI-powered Unity Editor for VRChat avatars" />
+  <meta property="og:description" content="LLM で Unity Editor を自然言語操作。VRChat アバター制作に特化した 500+ ツールを搭載した AI エージェント。" />
+  <meta property="og:url" content="https://lighfu.github.io/unity-agent/" />
+  <meta property="og:image" content="https://lighfu.github.io/unity-agent/assets/mark-512.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="assets/mark.svg" />
+  <link rel="alternate icon" href="assets/mark-512.png" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="a11y.skip">本文へスキップ</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#top" aria-label="UnityAgent">
+        <img class="brand-mark" src="assets/mark.svg" width="28" height="28" alt="" />
+        <span class="brand-name">UnityAgent</span>
+      </a>
+
+      <nav class="primary-nav" aria-label="primary">
+        <a href="#features" data-i18n="nav.features">特徴</a>
+        <a href="#standalone" data-i18n="nav.standalone">スタンドアロン</a>
+        <a href="#tools" data-i18n="nav.tools">ツール</a>
+        <a href="#providers" data-i18n="nav.providers">プロバイダー</a>
+        <a href="#install" data-i18n="nav.install">インストール</a>
+        <a href="#changelog" data-i18n="nav.changelog">更新履歴</a>
+      </nav>
+
+      <div class="header-actions">
+        <button id="lang-toggle" class="icon-btn" type="button" aria-label="Toggle language">
+          <span class="lang-label">EN</span>
+        </button>
+        <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle theme">
+          <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <a class="github-link" href="https://github.com/lighfu/unity-agent" target="_blank" rel="noopener" aria-label="GitHub">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.111.82-.261.82-.577 0-.285-.011-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.31.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.51 11.51 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.652.242 2.873.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.61-2.807 5.624-5.479 5.921.43.371.823 1.102.823 2.222 0 1.606-.014 2.898-.014 3.293 0 .319.216.694.825.576C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ======================== HERO ======================== -->
+    <section class="hero" id="top">
+      <div class="hero-bg" aria-hidden="true">
+        <div class="hero-glow hero-glow-1"></div>
+        <div class="hero-glow hero-glow-2"></div>
+        <div class="hero-grid"></div>
+        <img class="hero-orbit hero-orbit-a" src="assets/mark.svg" alt="" />
+        <img class="hero-orbit hero-orbit-b" src="assets/mark.svg" alt="" />
+      </div>
+      <div class="container hero-inner">
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          <span data-i18n="hero.badge">v0.10 リリース · MIT OSS</span>
+        </div>
+
+        <h1 class="hero-title">
+          <span data-i18n="hero.title.line1">Unity Editor を、</span>
+          <span class="hero-title-accent" data-i18n="hero.title.line2">話しかけて動かす。</span>
+        </h1>
+
+        <p class="hero-lede" data-i18n="hero.lede">
+          UnityAgent は、VRChat アバター制作のための AI エージェント兼 Editor ユーティリティ集。
+          500+ 専用ツールを自然言語から呼び出すことも、AI なしで GUI ツール単体として使うこともできます。
+        </p>
+
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#install">
+            <span data-i18n="hero.cta.install">インストール</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/lighfu/unity-agent" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.111.82-.261.82-.577 0-.285-.011-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.31.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.51 11.51 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.652.242 2.873.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.61-2.807 5.624-5.479 5.921.43.371.823 1.102.823 2.222 0 1.606-.014 2.898-.014 3.293 0 .319.216.694.825.576C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+            <span data-i18n="hero.cta.github">GitHub で見る</span>
+          </a>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat">
+            <div class="stat-value">500<span class="stat-plus">+</span></div>
+            <div class="stat-label" data-i18n="hero.stat.tools">専用ツール</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value">12<span class="stat-plus">+</span></div>
+            <div class="stat-label" data-i18n="hero.stat.providers">LLM プロバイダー</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value">MIT</div>
+            <div class="stat-label" data-i18n="hero.stat.license">オープンソース</div>
+          </div>
+        </div>
+
+        <div class="hero-screenshot">
+          <img class="hero-shot hero-shot-light" src="assets/unityagent-light.png" alt="UnityAgent" loading="lazy" />
+          <img class="hero-shot hero-shot-dark" src="assets/unityagent-dark.png" alt="" loading="lazy" aria-hidden="true" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== FEATURES ======================== -->
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="features.eyebrow">FEATURES</p>
+          <h2 class="section-title" data-i18n="features.title">アバター制作のあらゆる場面に。</h2>
+          <p class="section-lede" data-i18n="features.lede">
+            一貫した自然言語インタフェースの裏で、UnityAgent は 500+ の専用ツールが連携して動きます。
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </div>
+            <h3 data-i18n="features.f1.title">アバター解析と最適化</h3>
+            <p data-i18n="features.f1.body">PhysBone・BlendShape・骨構造を一括検査し、Quest 変換、メッシュ簡略化、テクスチャアトラスまで自動化。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+            </div>
+            <h3 data-i18n="features.f2.title">Modular Avatar / NDMF 連携</h3>
+            <p data-i18n="features.f2.body">MA メニュー・パラメータ・MergeArmature・FaceEmo をネイティブにサポート。NDMF パイプラインも自然言語で。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            </div>
+            <h3 data-i18n="features.f3.title">テクスチャ・マテリアル編集</h3>
+            <p data-i18n="features.f3.body">lilToon / Poiyomi の一括設定、AO ベイク、UV 検証、TexTransTool 連携で繊細な仕上げまで。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            </div>
+            <h3 data-i18n="features.f4.title">アニメーション・表情</h3>
+            <p data-i18n="features.f4.body">Animator State Machine の編集、FaceEmo 表情パターン、ジェスチャー連動を会話で組み立て。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h6M9 16h6M9 8h6M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>
+            </div>
+            <h3 data-i18n="features.f5.title">マルチプロバイダー対応</h3>
+            <p data-i18n="features.f5.body">Claude / GPT / Gemini / DeepSeek / ローカル LLM (Ollama / LM Studio) まで、好みに合わせて選択可能。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3 data-i18n="features.f6.title">完全オープンソース</h3>
+            <p data-i18n="features.f6.body">MIT ライセンス。難読化なしの完全ソース配布で、改造も商用利用も自由。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== STANDALONE ======================== -->
+    <section class="section" id="standalone">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="standalone.eyebrow">STANDALONE</p>
+          <h2 class="section-title" data-i18n="standalone.title">AI を使わなくても、これだけ揃う。</h2>
+          <p class="section-lede" data-i18n="standalone.lede">
+            UnityAgent は GUI ユーティリティの集合体としても完成しています。プロバイダー設定なしで使える、独立した Editor ツールを多数同梱。
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="2.5"/><path d="M12 8.5v3M9 12h6M12 12v3M9.5 15h5"/><circle cx="9.5" cy="15" r="1.5"/><circle cx="14.5" cy="15" r="1.5"/></svg>
+            </div>
+            <div class="feature-title-row">
+              <h3 data-i18n="standalone.t1.title">Bone Pose Editor</h3>
+              <span class="feature-badge feature-badge-exp" data-i18n="standalone.t1.badge">実験的</span>
+            </div>
+            <p data-i18n="standalone.t1.body">ボーンポーズ編集・IK・レイヤーシステム・キーリダクションを一画面に統合した独立ツール。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-4 4 4 4"/><path d="m20.4 14.5-3.5 3.5-3.5-3.5"/><path d="M5 15h11.4"/><path d="M14 4h2a4 4 0 0 1 4 4v6.5"/></svg>
+            </div>
+            <h3 data-i18n="standalone.t2.title">Mesh Painter</h3>
+            <p data-i18n="standalone.t2.body">UV アイランド単位の選択ペイント。テクスチャ編集・マスク作成・部分修正が GUI で完結。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h12"/><circle cx="20" cy="18" r="2"/></svg>
+            </div>
+            <div class="feature-title-row">
+              <h3 data-i18n="standalone.t3.title">Outfit Fitting Wizard</h3>
+              <span class="feature-badge feature-badge-exp" data-i18n="standalone.t3.badge">実験的</span>
+            </div>
+            <p data-i18n="standalone.t3.body">ARAP / XPBD / Body SDF を駆使した衣装の自動フィッティング。手動調整不要のプリセットも完備。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a8 4 0 0 0 16 0M4 8v8a8 4 0 0 0 16 0V8"/><path d="M4 12a8 4 0 0 0 16 0"/></svg>
+            </div>
+            <h3 data-i18n="standalone.t4.title">BlendShape Shrinker</h3>
+            <p data-i18n="standalone.t4.body">不要な BlendShape の検出と一括除去。容量とビルド時間を圧縮。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="4" height="11" rx="1"/><rect x="19" y="10" width="2" height="11" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/></svg>
+            </div>
+            <div class="feature-title-row">
+              <h3 data-i18n="standalone.t5.title">Texture Atlas</h3>
+              <span class="feature-badge feature-badge-exp" data-i18n="standalone.t5.badge">実験的</span>
+            </div>
+            <p data-i18n="standalone.t5.body">MaxRects パッカーによる高密度アトラス化。マテリアル統合とドローコール削減を GUI で。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="2"/><path d="M12 8v5M9 11l3 2 3-2M9 20l3-7 3 7M7 13l-2 5M17 13l2 5"/></svg>
+            </div>
+            <div class="feature-title-row">
+              <h3 data-i18n="standalone.t6.title">Pose Estimation</h3>
+              <span class="feature-badge feature-badge-exp" data-i18n="standalone.t6.badge">実験的</span>
+            </div>
+            <p data-i18n="standalone.t6.body">MediaPipe / ROMP / WHAM 連携で動画からモーション抽出。撮影素材から AnimationClip を生成。</p>
+          </article>
+        </div>
+
+        <div class="standalone-note">
+          <p data-i18n="standalone.note">
+            ※ いずれのツールも UnityAgent ウィンドウから起動できます。LLM プロバイダーの設定は不要です。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== TOOLS ======================== -->
+    <section class="section section-alt" id="tools">
+      <div class="ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <span class="ticker-item">SimplifyMesh</span>
+          <span class="ticker-item">BlendShapeMixer</span>
+          <span class="ticker-item">BakeAmbientOcclusion</span>
+          <span class="ticker-item">IdentifyBodySmr</span>
+          <span class="ticker-item">UvScramble</span>
+          <span class="ticker-item">PhysBoneSetup</span>
+          <span class="ticker-item">FaceEmoPattern</span>
+          <span class="ticker-item">QuestConvert</span>
+          <span class="ticker-item">MaterialAdvanced</span>
+          <span class="ticker-item">AnimatorEdit</span>
+          <span class="ticker-item">ModularAvatarMenu</span>
+          <span class="ticker-item">TextureAtlas</span>
+          <span class="ticker-item">OutfitFitting</span>
+          <span class="ticker-item">RendererSettings</span>
+          <span class="ticker-item">ParticleConfig</span>
+          <span class="ticker-item">SceneInspect</span>
+          <span class="ticker-item">VRCConstraint</span>
+          <span class="ticker-item">SimplifyMesh</span>
+          <span class="ticker-item">BlendShapeMixer</span>
+          <span class="ticker-item">BakeAmbientOcclusion</span>
+          <span class="ticker-item">IdentifyBodySmr</span>
+          <span class="ticker-item">UvScramble</span>
+          <span class="ticker-item">PhysBoneSetup</span>
+          <span class="ticker-item">FaceEmoPattern</span>
+          <span class="ticker-item">QuestConvert</span>
+          <span class="ticker-item">MaterialAdvanced</span>
+          <span class="ticker-item">AnimatorEdit</span>
+          <span class="ticker-item">ModularAvatarMenu</span>
+          <span class="ticker-item">TextureAtlas</span>
+          <span class="ticker-item">OutfitFitting</span>
+          <span class="ticker-item">RendererSettings</span>
+          <span class="ticker-item">ParticleConfig</span>
+          <span class="ticker-item">SceneInspect</span>
+          <span class="ticker-item">VRCConstraint</span>
+        </div>
+      </div>
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="tools.eyebrow">TOOLS</p>
+          <h2 class="section-title" data-i18n="tools.title">500+ の専用ツール。</h2>
+          <p class="section-lede" data-i18n="tools.lede">
+            すべて自然言語から呼び出せます。下表は主要カテゴリの抜粋です。
+          </p>
+        </div>
+
+        <div class="tool-grid" id="tool-grid"><!-- populated by JS --></div>
+
+        <div class="tool-footnote">
+          <p data-i18n="tools.footnote">
+            ※ 各カテゴリ配下に複数の細分化ツールがあり、合計 549 件以上を提供しています。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== PROVIDERS ======================== -->
+    <section class="section" id="providers">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="providers.eyebrow">PROVIDERS</p>
+          <h2 class="section-title" data-i18n="providers.title">使い慣れた LLM をそのまま。</h2>
+          <p class="section-lede" data-i18n="providers.lede">
+            主要なクラウド LLM、CLI 統合、ローカル推論まで、フラットに切り替えできます。
+          </p>
+        </div>
+
+        <div class="provider-table-wrap">
+          <table class="provider-table">
+            <thead>
+              <tr>
+                <th data-i18n="providers.col.name">プロバイダー</th>
+                <th data-i18n="providers.col.kind">種別</th>
+                <th data-i18n="providers.col.auth">認証</th>
+                <th data-i18n="providers.col.notes">メモ</th>
+              </tr>
+            </thead>
+            <tbody id="provider-tbody"><!-- populated by JS --></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== INSTALL ======================== -->
+    <section class="section section-alt" id="install">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="install.eyebrow">INSTALL</p>
+          <h2 class="section-title" data-i18n="install.title">数クリックで導入。</h2>
+        </div>
+
+        <div class="install-tabs" role="tablist">
+          <button class="tab-btn is-active" role="tab" data-tab="alcom" aria-selected="true" data-i18n="install.tab.alcom">ALCOM / VCC</button>
+          <button class="tab-btn" role="tab" data-tab="manual" aria-selected="false" data-i18n="install.tab.manual">手動インストール</button>
+        </div>
+
+        <div class="install-panel is-active" data-panel="alcom">
+          <ol class="install-steps">
+            <li>
+              <h4 data-i18n="install.alcom.s1.title">VPM リポジトリを追加</h4>
+              <p data-i18n="install.alcom.s1.body">下のボタンから VPM リポジトリを ALCOM / VCC に追加します。</p>
+              <a class="btn btn-primary btn-sm" href="https://lighfu.github.io/vpm/" target="_blank" rel="noopener">
+                <span data-i18n="install.alcom.s1.cta">VPM リポジトリを開く</span>
+              </a>
+            </li>
+            <li>
+              <h4 data-i18n="install.alcom.s2.title">プロジェクトに追加</h4>
+              <p data-i18n="install.alcom.s2.body">Unity プロジェクトを開き、Packages 一覧から「UnityAgent」を追加します。</p>
+            </li>
+            <li>
+              <h4 data-i18n="install.alcom.s3.title">起動</h4>
+              <p data-i18n="install.alcom.s3.body">Unity メニューから <code>AjisaiFlow → UnityAgent</code> を開いて、好きなプロバイダーを設定するだけ。</p>
+            </li>
+          </ol>
+        </div>
+
+        <div class="install-panel" data-panel="manual">
+          <ol class="install-steps">
+            <li>
+              <h4 data-i18n="install.manual.s1.title">最新リリースをダウンロード</h4>
+              <p data-i18n="install.manual.s1.body">GitHub Releases から最新 zip を取得します。</p>
+              <a class="btn btn-primary btn-sm" href="https://github.com/lighfu/unity-agent/releases" target="_blank" rel="noopener">
+                <span data-i18n="install.manual.s1.cta">Releases を開く</span>
+              </a>
+            </li>
+            <li>
+              <h4 data-i18n="install.manual.s2.title">Packages に展開</h4>
+              <p data-i18n="install.manual.s2.body">プロジェクトの <code>Packages/</code> フォルダに展開します。</p>
+            </li>
+            <li>
+              <h4 data-i18n="install.manual.s3.title">依存パッケージ</h4>
+              <p data-i18n="install.manual.s3.body"><a href="https://github.com/lighfu/unity-md3sdk" target="_blank" rel="noopener">MD3 SDK</a> と VRChat SDK (com.vrchat.avatars) を併せて導入してください。</p>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== CHANGELOG ======================== -->
+    <section class="section" id="changelog">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="changelog.eyebrow">CHANGELOG</p>
+          <h2 class="section-title" data-i18n="changelog.title">更新履歴。</h2>
+          <p class="section-lede" data-i18n="changelog.lede">
+            最新の変更点を抜粋しています。すべての履歴は GitHub をご覧ください。
+          </p>
+        </div>
+
+        <div class="changelog-list" id="changelog-list"><!-- populated by JS --></div>
+
+        <div class="changelog-cta">
+          <a class="btn btn-ghost" href="https://github.com/lighfu/unity-agent/blob/master/CHANGELOG.md" target="_blank" rel="noopener">
+            <span data-i18n="changelog.cta">完全な CHANGELOG を見る</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== COMMUNITY ======================== -->
+    <section class="section section-alt" id="community">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="community.eyebrow">COMMUNITY</p>
+          <h2 class="section-title" data-i18n="community.title">仲間と一緒に。</h2>
+          <p class="section-lede" data-i18n="community.lede">
+            質問・要望・バグ報告はコミュニティへ。
+          </p>
+        </div>
+
+        <div class="community-grid">
+          <a class="community-card" href="https://discord.gg/" target="_blank" rel="noopener">
+            <div class="community-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.65 12.65 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.42 0-1.333.956-2.42 2.157-2.42 1.21 0 2.176 1.096 2.157 2.42 0 1.335-.956 2.42-2.157 2.42zm7.975 0c-1.183 0-2.157-1.085-2.157-2.42 0-1.333.955-2.42 2.157-2.42 1.21 0 2.176 1.096 2.157 2.42 0 1.335-.946 2.42-2.157 2.42z"/></svg>
+            </div>
+            <h3>Discord</h3>
+            <p data-i18n="community.discord">招待リンクは GitHub README に掲載予定です。</p>
+          </a>
+
+          <a class="community-card" href="https://github.com/lighfu/unity-agent/issues" target="_blank" rel="noopener">
+            <div class="community-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.111.82-.261.82-.577 0-.285-.011-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.31.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.51 11.51 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.652.242 2.873.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.61-2.807 5.624-5.479 5.921.43.371.823 1.102.823 2.222 0 1.606-.014 2.898-.014 3.293 0 .319.216.694.825.576C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+            </div>
+            <h3 data-i18n="community.gh.title">GitHub Issues</h3>
+            <p data-i18n="community.gh.body">バグ報告・機能要望はこちらから。</p>
+          </a>
+
+          <a class="community-card" href="https://x.com/AjisaiFlow" target="_blank" rel="noopener">
+            <div class="community-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M18.244 2H21.5l-7.5 8.57L23 22h-6.844l-5.36-6.94L4.5 22H1.244l8.04-9.18L1 2h6.99l4.84 6.39L18.244 2zm-2.4 18h1.84L7.27 4H5.31l10.534 16z"/></svg>
+            </div>
+            <h3>X (Twitter)</h3>
+            <p data-i18n="community.x">最新リリース情報をお届けします。</p>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ======================== FOOTER / CREDITS ======================== -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/mark.svg" width="32" height="32" alt="" />
+        <div>
+          <div class="footer-name">UnityAgent</div>
+          <div class="footer-tag" data-i18n="footer.tag">AI-powered Unity Editor for VRChat avatars</div>
+        </div>
+      </div>
+
+      <div class="footer-cols">
+        <div class="footer-col">
+          <h4 data-i18n="footer.product">プロダクト</h4>
+          <a href="#features" data-i18n="nav.features">特徴</a>
+          <a href="#tools" data-i18n="nav.tools">ツール</a>
+          <a href="#install" data-i18n="nav.install">インストール</a>
+          <a href="#changelog" data-i18n="nav.changelog">更新履歴</a>
+        </div>
+        <div class="footer-col">
+          <h4 data-i18n="footer.resources">リソース</h4>
+          <a href="https://github.com/lighfu/unity-agent" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/lighfu/unity-agent/releases" target="_blank" rel="noopener">Releases</a>
+          <a href="https://lighfu.github.io/vpm/" target="_blank" rel="noopener">VPM</a>
+          <a href="https://github.com/lighfu/unity-md3sdk" target="_blank" rel="noopener">MD3 SDK</a>
+        </div>
+        <div class="footer-col">
+          <h4 data-i18n="footer.credits">クレジット</h4>
+          <p class="footer-credits" data-i18n="footer.credits.body">
+            UnityAgent は AjisaiFlow によって開発・公開されています。<br />
+            ロゴデザインおよびブランドアセットは MIT ライセンスのもとリポジトリに同梱されています。
+          </p>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span data-i18n="footer.copyright">© 2026 AjisaiFlow. MIT License.</span>
+        <span class="footer-divider">·</span>
+        <a href="https://github.com/lighfu/unity-agent/blob/master/LICENSE" target="_blank" rel="noopener">LICENSE</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/i18n.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

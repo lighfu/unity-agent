@@ -36,6 +36,11 @@ Fonts/*.otf.meta
 !Editor/Settings/Logos/*.png
 !Editor/Settings/Logos/*.png.meta
 
+# Public site assets (GitHub Pages serves docs/)
+!docs/assets/*.png
+docs/**/*.meta
+docs.meta
+
 # Bridge binaries: built locally via Editor/Bridge~/UnityAgentBridge/build.{ps1,sh}
 # or in CI at release time.
 #
