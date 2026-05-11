@@ -80,8 +80,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (pngBytes == null || pngBytes.Length == 0)
                 return "Error: Failed to capture SceneView image.";
 
-            PendingImageBytes = pngBytes;
-            PendingImageMimeType = "image/png";
+            SetPendingImage(pngBytes, "image/png");
 
             return $"Success: Captured SceneView screenshot ({width}x{height}, {pngBytes.Length} bytes). The image has been attached for your review.";
         }
@@ -209,8 +208,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (pngBytes == null || pngBytes.Length == 0)
                     return "Error: Failed to encode composite image.";
 
-                PendingImageBytes = pngBytes;
-                PendingImageMimeType = "image/png";
+                SetPendingImage(pngBytes, "image/png");
 
                 string labelInfo = string.Join(", ", capturedLabels.Select((l, i) => $"[{i}]={l}"));
                 return $"Success: Captured {cellTextures.Count} angles of '{targetName}' in a {cols}x{rows} grid ({gridW}x{gridH}px). Layout (left-to-right, top-to-bottom): {labelInfo}. The image has been attached for your review.";
@@ -365,8 +363,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (pngBytes == null || pngBytes.Length == 0)
                     return "Error: Failed to encode grid image.";
 
-                PendingImageBytes = pngBytes;
-                PendingImageMimeType = "image/png";
+                SetPendingImage(pngBytes, "image/png");
 
                 var sb = new System.Text.StringBuilder();
                 sb.AppendLine($"Scanned {count} meshes under '{avatarRootName}'.");
