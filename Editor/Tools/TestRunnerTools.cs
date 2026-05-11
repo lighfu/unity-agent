@@ -103,27 +103,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             catch (Exception ex) { return "Error: " + ex.Message; }
         }
 
-        // ─── 4. GetConsoleLogs ───
-        [AgentTool("Get recent Unity Console entries (rolling buffer max 1000). " +
-            "sinceLastSeconds: lookback window (default 60). minLevel: 'log' | 'warning' | 'error' (default 'warning'). " +
-            "Independent of SendTestPrompt's per-turn capture — works any time.",
-            Author = "ajisaiflow", Category = "TestRunner", Risk = ToolRisk.Safe)]
-        public static string GetConsoleLogs(int sinceLastSeconds = 60, string minLevel = "warning")
-        {
-            try
-            {
-                var entries = TestRunnerCore.GetRecentConsoleLogs(sinceLastSeconds, minLevel);
-                var sb = new StringBuilder();
-                sb.AppendLine($"Console logs (last {sinceLastSeconds}s, level >= {minLevel}): {entries.Count} entries");
-                if (entries.Count > 0) sb.AppendLine("---");
-                foreach (var e in entries)
-                {
-                    sb.AppendLine($"[{e.Level}][{e.Timestamp}] {e.Message}");
-                }
-                return sb.ToString().TrimEnd();
-            }
-            catch (Exception ex) { return "Error: " + ex.Message; }
-        }
+        // ─── 4. (Removed) GetConsoleLogs — duplicates ConsoleTools.GetConsoleLogs.
+        //   Console capture during a turn is still available via SendTestPrompt's
+        //   captureConsoleLogs flag (writes to JSON consoleLogs[] field).
 
         // ─── 5. SwitchModel ───
         [AgentTool("Switch the AI provider/model on an existing test session. Conversation history is preserved (RestoreHistory on a fresh UnityAgentCore). Errors if API key missing.",
