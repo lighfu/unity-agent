@@ -915,7 +915,8 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (_chatPanel != null) _chatPanel.style.display = DisplayStyle.Flex;
             if (_welcomePanel != null) _welcomePanel.style.display = DisplayStyle.None;
             _inputBar?.ClearText();
-            _inputBar?.UpdateProviderName($"[TEST] {sessionLabel}");
+            // sessionLabel already contains "[TEST] " prefix from TestRunnerCore.CreateSession
+            _inputBar?.UpdateProviderName(sessionLabel);
             _inputBar?.UpdateModelName("");
             Repaint();
         }
