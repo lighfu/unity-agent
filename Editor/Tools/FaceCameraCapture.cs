@@ -110,22 +110,40 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         private static Bounds ComputeFaceBounds(Transform headBone, SkinnedMeshRenderer faceSmr)
         {
-            // 優先順位:
-            // 1. faceSmr の bounds が headBone を含むなら、それを使う
-            // 2. headBone の周辺領域を fallback (半径 0.15m の球)
+            // 顔フレーミングの基準は **必ず headBone**。
+            // SMR.bounds (runtime-skinned) は body bone weights や安全マージンで膨らんでいるため
+            // center に使うと胸〜腰位置にずれる (capra アバターでは Y=0.86 = 胸部に該当した)。
+            //
+            // 戦略:
+            // - center: headBone.position + (世界の上方向に 0.08m) — eyes/nose 付近
+            // - size:   face SMR の sharedMesh.bounds (mesh-local) を transform 経由で
+            //           world サイズに変換し、上限 0.4m でクランプ。
+            //           これは skinning マージン無しの mesh 形状に基づく実寸。
+            //
+            // SMR が無い場合は固定 0.25m 立方を使用 (humanoid 顔の標準サイズ感)。
+            Vector3 faceCenter = headBone.position + Vector3.up * 0.08f;
+
+            Vector3 faceSize;
             if (faceSmr != null && faceSmr.sharedMesh != null)
             {
-                var b = faceSmr.bounds;
-                if (b.size.sqrMagnitude > 0.0001f)
-                {
-                    // 顔だけに絞るため、頭から離れすぎている分は切り詰める
-                    Vector3 headPos = headBone.position;
-                    Vector3 clampedCenter = Vector3.Lerp(b.center, headPos, 0.5f);
-                    Vector3 clampedSize = Vector3.Min(b.size, new Vector3(0.4f, 0.4f, 0.4f));
-                    return new Bounds(clampedCenter, clampedSize);
-                }
+                var localSize = faceSmr.sharedMesh.bounds.size;
+                var lossyScale = faceSmr.transform.lossyScale;
+                Vector3 worldSize = new Vector3(
+                    Mathf.Abs(localSize.x * lossyScale.x),
+                    Mathf.Abs(localSize.y * lossyScale.y),
+                    Mathf.Abs(localSize.z * lossyScale.z));
+                faceSize = Vector3.Min(worldSize, new Vector3(0.4f, 0.4f, 0.4f));
+
+                // sharedMesh.bounds が極端に小さい (壊れた mesh / 0 vert) ときのフォールバック
+                if (faceSize.sqrMagnitude < 0.001f)
+                    faceSize = new Vector3(0.25f, 0.25f, 0.25f);
             }
-            return new Bounds(headBone.position + Vector3.up * 0.05f, new Vector3(0.25f, 0.25f, 0.25f));
+            else
+            {
+                faceSize = new Vector3(0.25f, 0.25f, 0.25f);
+            }
+
+            return new Bounds(faceCenter, faceSize);
         }
 
         private static Vector3 ResolveAvatarForward(Transform avatarRoot)
