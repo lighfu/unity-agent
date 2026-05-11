@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.10.4] — 2026-05-11
+
+### Added
+- **TestRunner** ツール群 — 外部 CI/スクリプトから MCP 経由で UnityAgent を駆動可能: `StartTestSession` / `SendTestPrompt` / `GetSessionState` / `SwitchModel` / `DiscardTestSession`。テストセッションはアクティブな UnityAgentWindow に live 表示 (UI hijack) され、user prompt と AI 応答が通常のチャット UI でリアルタイム確認可能。
+- **`CaptureMeshIsolated`** — 特定 mesh/GameObject を**シーン全体 isolation** で多角度 (front/left/right/back) からキャプチャ。inactive な outfit メッシュも一時 activate して撮影可能。
+- Group A capture ツール群 (CaptureSceneView / CaptureMultiAngle / CaptureFacePreview / CaptureExpressionPreview / ScanAvatarMeshes) に画質オプションを統一追加: `maxWidth` (downscale), `format='png'|'jpg'`, `jpgQuality`, `saveToPath`。デフォルト解像度を 512→1024 に引き上げ。
+- 全 capture ツールが `%TEMP%\unity-agent-last-capture.{png,jpg}` にデバッグダンプ。AI クライアントが MCP image attachment を表示できない環境でも Read ツールで画像確認可能。
+- ScanAvatarMeshes の各 cell に **`[N] mesh-name` の TextMesh ラベル**を埋め込み。
+
+### Fixed
+- `CaptureMultiAngle` の bounds 計算 — 非アクティブ衣装メッシュの runtime SMR bounds 合算で camera が遠ざかる問題を修正 (アクティブ renderer のみ + tight mesh.bounds 使用)。
+- `CaptureFacePreview` のフレーミング — SMR runtime bounds の平均値で center が胸部にずれる問題を修正 (headBone 基準 + sharedMesh.bounds size)。
+- `ScanAvatarMeshes` のシーン全体 isolation — 同じシーンに複数アバターが Active な場合、target 以外が裏で描画されて全 cell が似た見た目になっていた問題を修正。
+
+### Changed
+- `CaptureExpressionPreview` を `CaptureFacePreview` に統合 — SceneView を動かす副作用がなくなり、再現性のある安定キャプチャに統一。両ツールはバイト単位で同じ出力を返す。
+
 ## [0.10.3] — 2026-05-11
 
 ### Added
