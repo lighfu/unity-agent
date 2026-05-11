@@ -426,6 +426,28 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             cam.backgroundColor = new Color(0.15f, 0.15f, 0.15f, 1f);
             cam.enabled = false;
 
+            // ── Label TextMesh (child of camera, rendered into each cell) ──
+            // Position in camera-local space at the bottom of the view.
+            // characterSize×fontSize controls physical text height. At z=1m with FOV 60°,
+            // visible half-height ≈ tan(30°) ≈ 0.577m, so y=-0.50 puts text near bottom.
+            var labelGo = new GameObject("__ScanMeshLabel");
+            labelGo.hideFlags = HideFlags.HideAndDontSave;
+            labelGo.transform.SetParent(camGo.transform, false);
+            labelGo.transform.localPosition = new Vector3(0f, -0.45f, 1f);
+            labelGo.transform.localRotation = Quaternion.identity;
+            var labelTm = labelGo.AddComponent<TextMesh>();
+            labelTm.alignment = TextAlignment.Center;
+            labelTm.anchor = TextAnchor.LowerCenter;
+            labelTm.color = Color.white;
+            labelTm.fontSize = 80;
+            labelTm.characterSize = 0.04f;  // ~0.13m tall per character at z=1m
+            // Use the Unity built-in legacy font (works without project asset dependencies)
+            labelTm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (labelTm.font == null)
+                labelTm.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            if (labelTm.font != null && labelTm.font.material != null)
+                labelTm.GetComponent<MeshRenderer>().sharedMaterial = labelTm.font.material;
+
             var rt = new RenderTexture(cellSize, cellSize, 24);
             var cellTextures = new List<Texture2D>();
             var labels = new List<string>();
@@ -457,6 +479,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     Vector3 dir = GetAngleDirection("45right");
                     cam.transform.position = bounds.center - dir * distance;
                     cam.transform.LookAt(bounds.center);
+
+                    // Set label text for this cell — TextMesh re-renders each frame
+                    string goNameForLabel = targetRenderer.gameObject.name;
+                    if (goNameForLabel.Length > 22) goNameForLabel = goNameForLabel.Substring(0, 22) + "…";
+                    labelTm.text = $"[{idx + 1}] {goNameForLabel}";
 
                     cam.targetTexture = rt;
                     cam.Render();
@@ -495,12 +522,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     int x = col * cellSize;
                     int y = row * cellSize;
                     composite.SetPixels(x, y, cellSize, cellSize, cellTextures[i].GetPixels());
-
-                    // Dark label bar at bottom of cell
-                    int barHeight = 8;
-                    for (int bx = 0; bx < cellSize; bx++)
-                        for (int by = 0; by < barHeight; by++)
-                            composite.SetPixel(x + bx, y + by, new Color(0, 0, 0, 0.7f));
+                    // Label text is now rendered into each cell via TextMesh during the
+                    // camera capture (white text at bottom). No separate label bar needed.
                 }
 
                 composite.Apply();
