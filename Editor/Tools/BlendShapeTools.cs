@@ -537,23 +537,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return $"Success: Scene camera focused on face (Head bone at {headPos}).";
         }
 
-        /// <summary>Capture face close-up from Scene view. Called internally by FaceEmo CaptureExpressionPreview.</summary>
-        public static string CaptureExpressionPreview(string avatarRootName, int width = 1024, int height = 1024, int maxWidth = 0, string format = "png", int jpgQuality = 90, string saveToPath = "")
-        {
-            // Focus on face first
-            string focusResult = FocusOnFace(avatarRootName);
-            if (focusResult.StartsWith("Error"))
-            {
-                // Even if focus fails, try to capture anyway
-                Debug.LogWarning($"[BlendShapeTools] {focusResult}");
-            }
-
-            // Small delay for Scene to update
-            SceneView.RepaintAll();
-
-            // Capture (forwards all encoding options)
-            return SceneViewTools.CaptureSceneView(width, height, maxWidth, format, jpgQuality, saveToPath);
-        }
+        // BlendShapeTools.CaptureExpressionPreview was a SceneView-based capture that moved
+        // the SceneView camera as a side effect. It's been superseded by FaceCameraCapture.
+        // CaptureFacePreview (dedicated temp camera, no side effects). The public
+        // FaceEmoAdvancedTools.CaptureExpressionPreview now delegates there directly.
+        // If you need the SceneView-focus behavior standalone, call FocusOnFace + CaptureSceneView.
 
         // ─── Helpers ───
 
