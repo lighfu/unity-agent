@@ -310,6 +310,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             { "CaptureEditorWindow", "EditorWindowをキャプチャ（タイトル名指定）" },
             { "CaptureMonitor", "モニター全体をキャプチャ（primary/index/device指定）" },
 
+            // ── Test Runner (programmatic UnityAgent control) ──
+            { "StartTestSession", "プログラム制御用テストセッションを作成（[TEST]プレフィックス、最大4並列）" },
+            { "SendTestPrompt", "テストセッションにprompt送信、AI完了まで同期待機、結果をJSONで返却" },
+            { "GetSessionState", "テストセッションの状態取得（メッセージ数/処理中フラグ/モデル/経過）" },
+            { "GetConsoleLogs", "Unity Consoleの最近のログを取得（rolling buffer最大1000件）" },
+            { "SwitchModel", "既存テストセッションのプロバイダー/モデルを切替（履歴保持）" },
+            { "DiscardTestSession", "テストセッションを破棄して同時実行枠を解放" },
+
             // ── Build ──
             { "TriggerVRChatBuildTest", "VRChat Build & Test を実行" },
             { "TriggerNDMFManualBake", "NDMFの手動ベイクを実行" },
