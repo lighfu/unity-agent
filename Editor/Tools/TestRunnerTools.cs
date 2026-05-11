@@ -47,32 +47,36 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
 
             // TestRunnerCore.SendPromptBlocking is itself IEnumerator. Forward all yields.
-            // Pre-checks (session existence, IsProcessing) throw — wrap in catch to convert to error string.
-            IEnumerator inner;
+            // Pre-checks (session existence, IsProcessing) throw — capture error message and yield outside try/catch (CS1631).
+            IEnumerator inner = null;
+            string startError = null;
             try
             {
                 inner = TestRunnerCore.SendPromptBlocking(sessionId, prompt, timeoutSec, captureConsoleLogs);
             }
-            catch (Exception ex)
+            catch (Exception ex) { startError = ex.Message; }
+            if (startError != null)
             {
-                yield return "Error: " + ex.Message;
+                yield return "Error: " + startError;
                 yield break;
             }
 
             // Drive inner enumerator and forward its yielded values.
-            // (Inner's MoveNext can also throw — but at that point we've already started, no try/catch around yield-loop.)
+            // CS1631: cannot yield in catch — capture error to local and yield outside.
             while (true)
             {
-                bool hasMore;
+                bool hasMore = false;
                 object current = null;
+                string moveError = null;
                 try
                 {
                     hasMore = inner.MoveNext();
                     if (hasMore) current = inner.Current;
                 }
-                catch (Exception ex)
+                catch (Exception ex) { moveError = ex.Message; }
+                if (moveError != null)
                 {
-                    yield return "Error during SendTestPrompt: " + ex.Message;
+                    yield return "Error during SendTestPrompt: " + moveError;
                     yield break;
                 }
                 if (!hasMore) yield break;
