@@ -326,8 +326,15 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             // ProcessQueryInternal が yield 終了しても HandleResponse が StartCoroutineOwnerless で
             // 継続している可能性があるため、_isProcessing が false になるまで待ってから error 検出する。
-            while (_isProcessing)
-                yield return null;
+            // Safety guard: 最大 10 分 (= 600 秒 ≈ ~36000 frame at 60fps editor)
+            // 異常終了で _isProcessing が false にならないケースを防ぐ
+            const int MAX_POLL_FRAMES = 60 * 600;
+            int pollCount = 0;
+            while (_isProcessing && pollCount++ < MAX_POLL_FRAMES) yield return null;
+            if (pollCount >= MAX_POLL_FRAMES)
+            {
+                Debug.LogError($"[UnityAgentCore] ProcessUserQuery polling exceeded {MAX_POLL_FRAMES} frames; forcing turn-complete fire to prevent infinite loop.");
+            }
 
             // ここまで来て turnFired==false なら、error path (isFinal=false) かキャンセルで終わったケース。
             if (!turnFired)
@@ -1801,6 +1808,9 @@ namespace AjisaiFlow.UnityAgent.Editor
         [NonSerialized] public string imageMimeType;
     }
 
+    // CS0649: TestRunner 側が後で populate する placeholder フィールドが存在する。
+    // 実装が完成するまで warning を抑制。
+#pragma warning disable 649
     /// <summary>
     /// Aggregated result of one programmatic chat turn (used by TestRunner / Self-Driving Test Tools).
     /// </summary>
@@ -1834,4 +1844,5 @@ namespace AjisaiFlow.UnityAgent.Editor
         public string Timestamp;   // "HH:mm:ss"
         public DateTime At;
     }
+#pragma warning restore 649
 }
