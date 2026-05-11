@@ -371,6 +371,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (allRenderers.Length == 0)
                 return $"Error: No renderers found under '{avatarRootName}'.";
 
+            // SCENE-WIDE isolation set: include every Renderer in the active scene so other
+            // active avatars don't bleed into the per-mesh capture. Without this, scenes that
+            // have multiple active avatar variants (e.g., capra + capra (BBP 4)) would show
+            // both avatars in every cell, masking the per-mesh isolation effect.
+            var sceneRenderers = UnityEngine.Object.FindObjectsOfType<Renderer>(true);
+            var targetRendererSet = new HashSet<Renderer>(allRenderers);
+
             // Sort by vertex count (largest first), limit to 16
             var rendererList = new List<(Renderer renderer, int vertCount)>();
             foreach (var r in allRenderers)
@@ -423,10 +430,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var cellTextures = new List<Texture2D>();
             var labels = new List<string>();
 
-            // Save original enabled states
-            var originalStates = new bool[allRenderers.Length];
-            for (int i = 0; i < allRenderers.Length; i++)
-                originalStates[i] = allRenderers[i].enabled;
+            // Save original enabled states for ALL scene renderers (we toggle them all)
+            var originalStates = new bool[sceneRenderers.Length];
+            for (int i = 0; i < sceneRenderers.Length; i++)
+                originalStates[i] = sceneRenderers[i].enabled;
 
             try
             {
@@ -435,12 +442,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     var targetRenderer = rendererList[idx].renderer;
                     int vertCount = rendererList[idx].vertCount;
 
-                    // Isolate: disable all, enable only target
-                    for (int j = 0; j < allRenderers.Length; j++)
-                        allRenderers[j].enabled = (allRenderers[j] == targetRenderer);
+                    // Isolate scene-wide: disable every renderer in the scene, then
+                    // enable only the target. This prevents other active avatars or
+                    // overlapping meshes from bleeding into the per-mesh capture.
+                    for (int j = 0; j < sceneRenderers.Length; j++)
+                        sceneRenderers[j].enabled = (sceneRenderers[j] == targetRenderer);
 
-                    // Camera position from target bounds
-                    var bounds = targetRenderer.bounds;
+                    // Camera position from target bounds (use tight mesh.bounds for SMR
+                    // to avoid runtime-inflated skinning bounds pushing camera too far)
+                    var bounds = ComputeTightBounds(targetRenderer);
                     float maxExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
                     float distance = maxExtent * 2.5f;
                     if (distance < 0.1f) distance = 0.5f;
@@ -465,9 +475,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     labels.Add($"[{idx + 1}] {goName} — {vertCount:N0} verts, mat: {matName}");
                 }
 
-                // Restore original states
-                for (int j = 0; j < allRenderers.Length; j++)
-                    allRenderers[j].enabled = originalStates[j];
+                // Restore original states for every scene renderer we toggled
+                for (int j = 0; j < sceneRenderers.Length; j++)
+                    sceneRenderers[j].enabled = originalStates[j];
 
                 // Composite grid
                 int gridW = cols * cellSize;
@@ -516,9 +526,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
             finally
             {
-                // Restore states in case of exception
-                for (int j = 0; j < allRenderers.Length; j++)
-                    allRenderers[j].enabled = originalStates[j];
+                // Restore states in case of exception (scene-wide)
+                for (int j = 0; j < sceneRenderers.Length; j++)
+                    sceneRenderers[j].enabled = originalStates[j];
 
                 foreach (var tex in cellTextures)
                     UnityEngine.Object.DestroyImmediate(tex);
