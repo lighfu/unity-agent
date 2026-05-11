@@ -440,7 +440,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             labelTm.anchor = TextAnchor.LowerCenter;
             labelTm.color = Color.white;
             labelTm.fontSize = 100;
-            labelTm.characterSize = 0.06f;  // smaller text relative to scene scale
+            labelTm.characterSize = 0.04f;  // text occupies ~9% viewport width per char
             // Use the Unity built-in legacy font (works without project asset dependencies)
             labelTm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (labelTm.font == null)
@@ -482,7 +482,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
                     // Set label text for this cell — TextMesh re-renders each frame
                     string goNameForLabel = targetRenderer.gameObject.name;
-                    if (goNameForLabel.Length > 22) goNameForLabel = goNameForLabel.Substring(0, 22) + "…";
+                    if (goNameForLabel.Length > 14) goNameForLabel = goNameForLabel.Substring(0, 14) + "…";
                     labelTm.text = $"[{idx + 1}] {goNameForLabel}";
 
                     cam.targetTexture = rt;
