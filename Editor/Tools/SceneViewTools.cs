@@ -428,19 +428,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             // ── Label TextMesh (child of camera, rendered into each cell) ──
             // Position in camera-local space at the bottom of the view.
-            // characterSize×fontSize controls physical text height. At z=1m with FOV 60°,
-            // visible half-height ≈ tan(30°) ≈ 0.577m, so y=-0.50 puts text near bottom.
+            // Use a LARGER z (further from camera) so the text occupies a smaller fraction
+            // of the cell, avoiding overlap with adjacent cells and giving the mesh more room.
             var labelGo = new GameObject("__ScanMeshLabel");
             labelGo.hideFlags = HideFlags.HideAndDontSave;
             labelGo.transform.SetParent(camGo.transform, false);
-            labelGo.transform.localPosition = new Vector3(0f, -0.45f, 1f);
+            labelGo.transform.localPosition = new Vector3(0f, -1.6f, 3f);  // z=3m, y near bottom of cell
             labelGo.transform.localRotation = Quaternion.identity;
             var labelTm = labelGo.AddComponent<TextMesh>();
             labelTm.alignment = TextAlignment.Center;
             labelTm.anchor = TextAnchor.LowerCenter;
             labelTm.color = Color.white;
-            labelTm.fontSize = 80;
-            labelTm.characterSize = 0.04f;  // ~0.13m tall per character at z=1m
+            labelTm.fontSize = 100;
+            labelTm.characterSize = 0.06f;  // smaller text relative to scene scale
             // Use the Unity built-in legacy font (works without project asset dependencies)
             labelTm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (labelTm.font == null)
