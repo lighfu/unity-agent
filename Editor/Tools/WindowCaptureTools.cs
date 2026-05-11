@@ -276,15 +276,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     return $"Error: Failed to encode capture as {fmt.ToUpper()}.";
 
                 SceneViewTools.SetPendingImage(encodedBytes, mime);
-
-                // Always-on debug dump (kept for diagnostics)
-                string debugPath = null;
-                try
-                {
-                    debugPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "unity-agent-last-capture" + ext);
-                    System.IO.File.WriteAllBytes(debugPath, encodedBytes);
-                }
-                catch { debugPath = null; }
+                // Debug dump is now centralized in SetPendingImage — read path from LastCaptureDebugPath.
+                string debugPath = SceneViewTools.LastCaptureDebugPath;
 
                 // Optional explicit saveToPath
                 string explicitSaveMsg = string.Empty;

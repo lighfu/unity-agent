@@ -20,10 +20,31 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             PendingImageMimeType = null;
         }
 
+        /// <summary>
+        /// Path of the most recently dumped capture image in %TEMP%.
+        /// Useful for AI clients that don't render MCP image attachments inline:
+        /// the AI can Read this file path to see the actual image.
+        /// </summary>
+        public static string LastCaptureDebugPath { get; private set; }
+
         public static void SetPendingImage(byte[] bytes, string mimeType)
         {
             PendingImageBytes = bytes;
             PendingImageMimeType = mimeType;
+
+            // Always-on debug dump to %TEMP% so any capture-style tool can be
+            // visually inspected via the Read tool.
+            try
+            {
+                string ext = (mimeType == "image/jpeg" || mimeType == "image/jpg") ? ".jpg" : ".png";
+                string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "unity-agent-last-capture" + ext);
+                System.IO.File.WriteAllBytes(path, bytes);
+                LastCaptureDebugPath = path;
+            }
+            catch
+            {
+                LastCaptureDebugPath = null;
+            }
         }
 
         [AgentTool("Capture a screenshot of the current SceneView. The image is sent to you for visual inspection. Use this to verify object placement, rotation, and visual appearance.")]
