@@ -29,6 +29,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         private static readonly List<ConsoleEntry> _globalLogs = new List<ConsoleEntry>();
         private static readonly object _globalLogsLock = new object();
         private static bool _globalHookInstalled = false;
+        private static readonly object _hookInstallLock = new object();
 
         // ════════════════════════════════════════════════════════════
         //  Session lifecycle
@@ -121,8 +122,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             // ── Subscribe to OnTurnComplete ──
             TurnResult capturedResult = null;
             Action<TurnResult> onComplete = (r) => { capturedResult = r; };
-            ctx.Core.OnTurnComplete += onComplete;
             ctx.IsProcessing = true;
+            ctx.Core.OnTurnComplete += onComplete;
 
             var turnSw = Stopwatch.StartNew();
             long timeoutMs = timeoutSec * 1000L;
@@ -141,44 +142,56 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 startError = ex.Message;
             }
 
-            if (startFailed)
+            // ── try/finally guarantees subscribe/unsubscribe and IsProcessing reset
+            //    are symmetric across normal completion, timeout, start-failure, and
+            //    enumerator abort. Note: C# allows `yield return` inside `try` only
+            //    when no `catch` is present (CS1626/CS1631), hence the catch-less
+            //    finally pattern below. The output JSON is buffered to a local and
+            //    yielded after the finally block.
+            string outputJson;
+            try
             {
+                if (startFailed)
+                {
+                    outputJson = $"{{\"completed\":false,\"error\":\"Failed to start ProcessUserQuery: {EscapeJson(startError)}\"}}";
+                }
+                else
+                {
+                    // ── Yield-poll until completion or timeout ──
+                    while (capturedResult == null && turnSw.ElapsedMilliseconds < timeoutMs)
+                    {
+                        yield return null;
+                    }
+
+                    // ── Build final result ──
+                    TurnResult finalResult;
+                    if (capturedResult == null)
+                    {
+                        finalResult = new TurnResult
+                        {
+                            Completed = false,
+                            Error = $"Timeout after {timeoutSec}s",
+                            DurationMs = turnSw.ElapsedMilliseconds,
+                        };
+                    }
+                    else
+                    {
+                        finalResult = capturedResult;
+                        if (turnLogs != null) finalResult.ConsoleLogs = turnLogs;
+                    }
+
+                    outputJson = FormatTurnResultJson(finalResult);
+                }
+            }
+            finally
+            {
+                // Always runs: normal completion / timeout / start-failure / enumerator abort.
                 ctx.Core.OnTurnComplete -= onComplete;
                 if (turnLogHandler != null) Application.logMessageReceivedThreaded -= turnLogHandler;
                 ctx.IsProcessing = false;
-                yield return $"{{\"completed\":false,\"error\":\"Failed to start ProcessUserQuery: {EscapeJson(startError)}\"}}";
-                yield break;
             }
 
-            // ── Yield-poll until completion or timeout ──
-            while (capturedResult == null && turnSw.ElapsedMilliseconds < timeoutMs)
-            {
-                yield return null;
-            }
-
-            // ── Cleanup ──
-            ctx.Core.OnTurnComplete -= onComplete;
-            if (turnLogHandler != null) Application.logMessageReceivedThreaded -= turnLogHandler;
-            ctx.IsProcessing = false;
-
-            // ── Build final result ──
-            TurnResult finalResult;
-            if (capturedResult == null)
-            {
-                finalResult = new TurnResult
-                {
-                    Completed = false,
-                    Error = $"Timeout after {timeoutSec}s",
-                    DurationMs = turnSw.ElapsedMilliseconds,
-                };
-            }
-            else
-            {
-                finalResult = capturedResult;
-                if (turnLogs != null) finalResult.ConsoleLogs = turnLogs;
-            }
-
-            yield return FormatTurnResultJson(finalResult);
+            yield return outputJson;
         }
 
         // ════════════════════════════════════════════════════════════
@@ -227,22 +240,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         private static void EnsureGlobalConsoleHookActive()
         {
             if (_globalHookInstalled) return;
-            _globalHookInstalled = true;
-            Application.logMessageReceivedThreaded += (logString, stackTrace, type) =>
+            lock (_hookInstallLock)
             {
-                lock (_globalLogsLock)
+                if (_globalHookInstalled) return;  // double-checked locking
+                _globalHookInstalled = true;
+                Application.logMessageReceivedThreaded += (logString, stackTrace, type) =>
                 {
-                    _globalLogs.Add(new ConsoleEntry
+                    lock (_globalLogsLock)
                     {
-                        Level = type.ToString(),
-                        Message = logString,
-                        StackTrace = stackTrace,
-                        Timestamp = DateTime.Now.ToString("HH:mm:ss"),
-                        At = DateTime.Now,
-                    });
-                    if (_globalLogs.Count > GLOBAL_LOG_BUFFER_MAX) _globalLogs.RemoveAt(0);
-                }
-            };
+                        _globalLogs.Add(new ConsoleEntry
+                        {
+                            Level = type.ToString(),
+                            Message = logString,
+                            StackTrace = stackTrace,
+                            Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+                            At = DateTime.Now,
+                        });
+                        if (_globalLogs.Count > GLOBAL_LOG_BUFFER_MAX) _globalLogs.RemoveAt(0);
+                    }
+                };
+            }
         }
 
         // ════════════════════════════════════════════════════════════
@@ -281,6 +298,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     sb.Append("{\"level\":").Append(EscapeJsonQuoted(l.Level));
                     sb.Append(",\"message\":").Append(EscapeJsonQuoted(l.Message));
                     sb.Append(",\"timestamp\":").Append(EscapeJsonQuoted(l.Timestamp));
+                    sb.Append(",\"stackTrace\":").Append(EscapeJsonQuoted(l.StackTrace ?? ""));
                     sb.Append("}");
                 }
                 sb.Append("]");
@@ -327,6 +345,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
     }
 
+#pragma warning disable 649
     internal class TestSessionContext
     {
         public string SessionId;
@@ -336,7 +355,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         public DateTime CreatedAt;
         public UnityAgentCore Core;
         public bool IsProcessing;
-        public string LastError;
-        public string HistoryFilePath;
+        public string LastError;       // TODO: wire up from ProcessUserQuery error path
+        public string HistoryFilePath; // TODO: wire up if Core exposes session file path
     }
+#pragma warning restore 649
 }
