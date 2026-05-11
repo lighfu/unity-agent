@@ -355,6 +355,173 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
         }
 
+        [AgentTool("Capture a single mesh/GameObject in scene-wide ISOLATION from multiple angles, composed into a labeled grid. " +
+            "All other renderers in the scene are hidden during capture so you see ONLY the target mesh — useful for inspecting hidden/occluded parts. " +
+            "targetName: exact GameObject name (or partial via FindGameObject). Captures all Renderers under this GameObject (self+children). " +
+            "angles: comma-separated from front,back,left,right,top,45left,45right. Default: front,left,right,back. " +
+            "cellSize: per-angle cell resolution (default 384). " +
+            "maxWidth>0 downscales the final composite. " +
+            "format='png' (lossless, default) or 'jpg' (smaller via jpgQuality 1-100, default 90). " +
+            "saveToPath: optional explicit save path.")]
+        public static string CaptureMeshIsolated(string targetName, string angles = "front,left,right,back", int cellSize = 384, int maxWidth = 0, string format = "png", int jpgQuality = 90, string saveToPath = "")
+        {
+            var target = FindGO(targetName);
+            if (target == null) return $"Error: GameObject '{targetName}' not found.";
+
+            var targetRenderers = target.GetComponentsInChildren<Renderer>(true);
+            if (targetRenderers.Length == 0)
+                return $"Error: '{targetName}' has no Renderer (neither itself nor children).";
+
+            // Parse angles
+            var angleList = angles.Split(',').Select(a => a.Trim().ToLower()).Where(a => !string.IsNullOrEmpty(a)).ToList();
+            if (angleList.Count == 0) return "Error: No valid angles specified.";
+            if (angleList.Count > 7) return "Error: Maximum 7 angles allowed.";
+
+            // Compute tight bounds across all target renderers
+            Bounds bounds = ComputeTightBounds(targetRenderers[0]);
+            for (int i = 1; i < targetRenderers.Length; i++)
+                bounds.Encapsulate(ComputeTightBounds(targetRenderers[i]));
+            Vector3 center = bounds.center;
+            float maxExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
+            if (maxExtent < 0.01f) maxExtent = 0.1f;
+            float distance = maxExtent * 2.5f;
+
+            // Scene-wide isolation set
+            var sceneRenderers = UnityEngine.Object.FindObjectsOfType<Renderer>(true);
+            var targetSet = new HashSet<Renderer>(targetRenderers);
+
+            // Grid layout (max 7 angles in 4x2 or smaller)
+            int count = angleList.Count;
+            int cols, rows;
+            if (count <= 2) { cols = count; rows = 1; }
+            else if (count <= 4) { cols = 2; rows = 2; }
+            else if (count <= 6) { cols = 3; rows = 2; }
+            else { cols = 4; rows = 2; }
+
+            var sceneView = SceneView.lastActiveSceneView;
+            float nearClip = 0.01f, farClip = 1000f, fov = 60f;
+            if (sceneView != null && sceneView.camera != null)
+            {
+                nearClip = sceneView.camera.nearClipPlane;
+                farClip = sceneView.camera.farClipPlane;
+                fov = sceneView.camera.fieldOfView;
+            }
+
+            var camGo = new GameObject("__MeshIsolatedCaptureCam");
+            camGo.hideFlags = HideFlags.HideAndDontSave;
+            var cam = camGo.AddComponent<Camera>();
+            cam.fieldOfView = fov;
+            cam.nearClipPlane = nearClip;
+            cam.farClipPlane = farClip;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.15f, 0.15f, 0.15f, 1f);
+            cam.enabled = false;
+
+            // Label TextMesh (same pattern as ScanAvatarMeshes)
+            var labelGo = new GameObject("__MeshIsolatedLabel");
+            labelGo.hideFlags = HideFlags.HideAndDontSave;
+            labelGo.transform.SetParent(camGo.transform, false);
+            labelGo.transform.localPosition = new Vector3(0f, -1.6f, 3f);
+            labelGo.transform.localRotation = Quaternion.identity;
+            var labelTm = labelGo.AddComponent<TextMesh>();
+            labelTm.alignment = TextAlignment.Center;
+            labelTm.anchor = TextAnchor.LowerCenter;
+            labelTm.color = Color.white;
+            labelTm.fontSize = 100;
+            labelTm.characterSize = 0.04f;
+            labelTm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (labelTm.font == null)
+                labelTm.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            if (labelTm.font != null && labelTm.font.material != null)
+                labelTm.GetComponent<MeshRenderer>().sharedMaterial = labelTm.font.material;
+
+            var rt = new RenderTexture(cellSize, cellSize, 24);
+            var cellTextures = new List<Texture2D>();
+
+            var originalStates = new bool[sceneRenderers.Length];
+            for (int i = 0; i < sceneRenderers.Length; i++)
+                originalStates[i] = sceneRenderers[i].enabled;
+
+            try
+            {
+                // Isolate target (and its descendants) — disable everything else
+                for (int i = 0; i < sceneRenderers.Length; i++)
+                    sceneRenderers[i].enabled = targetSet.Contains(sceneRenderers[i]);
+
+                for (int idx = 0; idx < count; idx++)
+                {
+                    string ang = angleList[idx];
+                    Vector3 dir = GetAngleDirection(ang);
+                    cam.transform.position = center - dir * distance;
+                    cam.transform.LookAt(center);
+
+                    labelTm.text = $"[{ang}]";
+
+                    cam.targetTexture = rt;
+                    cam.Render();
+
+                    RenderTexture.active = rt;
+                    var tex = new Texture2D(cellSize, cellSize, TextureFormat.RGB24, false);
+                    tex.ReadPixels(new Rect(0, 0, cellSize, cellSize), 0, 0);
+                    tex.Apply();
+                    RenderTexture.active = null;
+
+                    cellTextures.Add(tex);
+                }
+
+                // Composite grid
+                int gridW = cols * cellSize;
+                int gridH = rows * cellSize;
+                var composite = new Texture2D(gridW, gridH, TextureFormat.RGB24, false);
+                var bgPixels = new Color[gridW * gridH];
+                for (int i = 0; i < bgPixels.Length; i++) bgPixels[i] = new Color(0.15f, 0.15f, 0.15f);
+                composite.SetPixels(bgPixels);
+
+                for (int i = 0; i < cellTextures.Count; i++)
+                {
+                    int col = i % cols;
+                    int row = rows - 1 - (i / cols);
+                    int x = col * cellSize;
+                    int y = row * cellSize;
+                    composite.SetPixels(x, y, cellSize, cellSize, cellTextures[i].GetPixels());
+                }
+
+                composite.Apply();
+                byte[] outBytes = EncodeWithOptions(composite, maxWidth, format, jpgQuality, out string mime);
+                UnityEngine.Object.DestroyImmediate(composite);
+
+                if (outBytes == null || outBytes.Length == 0)
+                    return "Error: Failed to encode composite image.";
+
+                SetPendingImage(outBytes, mime);
+                string saveMsg = "";
+                if (TrySaveToPath(outBytes, saveToPath, out string saveErr))
+                    saveMsg = saveErr != null ? $" (saveToPath failed: {saveErr})" : $" Saved to '{saveToPath}'.";
+
+                int totalVerts = 0;
+                foreach (var r in targetRenderers)
+                {
+                    if (r is SkinnedMeshRenderer smr && smr.sharedMesh != null) totalVerts += smr.sharedMesh.vertexCount;
+                    else if (r is MeshRenderer)
+                    {
+                        var mf = r.GetComponent<MeshFilter>();
+                        if (mf != null && mf.sharedMesh != null) totalVerts += mf.sharedMesh.vertexCount;
+                    }
+                }
+                string labelInfo = string.Join(", ", angleList.Select((a, i) => $"[{i}]={a}"));
+                return $"Success: Captured '{targetName}' ({targetRenderers.Length} renderers, {totalVerts:N0} verts total) in scene-wide isolation from {count} angles ({cols}x{rows} grid, {gridW}x{gridH}px, {outBytes.Length} bytes, {(mime == "image/jpeg" ? "jpg" : "png")}). Layout: {labelInfo}. The image has been attached for your review.{saveMsg}";
+            }
+            finally
+            {
+                for (int j = 0; j < sceneRenderers.Length; j++)
+                    sceneRenderers[j].enabled = originalStates[j];
+                foreach (var tex in cellTextures)
+                    UnityEngine.Object.DestroyImmediate(tex);
+                UnityEngine.Object.DestroyImmediate(rt);
+                UnityEngine.Object.DestroyImmediate(camGo);
+            }
+        }
+
         [AgentTool("Scan all meshes under an avatar and capture each one ISOLATED (other meshes hidden) into a labeled grid image. " +
             "cellSize is the per-mesh cell resolution (default 256). " +
             "maxWidth>0 downscales the final composite. " +
