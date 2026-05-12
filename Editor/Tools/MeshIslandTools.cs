@@ -471,9 +471,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     return $"RGB({avg.r:F2}, {avg.g:F2}, {avg.b:F2}) #{ColorUtility.ToHtmlStringRGB(avg)}";
                 }
             }
-            catch (System.Exception)
+            catch (UnityException ex)
             {
-                // テクスチャが読み取れない場合はN/A
+                AgentLogger.Debug(LogTag.Tool, $"SampleAverageColor: texture not readable, returning N/A. {ex.Message}");
+            }
+            catch (System.IndexOutOfRangeException ex)
+            {
+                AgentLogger.Debug(LogTag.Tool, $"SampleAverageColor: UV/triangle index out of range, returning N/A. {ex.Message}");
+            }
+            catch (System.NullReferenceException ex)
+            {
+                AgentLogger.Debug(LogTag.Tool, $"SampleAverageColor: null reference, returning N/A. {ex.Message}");
             }
 
             return "N/A";

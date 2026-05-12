@@ -90,7 +90,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _listener?.Stop();
                 _listener?.Close();
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                AgentLogger.Debug(LogTag.WebServer, $"Listener stop/close threw on shutdown: {ex.GetType().Name}: {ex.Message}");
+            }
             _listener = null;
             _listenerThread = null;
         }
@@ -134,7 +137,19 @@ namespace AjisaiFlow.UnityAgent.Editor
                 {
                     HandleRequest(ctx);
                 }
-                catch (Exception) { }
+                catch (Exception ex)
+                {
+                    AgentLogger.Error(LogTag.WebServer, $"HandleRequest failed: {ex.GetType().Name}: {ex.Message}");
+                    try
+                    {
+                        ctx.Response.StatusCode = 500;
+                        ctx.Response.OutputStream.Close();
+                    }
+                    catch (Exception closeEx)
+                    {
+                        AgentLogger.Debug(LogTag.WebServer, $"Failed to write 500 response: {closeEx.GetType().Name}");
+                    }
+                }
             }
         }
 

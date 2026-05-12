@@ -748,7 +748,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 resp.OutputStream.Write(bytes, 0, bytes.Length);
                 resp.OutputStream.Close();
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                AgentLogger.Debug(LogTag.MCP, $"WriteJson failed (status={status}, len={json?.Length ?? 0}): {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         static void WriteJsonRpcResult(HttpListenerResponse resp, JNode id, JNode result)
