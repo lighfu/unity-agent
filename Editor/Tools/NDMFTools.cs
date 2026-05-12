@@ -560,12 +560,22 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var prop = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (prop != null && prop.CanRead)
             {
-                try { return prop.GetValue(obj); } catch { return null; }
+                try { return prop.GetValue(obj); }
+                catch (Exception ex)
+                {
+                    AgentLogger.Debug(LogTag.Tool, $"NDMFTools.GetMemberValue: prop '{t.Name}.{name}' threw {ex.GetType().Name}: {ex.Message}");
+                    return null;
+                }
             }
             var field = t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (field != null)
             {
-                try { return field.GetValue(obj); } catch { return null; }
+                try { return field.GetValue(obj); }
+                catch (Exception ex)
+                {
+                    AgentLogger.Debug(LogTag.Tool, $"NDMFTools.GetMemberValue: field '{t.Name}.{name}' threw {ex.GetType().Name}: {ex.Message}");
+                    return null;
+                }
             }
             return null;
         }
@@ -578,8 +588,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 var method = obj.GetType().GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
                 return method?.Invoke(obj, null);
             }
-            catch
+            catch (Exception ex)
             {
+                AgentLogger.Debug(LogTag.Tool, $"NDMFTools.InvokeMember: '{obj.GetType().Name}.{name}()' threw {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
         }
