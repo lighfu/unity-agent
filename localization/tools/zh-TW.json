@@ -18,7 +18,6 @@
     "InspectBlendTree": "檢查狀態上的 BlendTree。顯示混合類型、參數以及所有帶有閾值/位置的子節點。",
     "CreateAvatarMask": "建立新的 AvatarMask 資產。savePath 為資料夾路徑。\n預設啟用所有 Humanoid 身體部位。使用 ConfigureAvatarMask 進行修改。",
     "ConfigureAvatarMask": "設定 AvatarMask 上的 Humanoid 身體部位遮罩。\nbodyParts：以分號分隔的 '部位名稱=true/false'。\n有效部位：Root, Body, Head, LeftLeg, RightLeg, LeftArm, RightArm, LeftFingers, RightFingers, LeftFootIK, RightFootIK, LeftHandIK, RightHandIK。\n範例：'Head=true;LeftArm=false;RightArm=false' 表示僅啟用頭部。",
-    "SetAvatarMaskTransformsFromAvatar": "根據 Avatar 的骨骼層級向 AvatarMask 新增 Transform 路徑。\navatarGoName：Avatar 根部 GameObject 名稱（必須帶有包含 Avatar 的 Animator）。\n若 setAllActive 為 true，則所有 Transform 設為啟用，否則全部停用。\n使用 SetAvatarMaskTransform 切換個別 Transform。",
     "SetAvatarMaskTransform": "切換 AvatarMask 中特定的 Transform 路徑。\npaths：以分號分隔的 'transformPath=true/false'。範例：'Armature/Hips/Spine=true;Armature/Hips/LeftUpLeg=false'",
     "InspectAvatarMask": "檢查 AvatarMask。顯示身體部位狀態與帶有啟用狀態的 Transform 路徑。",
     "ConfigureAnimatorState": "配置 AnimatorState 的進階屬性。\nwriteDefaults：對 VRChat FX 至關重要 - true 寫入預設值，false 保留先前值。所有狀態必須保持一致。\nspeed：播放速度倍率（1.0=正常）。speedParameter：用 float 參數控制速度。\ncycleOffset：起始偏移（0-1）。cycleOffsetParameter：用 float 參數控制偏移。\nmirror：水平翻轉動畫。tag：自定義標籤字串。",

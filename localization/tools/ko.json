@@ -18,7 +18,6 @@
     "InspectBlendTree": "상태의 BlendTree를 조사합니다. 블렌드 타입, 파라미터 및 임계값/좌표가 포함된 모든 자식을 표시합니다.",
     "CreateAvatarMask": "새로운 AvatarMask 에셋을 생성합니다. savePath는 폴더 경로입니다.\n기본적으로 모든 Humanoid 바디 파트가 활성화됩니다. 수정하려면 ConfigureAvatarMask를 사용하세요.",
     "ConfigureAvatarMask": "AvatarMask의 Humanoid 바디 파트 마스킹을 설정합니다.\nbodyParts: 세미콜론으로 구분된 '파트이름=true/false' 형식.\n유효한 파트: Root, Body, Head, LeftLeg, RightLeg, LeftArm, RightArm, LeftFingers, RightFingers, LeftFootIK, RightFootIK, LeftHandIK, RightHandIK.\n예: 머리만 활성화하려면 'Head=true;LeftArm=false;RightArm=false'.",
-    "SetAvatarMaskTransformsFromAvatar": "아바타의 본 계층 구조에서 AvatarMask에 트랜스폼 경로를 추가합니다.\navatarGoName: 아바타 루트 GameObject 이름 (Avatar가 포함된 Animator가 있어야 함).\nsetAllActive가 true이면 모든 트랜스폼이 활성화로 설정됩니다. 그렇지 않으면 모두 비활성화됩니다.\n개별 트랜스폼을 토글하려면 SetAvatarMaskTransform을 사용하세요.",
     "SetAvatarMaskTransform": "AvatarMask에서 특정 트랜스폼 경로를 토글합니다.\npaths: 세미콜론으로 구분된 'transformPath=true/false' 형식. 예: 'Armature/Hips/Spine=true;Armature/Hips/LeftUpLeg=false'",
     "InspectAvatarMask": "AvatarMask를 조사합니다. 바디 파트 상태와 활성 상태가 포함된 트랜스폼 경로를 표시합니다.",
     "ConfigureAnimatorState": "AnimatorState의 고급 속성을 설정합니다.\nwriteDefaults: VRChat FX 레이어에 매우 중요합니다. true는 기본값을 기록하고, false는 이전 값을 유지합니다. 모든 상태에서 일관되어야 합니다.\nspeed: 재생 속도 배율 (1.0=보통). speedParameter: float 파라미터로 속도를 조절합니다.\ncycleOffset: 시작 오프셋 (0-1). cycleOffsetParameter: float 파라미터로 오프셋을 조절합니다.\nmirror: 애니메이션을 좌우 반전합니다. tag: 커스텀 태그 문자열입니다.",

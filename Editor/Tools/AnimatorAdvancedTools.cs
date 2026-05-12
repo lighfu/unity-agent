@@ -227,8 +227,7 @@ Example: 'Head=true;LeftArm=false;RightArm=false' to only enable head.")]
                 if (eqIdx <= 0) continue;
 
                 string partName = trimmed.Substring(0, eqIdx).Trim();
-                string valStr = trimmed.Substring(eqIdx + 1).Trim().ToLower();
-                bool active = valStr == "true" || valStr == "1";
+                bool active = ParseBool(trimmed.Substring(eqIdx + 1));
 
                 if (TryParseBodyPart(partName, out AvatarMaskBodyPart part))
                     mask.SetHumanoidBodyPartActive(part, active);
@@ -240,11 +239,16 @@ Example: 'Head=true;LeftArm=false;RightArm=false' to only enable head.")]
             return $"Success: Configured AvatarMask body parts at '{maskPath}'.";
         }
 
-        [AgentTool(@"Add transform paths to an AvatarMask from an avatar's bone hierarchy.
-avatarGoName: the avatar root GameObject name (must have an Animator with Avatar).
-If setAllActive is true, all transforms are set active. Otherwise all inactive.
-Use SetAvatarMaskTransform to toggle individual transforms.")]
-        public static string SetAvatarMaskTransformsFromAvatar(string maskPath, string avatarGoName, bool setAllActive = true)
+        [AgentTool(@"Populate an AvatarMask's transform list from an avatar's bone hierarchy.
+Mirrors Unity's 'Import Skeleton' button: REPLACES the existing list by default (use additive=true to append).
+- avatarGoName: avatar root GameObject (must have Animator+Avatar; must be a scene root, not a child).
+- setAllActive: ON/OFF state for added entries (default true).
+- additive: if true, append new paths to the existing list, skipping duplicates.
+- bonesOnly: if true (default), source = union of SkinnedMeshRenderer.bones across the avatar + (for humanoid) every Transform under Hips. The Hips subtree catches twist/secondary bones not bound to any SMR, but also pulls in any accessories/PB anchors parented under bones — accept this trade-off or pass bonesOnly=false to walk the full hierarchy explicitly.
+  If false, include all child Transforms of the avatar root (legacy pre-fix behavior).
+Use SetAvatarMaskTransform to toggle individual entries.")]
+        public static string SetAvatarMaskTransformsFromAvatar(string maskPath, string avatarGoName,
+            bool setAllActive = true, bool additive = false, bool bonesOnly = true)
         {
             var mask = AssetDatabase.LoadAssetAtPath<AvatarMask>(maskPath);
             if (mask == null) return $"Error: AvatarMask not found at '{maskPath}'.";
@@ -254,23 +258,72 @@ Use SetAvatarMaskTransform to toggle individual transforms.")]
 
             var animator = go.GetComponent<Animator>();
             if (animator == null || animator.avatar == null)
-                return $"Error: '{avatarGoName}' has no Animator or Avatar.";
+                return $"Error: '{avatarGoName}' has no Animator or Avatar. Pass the avatar root GameObject.";
 
-            var transforms = go.GetComponentsInChildren<Transform>(true);
-            Undo.RecordObject(mask, "Set AvatarMask Transforms");
+            if (go.transform != go.transform.root)
+                return $"Error: '{avatarGoName}' is not a scene root (resolved to a child Transform). Pass the top-level avatar GameObject.";
 
-            mask.transformCount = transforms.Length;
-            for (int i = 0; i < transforms.Length; i++)
+            var sourceBones = new HashSet<Transform>();
+            if (bonesOnly)
             {
-                string path = AnimationUtility.CalculateTransformPath(transforms[i], go.transform);
-                mask.SetTransformPath(i, path);
-                mask.SetTransformActive(i, setAllActive);
+                foreach (var smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                {
+                    if (smr.bones == null) continue;
+                    foreach (var b in smr.bones)
+                        if (b != null) sourceBones.Add(b);
+                }
+                var hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+                if (hips != null)
+                {
+                    foreach (var t in hips.GetComponentsInChildren<Transform>(true))
+                        sourceBones.Add(t);
+                }
+            }
+            else
+            {
+                foreach (var t in go.GetComponentsInChildren<Transform>(true))
+                    if (t != go.transform) sourceBones.Add(t);
+            }
+
+            Undo.RegisterCompleteObjectUndo(mask, "Set AvatarMask Transforms");
+
+            int beforeCount = mask.transformCount;
+            if (!additive)
+                mask.transformCount = 0;
+
+            var existing = new HashSet<string>();
+            for (int i = 0; i < mask.transformCount; i++)
+                existing.Add(mask.GetTransformPath(i));
+
+            int skippedForeign = 0;
+            int skippedDuplicate = 0;
+            int addedCount = 0;
+            foreach (var bone in sourceBones)
+            {
+                if (bone.root != go.transform) { skippedForeign++; continue; }
+                string path = AnimationUtility.CalculateTransformPath(bone, go.transform);
+                if (string.IsNullOrEmpty(path)) continue;
+                if (existing.Contains(path)) { skippedDuplicate++; continue; }
+                int before = mask.transformCount;
+                mask.AddTransformPath(bone, recursive: false);
+                if (mask.transformCount > before)
+                {
+                    mask.SetTransformActive(mask.transformCount - 1, setAllActive);
+                    existing.Add(path);
+                    addedCount++;
+                }
             }
 
             EditorUtility.SetDirty(mask);
             AssetDatabase.SaveAssets();
 
-            return $"Success: Set {transforms.Length} transform paths on AvatarMask from '{avatarGoName}' (allActive={setAllActive}).";
+            var notes = new List<string>();
+            if (skippedDuplicate > 0) notes.Add($"skipped {skippedDuplicate} duplicates");
+            if (skippedForeign > 0) notes.Add($"skipped {skippedForeign} foreign-root bones");
+            string noteStr = notes.Count > 0 ? $", {string.Join(", ", notes)}" : "";
+            return additive
+                ? $"Success: Added {addedCount} new paths (additive, allActive={setAllActive}, bonesOnly={bonesOnly}{noteStr}). Total: {mask.transformCount}."
+                : $"Success: Replaced {beforeCount} entries with {addedCount} skeleton paths (allActive={setAllActive}, bonesOnly={bonesOnly}{noteStr}).";
         }
 
         [AgentTool(@"Toggle specific transform paths in an AvatarMask.
@@ -291,7 +344,7 @@ paths: semicolon-separated 'transformPath=true/false'. Example: 'Armature/Hips/S
                 if (eqIdx <= 0) continue;
 
                 string path = trimmed.Substring(0, eqIdx).Trim();
-                bool active = trimmed.Substring(eqIdx + 1).Trim().ToLower() == "true";
+                bool active = ParseBool(trimmed.Substring(eqIdx + 1));
 
                 for (int i = 0; i < mask.transformCount; i++)
                 {
@@ -700,6 +753,22 @@ weight: default weight (0-1).")]
 
         private static bool Is2DBlendType(BlendTreeType type) =>
             type == BlendTreeType.SimpleDirectional2D || type == BlendTreeType.FreeformDirectional2D || type == BlendTreeType.FreeformCartesian2D;
+
+        private static bool ParseBool(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            switch (s.Trim().ToLowerInvariant())
+            {
+                case "true":
+                case "1":
+                case "on":
+                case "yes":
+                case "enabled":
+                    return true;
+                default:
+                    return false;
+            }
+        }
 
         private static bool TryParseBodyPart(string name, out AvatarMaskBodyPart part)
         {

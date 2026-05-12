@@ -18,7 +18,6 @@
     "InspectBlendTree": "ステート上の BlendTree を検査します。ブレンドタイプ、パラメータ、およびしきい値/座標を含むすべての子要素が表示されます。",
     "CreateAvatarMask": "新しい AvatarMask アセットを作成します。savePath はフォルダパスです。\nデフォルトではすべての Humanoid ボディパーツが有効になっています。変更するには ConfigureAvatarMask を使用してください。",
     "ConfigureAvatarMask": "AvatarMask の Humanoid ボディパーツのマスキングを設定します。\nbodyParts: セミコロン区切りの 'パーツ名=true/false'。\n有効なパーツ: Root, Body, Head, LeftLeg, RightLeg, LeftArm, RightArm, LeftFingers, RightFingers, LeftFootIK, RightFootIK, LeftHandIK, RightHandIK。\n例: 'Head=true;LeftArm=false;RightArm=false'（頭部のみ有効化）。",
-    "SetAvatarMaskTransformsFromAvatar": "アバターのボーン階層から AvatarMask に Transform パスを追加します。\navatarGoName: アバターのルート GameObject 名（Avatar を持つ Animator が必要です）。\nsetAllActive が true の場合、すべての Transform が有効に設定されます。それ以外はすべて無効になります。\n個別の Transform を切り替えるには SetAvatarMaskTransform を使用してください。",
     "SetAvatarMaskTransform": "AvatarMask 内の特定の Transform パスの有効/無効を切り替えます。\npaths: セミコロン区切りの 'transformPath=true/false'。例: 'Armature/Hips/Spine=true;Armature/Hips/LeftUpLeg=false'",
     "InspectAvatarMask": "AvatarMask を検査します。ボディパーツの状態と Transform パスの有効状態が表示されます。",
     "ConfigureAnimatorState": "AnimatorState の詳細なプロパティを設定します。\nwriteDefaults: VRChat の FX レイヤーにおいて極めて重要。true はデフォルト値を書き込み、false は以前の状態を保持します。すべてのステートで統一する必要があります。\nspeed: 再生速度の倍率（1.0=通常）。speedParameter: float パラメータで速度を制御します。\ncycleOffset: 開始オフセット（0-1）。cycleOffsetParameter: float パラメータでオフセットを制御します。\nmirror: アニメーションを左右反転します。tag: カスタムタグ文字列。",
