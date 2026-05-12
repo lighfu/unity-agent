@@ -187,6 +187,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 if (startFailed)
                 {
+                    ctx.LastError = $"Failed to start ProcessUserQuery: {startError}";
                     outputJson = $"{{\"completed\":false,\"error\":\"Failed to start ProcessUserQuery: {EscapeJson(startError)}\"}}";
                 }
                 else
@@ -214,6 +215,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         if (turnLogs != null) finalResult.ConsoleLogs = turnLogs;
                     }
 
+                    ctx.LastError = string.IsNullOrEmpty(finalResult.Error) ? null : finalResult.Error;
                     outputJson = FormatTurnResultJson(finalResult);
                 }
             }
@@ -389,7 +391,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         public DateTime CreatedAt;
         public UnityAgentCore Core;
         public bool IsProcessing;
-        public string LastError;       // TODO: wire up from ProcessUserQuery error path
+        public string LastError;       // Populated from TurnResult.Error / start-failure / timeout; null on success.
         public string HistoryFilePath; // TODO: wire up if Core exposes session file path
         public UnityAgentWindow AttachedWindow; // UI window currently hijacked for this session (null if not attached)
     }
