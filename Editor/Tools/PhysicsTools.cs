@@ -260,7 +260,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         // Joints
         // =================================================================
 
-        [AgentTool("Add a Joint to a GameObject. type: Fixed, Hinge, Spring, Character, Configurable. connectedBodyName is optional.")]
+        [AgentTool("Add a Joint to a GameObject. type: Fixed, Hinge, Spring, Character, Configurable. connectedBodyName is optional. NOTE: the joint is created up-front; if connectedBodyName is not found or has no Rigidbody, the tool returns a Warning but the joint stays attached (connectedBody = null).")]
         public static string AddJoint(string goName, string type, string connectedBodyName = "")
         {
             var go = FindGO(goName);
@@ -592,6 +592,7 @@ constraints is a bitmask: 2=FreezePositionX, 4=Y, 8=Z, 16=FreezeRotationX, 32=Y,
 Works in BOTH Edit and Play mode (calls Physics.SyncTransforms first to ensure colliders are up-to-date).
 origin / direction as comma-separated 'x,y,z'. direction is auto-normalized.
 distance default 100m. layerMask default -1 (all layers).
+Trigger colliders are IGNORED (QueryTriggerInteraction.Ignore is forced).
 Returns hit GameObject path, point, normal, distance, collider type, or 'No hit' on miss.
 Use to validate raycast-based shader / gameplay logic without entering Play mode.")]
         public static string SimulatePhysicsRaycast(string origin, string direction, float distance = 100f, int layerMask = -1)

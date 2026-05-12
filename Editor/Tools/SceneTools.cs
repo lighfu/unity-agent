@@ -519,7 +519,7 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
             return $"Success: Sorted {childCount} children of '{parentName}' ({order}).";
         }
 
-        [AgentTool("Move all nested descendants to be direct children of a GameObject. Preserves world position by default.")]
+        [AgentTool("Move grandchildren and deeper descendants to be direct children of a GameObject. Direct children are left untouched. Preserves world position by default.")]
         public static string FlattenHierarchy(string parentName, bool worldPositionStays = true)
         {
             var parent = FindGO(parentName);

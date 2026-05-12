@@ -433,9 +433,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return $"Success: Created group '{displayName}' in {destination} (id={groupId}).{FaceEmoAPI.WindowWarning()}";
         }
 
-        [AgentTool("Move a mode or group to a different location in FaceEmo menu. destination: 'Registered', 'Unregistered', or group name. index: optional insertion position (-1 for end).")]
-        public static string MoveExpressionItem(string itemName, string destination,
-            int index = -1, string gameObjectName = "")
+        [AgentTool("Move a mode or group to a different location in FaceEmo menu. destination: 'Registered', 'Unregistered', or group name. Note: insertion at a specific index within the destination is not supported; items are appended at the end.")]
+        public static string MoveExpressionItem(string itemName, string destination, string gameObjectName = "")
         {
             var launcher = FaceEmoAPI.FindLauncher(gameObjectName);
             if (launcher == null) return "Error: FaceEmo launcher not found." + FaceEmoAPI.GetLauncherHint();
@@ -467,8 +466,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             FaceEmoAPI.MoveMenuItem(menu, new List<string> { itemId }, dest);
             FaceEmoAPI.SaveMenu(launcher, menu);
-            return $"Success: Moved '{itemName}' to {destination}" +
-                   (index >= 0 ? $" at index {index}" : "") + $".{FaceEmoAPI.WindowWarning()}";
+            return $"Success: Moved '{itemName}' to {destination}.{FaceEmoAPI.WindowWarning()}";
         }
 
         // ═══════════════════════════════════════════
