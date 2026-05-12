@@ -7,673 +7,374 @@ using AnimatorAsCode.V1.ModularAvatar;
 #endif
 using UnityEngine;
 using UnityEditor;
-using UnityEditor.Animations;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.CodeDom.Compiler;
+using Microsoft.CSharp;
 
 using AjisaiFlow.UnityAgent.SDK;
+using AjisaiFlow.UnityAgent.Editor;
 
 namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
+    /// <summary>
+    /// AAC (Hai-VR AnimatorAsCode V1) を AI に直接書かせる Buildup API。
+    /// 既存のテンプレート API は廃止し、AI が C# スニペットで任意の Animator
+    /// 構造を組み立てる方式に特化している。
+    ///
+    /// ワークフロー:
+    ///   1. AacBeginSystem(systemName, avatarRoot)              — container + AacFlBase 作成
+    ///   2. AacExecuteScript(systemName, "var layer = ctrl...") — AAC fluent builder を C# で記述
+    ///      （複数回呼んで段階的に組み立て可）
+    ///   3. AacCommitSystem(systemName)                          — 完了確定 (SaveAssets + session 解除)
+    /// または:
+    ///   - AacDiscardSession(systemName) で container ごと破棄
+    ///
+    /// セッションは in-memory dict に保持されるため、ドメインリロードで失われる。
+    /// リロードが起きたら最初から組み直すこと。
+    /// </summary>
     public static class AnimatorAsCodeTools
     {
-        private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
 #if ANIMATOR_AS_CODE && MODULAR_AVATAR
+
+        // ========== Session Storage ==========
+
+        private class Session
+        {
+            public string SystemKey;          // sanitized systemName (key on disk)
+            public string OriginalName;       // user-supplied systemName (key in _sessions)
+            public GameObject AvatarRoot;
+            public string AssetDir;
+            public string ContainerPath;
+            public AacFlBase Aac;
+            public AacFlController Controller;
+            public readonly List<string> ScriptLog = new List<string>();
+            public DateTime CreatedAt;
+        }
+
+        private static readonly Dictionary<string, Session> _sessions =
+            new Dictionary<string, Session>(StringComparer.Ordinal);
 
         // ========== Helpers ==========
 
-        private static GameObject FindAvatarRoot(string avatarRootName)
-        {
-            var go = FindGO(avatarRootName);
-            if (go == null) return null;
-            return go;
-        }
+        private static GameObject FindAvatarRoot(string name)
+            => MeshAnalysisTools.FindGameObject(name);
+
+        private static readonly Regex s_InvalidPathChars = new Regex(@"[\\/:*?""<>|]", RegexOptions.Compiled);
+        private static string SanitizePath(string s)
+            => string.IsNullOrEmpty(s) ? "_" : s_InvalidPathChars.Replace(s, "_");
 
         private static string ResolveAssetDir(string assetDir, string avatarRootName)
         {
             if (!string.IsNullOrEmpty(assetDir)) return assetDir;
-            return $"Assets/紫陽花広場/GeneratedAssets/{avatarRootName}";
+            return $"{PackagePaths.GeneratedRoot}/AnimatorAsCode/{SanitizePath(avatarRootName)}";
         }
 
-        private static void EnsureDirectoryExists(string assetDir)
+        private static string ContainerPath(string assetDir, string systemKey)
+            => $"{assetDir}/AAC_{systemKey}_Container.asset";
+
+        private static bool ParseBool(string s)
         {
-            if (!AssetDatabase.IsValidFolder(assetDir))
+            if (string.IsNullOrEmpty(s)) return false;
+            switch (s.Trim().ToLowerInvariant())
             {
-                var parts = assetDir.Split('/');
-                string current = parts[0];
-                for (int i = 1; i < parts.Length; i++)
-                {
-                    string next = current + "/" + parts[i];
-                    if (!AssetDatabase.IsValidFolder(next))
-                        AssetDatabase.CreateFolder(current, parts[i]);
-                    current = next;
-                }
+                case "true":
+                case "1":
+                case "on":
+                case "yes":
+                case "enabled":
+                    return true;
+                default:
+                    return false;
             }
         }
 
-        private static AacFlBase CreateAacBase(string systemName, Transform root, string assetDir)
-        {
-            EnsureDirectoryExists(assetDir);
+        private static string Truncate(string s, int max)
+            => s == null ? "" : (s.Length <= max ? s : s.Substring(0, max) + "…");
 
-            // Create a container ScriptableObject to hold generated assets
-            var containerPath = $"{assetDir}/AAC_{systemName}_Container.asset";
-            var container = AssetDatabase.LoadAssetAtPath<AnimatorController>(containerPath);
-            if (container == null)
-            {
-                container = new AnimatorController();
-                AssetDatabase.CreateAsset(container, containerPath);
-            }
+        // ========== 1. AacBeginSystem ==========
+
+        [AgentTool(
+            "Begin a new AAC system session. Creates an empty AacGeneratedContainer .asset, an AacFlBase, " +
+            "and a fresh AacFlController, stored in memory under systemName. Returns the systemName key. " +
+            "Next: call AacExecuteScript(systemName, code) to build layers/states/transitions/clips with the AAC fluent builder, " +
+            "then AacCommitSystem(systemName) to finalize. A domain reload drops in-memory sessions (start over). " +
+            "Re-calling AacBeginSystem with the same systemName fails — call AacDiscardSession first to reset.")]
+        public static string AacBeginSystem(string systemName, string avatarRootName, string assetDir = "")
+        {
+            if (string.IsNullOrWhiteSpace(systemName))
+                return "Error: systemName must not be empty.";
+            if (_sessions.ContainsKey(systemName))
+                return $"Error: Session '{systemName}' already exists. Call AacDiscardSession first to reset.";
+
+            var avatarRoot = FindAvatarRoot(avatarRootName);
+            if (avatarRoot == null)
+                return $"Error: GameObject '{avatarRootName}' not found.";
+
+            var systemKey = systemName.Replace(" ", "_");
+            var dir = ResolveAssetDir(assetDir, avatarRootName);
+            ToolUtility.EnsureAssetDirectory(dir);
+            var containerPath = ContainerPath(dir, systemKey);
+
+            if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(containerPath) != null)
+                AssetDatabase.DeleteAsset(containerPath);
+
+            var container = ScriptableObject.CreateInstance<AacGeneratedContainer>();
+            AssetDatabase.CreateAsset(container, containerPath);
 
             var config = new AacConfiguration
             {
-                SystemName = systemName,
-                AnimatorRoot = root,
-                DefaultValueRoot = root,
-                AssetContainer = container,
-                ContainerMode = AacConfiguration.Container.Everything,
-                AssetKey = systemName,
+                SystemName       = systemKey,
+                AnimatorRoot     = avatarRoot.transform,
+                DefaultValueRoot = avatarRoot.transform,
+                AssetContainer   = container,
+                ContainerMode    = AacConfiguration.Container.Everything,
+                AssetKey         = systemKey,
                 DefaultsProvider = new AacDefaultsProvider(writeDefaults: false)
             };
-
-            return AacV1.Create(config);
-        }
-
-        private static AnimatorController SaveController(AacFlController aacCtrl, string assetDir, string systemName)
-        {
-            var ctrl = aacCtrl.AnimatorController;
-            var path = $"{assetDir}/AAC_{systemName}_FX.controller";
-
-            // Check if already at that path
-            var existingPath = AssetDatabase.GetAssetPath(ctrl);
-            if (string.IsNullOrEmpty(existingPath))
-            {
-                AssetDatabase.CreateAsset(ctrl, path);
-            }
-
-            AssetDatabase.SaveAssets();
-            return ctrl;
-        }
-
-        private static string GetRelativePath(Transform root, Transform target)
-        {
-            var parts = new List<string>();
-            var current = target;
-            while (current != null && current != root)
-            {
-                parts.Add(current.name);
-                current = current.parent;
-            }
-            parts.Reverse();
-            return string.Join("/", parts);
-        }
-
-        // ========== 1. CreateSimpleToggle ==========
-
-        [AgentTool("Create a complete toggle system: FX layer with ON/OFF states + MA merge + menu item. objects: semicolon-separated paths to toggle. Uses Animator-as-Code + Modular Avatar.")]
-        public static string CreateSimpleToggle(string avatarRootName, string toggleName,
-            string objects, string saved = "true", string defaultOn = "false",
-            string assetDir = "")
-        {
-            var avatarRoot = FindAvatarRoot(avatarRootName);
-            if (avatarRoot == null)
-                return $"Error: GameObject '{avatarRootName}' not found.";
-
-            var objectPaths = objects.Split(';').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToArray();
-            if (objectPaths.Length == 0)
-                return "Error: No object paths specified.";
-
-            // Validate objects exist
-            var targetObjects = new List<GameObject>();
-            foreach (var path in objectPaths)
-            {
-                var target = avatarRoot.transform.Find(path);
-                if (target == null)
-                    return $"Error: Object '{path}' not found under '{avatarRootName}'.";
-                targetObjects.Add(target.gameObject);
-            }
-
-            bool isSaved = saved.Equals("true", StringComparison.OrdinalIgnoreCase);
-            bool isDefaultOn = defaultOn.Equals("true", StringComparison.OrdinalIgnoreCase);
-            assetDir = ResolveAssetDir(assetDir, avatarRootName);
-
-            if (!AgentSettings.RequestConfirmation(
-                "AAC トグルシステムの作成",
-                $"トグル名: {toggleName}\n" +
-                $"対象: {string.Join(", ", objectPaths)}\n" +
-                $"デフォルト: {(isDefaultOn ? "ON" : "OFF")}, 保存: {isSaved}\n" +
-                $"出力先: {assetDir}"))
-                return "Cancelled: User denied the operation.";
-
-            var systemName = toggleName.Replace(" ", "_");
-            var aac = CreateAacBase(systemName, avatarRoot.transform, assetDir);
-
-            // Create controller and layer
+            var aac  = AacV1.Create(config);
             var ctrl = aac.NewAnimatorController();
-            var layer = ctrl.NewLayer(systemName);
-            var param = layer.BoolParameter(toggleName);
 
-            // Create OFF state (objects inactive)
-            var offClip = aac.NewClip($"{systemName}_OFF");
-            foreach (var obj in targetObjects)
-                offClip.Toggling(obj, false);
-            var offState = layer.NewState("OFF").WithAnimation(offClip);
-
-            // Create ON state (objects active)
-            var onClip = aac.NewClip($"{systemName}_ON");
-            foreach (var obj in targetObjects)
-                onClip.Toggling(obj, true);
-            var onState = layer.NewState("ON").WithAnimation(onClip);
-
-            // Transitions
-            offState.TransitionsTo(onState).When(param.IsTrue());
-            onState.TransitionsTo(offState).When(param.IsFalse());
-
-            // Set default state
-            if (isDefaultOn)
-                layer.WithDefaultState(onState);
-
-            // Save controller
-            var savedCtrl = SaveController(ctrl, assetDir, systemName);
-
-            // Setup MA components on a holder GameObject
-            var holderName = $"AAC_{toggleName}";
-            var holder = new GameObject(holderName);
-            Undo.RegisterCreatedObjectUndo(holder, "Create AAC Toggle");
-            holder.transform.SetParent(avatarRoot.transform, false);
-
-            var maAc = MaAc.Create(holder);
-            maAc.NewMergeAnimator(ctrl, VRC.SDK3.Avatars.Components.VRCAvatarDescriptor.AnimLayerType.FX);
-
-            var maParam = maAc.NewParameter(param);
-            if (isSaved && isDefaultOn)
-                maParam.WithDefaultValue(true);
-            else if (!isSaved)
-                maParam.NotSaved();
-
-            maAc.EditMenuItemOnSelf().Toggle(param).Name(toggleName);
-
-            EditorUtility.SetDirty(holder);
-            AssetDatabase.SaveAssets();
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"Success: Created AAC toggle system '{toggleName}'.");
-            sb.AppendLine($"  Controller: {assetDir}/AAC_{systemName}_FX.controller");
-            sb.AppendLine($"  Objects ({targetObjects.Count}):");
-            foreach (var obj in targetObjects)
-                sb.AppendLine($"    - {GetRelativePath(avatarRoot.transform, obj.transform)}");
-            sb.AppendLine($"  Default: {(isDefaultOn ? "ON" : "OFF")}, Saved: {isSaved}");
-            sb.AppendLine($"  MA components added to '{holderName}'.");
-
-            return sb.ToString().TrimEnd();
-        }
-
-        // ========== 2. CreateBlendShapeToggle ==========
-
-        [AgentTool("Create a toggle that drives blend shapes via FX layer + MA. blendShapes: 'name=value;name2=value2'. meshObjectName: object with SkinnedMeshRenderer.")]
-        public static string CreateBlendShapeToggle(string avatarRootName, string toggleName,
-            string meshObjectName, string blendShapes,
-            string saved = "true", string defaultOn = "false", string assetDir = "")
-        {
-            var avatarRoot = FindAvatarRoot(avatarRootName);
-            if (avatarRoot == null)
-                return $"Error: GameObject '{avatarRootName}' not found.";
-
-            var meshObj = FindGO(meshObjectName);
-            if (meshObj == null)
-                return $"Error: GameObject '{meshObjectName}' not found.";
-
-            var smr = meshObj.GetComponent<SkinnedMeshRenderer>();
-            if (smr == null)
-                return $"Error: '{meshObjectName}' does not have a SkinnedMeshRenderer.";
-
-            // Parse blend shapes
-            var bsPairs = new List<(string name, float value)>();
-            foreach (var entry in blendShapes.Split(';'))
+            _sessions[systemName] = new Session
             {
-                var trimmed = entry.Trim();
-                if (string.IsNullOrEmpty(trimmed)) continue;
-                var parts = trimmed.Split('=');
-                if (parts.Length != 2)
-                    return $"Error: Invalid blend shape entry '{trimmed}'. Expected 'name=value'.";
-                if (!float.TryParse(parts[1].Trim(), out float value))
-                    return $"Error: Invalid value '{parts[1].Trim()}'.";
-                bsPairs.Add((parts[0].Trim(), value));
-            }
-
-            if (bsPairs.Count == 0)
-                return "Error: No blend shapes specified.";
-
-            bool isSaved = saved.Equals("true", StringComparison.OrdinalIgnoreCase);
-            bool isDefaultOn = defaultOn.Equals("true", StringComparison.OrdinalIgnoreCase);
-            assetDir = ResolveAssetDir(assetDir, avatarRootName);
-
-            if (!AgentSettings.RequestConfirmation(
-                "AAC BlendShapeトグルの作成",
-                $"トグル名: {toggleName}\n" +
-                $"メッシュ: {meshObjectName}\n" +
-                $"BlendShapes: {string.Join(", ", bsPairs.Select(p => $"{p.name}={p.value}"))}"))
-                return "Cancelled: User denied the operation.";
-
-            var systemName = toggleName.Replace(" ", "_");
-            var aac = CreateAacBase(systemName, avatarRoot.transform, assetDir);
-
-            var ctrl = aac.NewAnimatorController();
-            var layer = ctrl.NewLayer(systemName);
-            var param = layer.BoolParameter(toggleName);
-
-            // OFF state: blend shapes at 0
-            var offClip = aac.NewClip($"{systemName}_OFF");
-            foreach (var (name, _) in bsPairs)
-                offClip.BlendShape(smr, name, 0f);
-            var offState = layer.NewState("OFF").WithAnimation(offClip);
-
-            // ON state: blend shapes at target value
-            var onClip = aac.NewClip($"{systemName}_ON");
-            foreach (var (name, value) in bsPairs)
-                onClip.BlendShape(smr, name, value);
-            var onState = layer.NewState("ON").WithAnimation(onClip);
-
-            offState.TransitionsTo(onState).When(param.IsTrue());
-            onState.TransitionsTo(offState).When(param.IsFalse());
-
-            if (isDefaultOn)
-                layer.WithDefaultState(onState);
-
-            SaveController(ctrl, assetDir, systemName);
-
-            // MA setup
-            var holderName = $"AAC_{toggleName}";
-            var holder = new GameObject(holderName);
-            Undo.RegisterCreatedObjectUndo(holder, "Create AAC BlendShape Toggle");
-            holder.transform.SetParent(avatarRoot.transform, false);
-
-            var maAc = MaAc.Create(holder);
-            maAc.NewMergeAnimator(ctrl, VRC.SDK3.Avatars.Components.VRCAvatarDescriptor.AnimLayerType.FX);
-
-            var maParam = maAc.NewParameter(param);
-            if (isSaved && isDefaultOn)
-                maParam.WithDefaultValue(true);
-            else if (!isSaved)
-                maParam.NotSaved();
-
-            maAc.EditMenuItemOnSelf().Toggle(param).Name(toggleName);
-
-            EditorUtility.SetDirty(holder);
-            AssetDatabase.SaveAssets();
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"Success: Created AAC blend shape toggle '{toggleName}'.");
-            sb.AppendLine($"  Mesh: {meshObjectName}");
-            sb.AppendLine($"  Blend shapes:");
-            foreach (var (name, value) in bsPairs)
-                sb.AppendLine($"    - {name} = {value}");
-
-            return sb.ToString().TrimEnd();
-        }
-
-        // ========== 3. CreateGestureLayer ==========
-
-        [AgentTool("Create a gesture-driven FX layer using Animator-as-Code. Assigns animation clips to left/right hand gestures. gestureMap: 'LeftFist=clipPath;RightVictory=clipPath2'. Each entry: '{hand}{gesture}={animClipPath}'.")]
-        public static string CreateGestureLayer(string avatarRootName, string layerName,
-            string gestureMap, string assetDir = "")
-        {
-            var avatarRoot = FindAvatarRoot(avatarRootName);
-            if (avatarRoot == null)
-                return $"Error: GameObject '{avatarRootName}' not found.";
-
-            // Parse gesture map: "LeftFist=clipPath;RightVictory=clipPath2"
-            var entries = new List<(string hand, string gesture, string clipPath)>();
-            foreach (var entry in gestureMap.Split(';'))
-            {
-                var trimmed = entry.Trim();
-                if (string.IsNullOrEmpty(trimmed)) continue;
-                var eqParts = trimmed.Split('=');
-                if (eqParts.Length != 2)
-                    return $"Error: Invalid gesture entry '{trimmed}'. Expected 'HandGesture=clipPath'.";
-
-                var key = eqParts[0].Trim();
-                var clipPath = eqParts[1].Trim();
-
-                // Parse hand and gesture from key (e.g., "LeftFist", "RightVictory")
-                string hand, gesture;
-                if (key.StartsWith("Left", StringComparison.OrdinalIgnoreCase))
-                {
-                    hand = "Left";
-                    gesture = key.Substring(4);
-                }
-                else if (key.StartsWith("Right", StringComparison.OrdinalIgnoreCase))
-                {
-                    hand = "Right";
-                    gesture = key.Substring(5);
-                }
-                else
-                {
-                    return $"Error: Gesture key '{key}' must start with 'Left' or 'Right'.";
-                }
-
-                entries.Add((hand, gesture, clipPath));
-            }
-
-            if (entries.Count == 0)
-                return "Error: No gesture entries specified.";
-
-            assetDir = ResolveAssetDir(assetDir, avatarRootName);
-
-            if (!AgentSettings.RequestConfirmation(
-                "AAC ジェスチャーレイヤーの作成",
-                $"レイヤー名: {layerName}\n" +
-                $"ジェスチャー数: {entries.Count}\n" +
-                $"出力先: {assetDir}"))
-                return "Cancelled: User denied the operation.";
-
-            var systemName = layerName.Replace(" ", "_");
-            var aac = CreateAacBase(systemName, avatarRoot.transform, assetDir);
-
-            var ctrl = aac.NewAnimatorController();
-            var layer = ctrl.NewLayer(systemName);
-
-            var gestureLeft = layer.IntParameter("GestureLeft");
-            var gestureRight = layer.IntParameter("GestureRight");
-
-            // Map gesture names to int values
-            var gestureValues = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            {
-                { "Neutral", 0 }, { "Fist", 1 }, { "HandOpen", 2 }, { "Fingerpoint", 3 },
-                { "Victory", 4 }, { "RockNRoll", 5 }, { "HandGun", 6 }, { "ThumbsUp", 7 }
+                SystemKey     = systemKey,
+                OriginalName  = systemName,
+                AvatarRoot    = avatarRoot,
+                AssetDir      = dir,
+                ContainerPath = containerPath,
+                Aac           = aac,
+                Controller    = ctrl,
+                CreatedAt     = DateTime.UtcNow
             };
 
-            // Default idle state
-            var idleClip = aac.DummyClipLasting(1f / 60f, AacFlUnit.Frames);
-            var idleState = layer.NewState("Idle").WithAnimation(idleClip);
+            return $"Success: Session '{systemName}' started.\n" +
+                   $"  Container: {containerPath}\n" +
+                   $"  AvatarRoot: {avatarRoot.name}\n" +
+                   $"  Next: AacExecuteScript('{systemName}', code) — see its description for the in-scope variables and namespaces.";
+        }
 
-            var sb = new StringBuilder();
-            sb.AppendLine($"Success: Created AAC gesture layer '{layerName}'.");
+        // ========== 2. AacExecuteScript ==========
 
-            foreach (var (hand, gesture, clipPath) in entries)
+        [AgentTool(
+            "Execute a C# snippet against an active AAC session. Body runs inside a static method with these in-scope parameters:\n" +
+            "  AacFlBase aac, AacFlController ctrl, GameObject avatarRoot\n" +
+            "Available namespaces (auto-imported): System, System.Linq, System.Collections.Generic, UnityEngine, UnityEditor, UnityEditor.Animations, AnimatorAsCode.V1, AnimatorAsCode.V1.VRC, AnimatorAsCode.V1.ModularAvatar, VRC.SDK3.Avatars.Components.\n" +
+            "Use AAC fluent builder syntax (https://docs.hai-vr.dev/docs/products/animator-as-code/functions/base). For MA integration call MaAc.Create(holder) where holder is a GameObject you create under avatarRoot.\n" +
+            "Use `return \"summary\";` to log what you built — the string is stored in the session and returned. Multiple calls accumulate.\n" +
+            "Compile errors are reported with line numbers; your code starts at line 1. Requires user confirmation per call.",
+            Risk = ToolRisk.Caution)]
+        public static string AacExecuteScript(string systemName, string code)
+        {
+            if (!_sessions.TryGetValue(systemName, out var session))
+                return $"Error: Session '{systemName}' not found. Call AacBeginSystem first.";
+            if (string.IsNullOrWhiteSpace(code))
+                return "Error: code must not be empty.";
+
+            if (!AgentSettings.RequestConfirmation(
+                "AAC スクリプト実行",
+                $"systemName: {systemName}\n\n以下のコードを実行します:\n\n{Truncate(code, 1200)}"))
+                return "Cancelled: User denied script execution.";
+
+            Debug.Log($"[UnityAgent] AacExecuteScript ({systemName}):\n{code}");
+
+            var fullSource = BuildAacSource(code);
+            var provider = new CSharpCodeProvider();
+            var compilerParams = new CompilerParameters
             {
-                if (!gestureValues.TryGetValue(gesture, out int gestureValue))
+                GenerateInMemory   = true,
+                GenerateExecutable = false
+            };
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
                 {
-                    sb.AppendLine($"  Warning: Unknown gesture '{gesture}', skipped.");
-                    continue;
+                    if (!string.IsNullOrEmpty(asm.Location))
+                        compilerParams.ReferencedAssemblies.Add(asm.Location);
                 }
-
-                var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath);
-                if (clip == null)
-                {
-                    sb.AppendLine($"  Warning: Clip not found at '{clipPath}', skipped.");
-                    continue;
-                }
-
-                var stateName = $"{hand}_{gesture}";
-                var state = layer.NewState(stateName).WithAnimation(clip);
-
-                var gestureParam = hand == "Left" ? gestureLeft : gestureRight;
-                idleState.TransitionsTo(state).When(gestureParam.IsEqualTo(gestureValue));
-                state.TransitionsTo(idleState).When(gestureParam.IsNotEqualTo(gestureValue));
-
-                sb.AppendLine($"  {hand}{gesture} (={gestureValue}) → {clip.name}");
+                catch { /* dynamic assemblies have no Location */ }
             }
 
-            SaveController(ctrl, assetDir, systemName);
+            var results = provider.CompileAssemblyFromSource(compilerParams, fullSource);
+            if (results.Errors.HasErrors)
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("Compile Error:");
+                foreach (CompilerError error in results.Errors)
+                {
+                    if (!error.IsWarning)
+                        sb.AppendLine($"  Line {error.Line - LineOffset}: {error.ErrorText}");
+                }
+                return sb.ToString().TrimEnd();
+            }
 
-            // MA setup
-            var holderName = $"AAC_{layerName}";
-            var holder = new GameObject(holderName);
-            Undo.RegisterCreatedObjectUndo(holder, "Create AAC Gesture Layer");
-            holder.transform.SetParent(avatarRoot.transform, false);
+            try
+            {
+                var assembly = results.CompiledAssembly;
+                var type     = assembly.GetType("AacScript.DynamicScript");
+                var method   = type.GetMethod("Execute", BindingFlags.Public | BindingFlags.Static);
+                var result   = method.Invoke(null, new object[] { session.Aac, session.Controller, session.AvatarRoot });
 
-            var maAc = MaAc.Create(holder);
-            maAc.NewMergeAnimator(ctrl, VRC.SDK3.Avatars.Components.VRCAvatarDescriptor.AnimLayerType.FX);
+                var summary = result?.ToString() ?? "(no summary returned)";
+                session.ScriptLog.Add(summary);
+                return $"Success: Script executed.\n{summary}";
+            }
+            catch (TargetInvocationException tex)
+            {
+                var inner = tex.InnerException;
+                return $"Runtime Error: {inner?.Message ?? tex.Message}\n{inner?.StackTrace ?? tex.StackTrace}";
+            }
+            catch (Exception ex)
+            {
+                return $"Runtime Error: {ex.Message}\n{ex.StackTrace}";
+            }
+        }
 
-            EditorUtility.SetDirty(holder);
+        // 自動 using の総行数 + namespace/class/method の宣言ライン数。
+        // BuildAacSource を変更した場合は同期して更新する。
+        private const int LineOffset = 13;
+
+        private static string BuildAacSource(string code)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("using System;");
+            sb.AppendLine("using System.Linq;");
+            sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using UnityEngine;");
+            sb.AppendLine("using UnityEditor;");
+            sb.AppendLine("using UnityEditor.Animations;");
+            sb.AppendLine("using AnimatorAsCode.V1;");
+            sb.AppendLine("using AnimatorAsCode.V1.VRC;");
+            sb.AppendLine("using AnimatorAsCode.V1.ModularAvatar;");
+            sb.AppendLine("using VRC.SDK3.Avatars.Components;");
+            sb.AppendLine("namespace AacScript {");
+            sb.AppendLine("  public static class DynamicScript {");
+            sb.AppendLine("    public static object Execute(AacFlBase aac, AacFlController ctrl, GameObject avatarRoot) {");
+            sb.AppendLine(code);
+            if (!code.Contains("return "))
+                sb.AppendLine("      return null;");
+            sb.AppendLine("    }");
+            sb.AppendLine("  }");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        // ========== 3. AacCommitSystem ==========
+
+        [AgentTool(
+            "Commit an in-progress AAC system. Confirms with the user, runs AssetDatabase.SaveAssets, and removes the session from memory. " +
+            "All AAC assets are already persisted incrementally during AacExecuteScript (AAC's AddObjectToAsset is called immediately), " +
+            "so commit is mostly a 'finish + save + checkpoint' step. " +
+            "If you created a holder GameObject during scripting, it remains in the scene.")]
+        public static string AacCommitSystem(string systemName)
+        {
+            if (!_sessions.TryGetValue(systemName, out var session))
+                return $"Error: Session '{systemName}' not found.";
+
+            if (!AgentSettings.RequestConfirmation(
+                "AAC システムのコミット",
+                $"systemName: {systemName}\n" +
+                $"  Container: {session.ContainerPath}\n" +
+                $"  Script invocations: {session.ScriptLog.Count}\n" +
+                $"これでセッションを確定し、メモリから解放します。"))
+                return "Cancelled: User denied the operation.";
+
+            EditorUtility.SetDirty(session.AvatarRoot);
             AssetDatabase.SaveAssets();
+            _sessions.Remove(systemName);
 
-            sb.AppendLine($"  MA MergeAnimator added to '{holderName}'.");
+            var sb = new StringBuilder();
+            sb.AppendLine($"Success: Committed AAC system '{systemName}'.");
+            sb.AppendLine($"  Container: {session.ContainerPath}");
+            sb.AppendLine($"  Script invocations: {session.ScriptLog.Count}");
             return sb.ToString().TrimEnd();
         }
 
-        // ========== 4. CreateRadialPuppet ==========
+        // ========== 4. AacDiscardSession ==========
 
-        [AgentTool("Create a radial puppet (0-1 float slider) with 1D blend tree + MA menu. clip0Path: animation at 0%, clip1Path: animation at 100%.")]
-        public static string CreateRadialPuppet(string avatarRootName, string paramName,
-            string clip0Path, string clip1Path, string saved = "true", string assetDir = "")
+        [AgentTool(
+            "Discard an in-progress AAC session: deletes the container .asset (incl. all sub-assets created so far) and removes the session from memory. " +
+            "Use this to abort a session and start over. Any holder GameObject created during AacExecuteScript is NOT removed by this tool — clean it up manually.",
+            Risk = ToolRisk.Dangerous)]
+        public static string AacDiscardSession(string systemName)
         {
-            var avatarRoot = FindAvatarRoot(avatarRootName);
-            if (avatarRoot == null)
-                return $"Error: GameObject '{avatarRootName}' not found.";
-
-            var clip0 = AssetDatabase.LoadAssetAtPath<AnimationClip>(clip0Path);
-            if (clip0 == null)
-                return $"Error: Animation clip not found at '{clip0Path}'.";
-
-            var clip1 = AssetDatabase.LoadAssetAtPath<AnimationClip>(clip1Path);
-            if (clip1 == null)
-                return $"Error: Animation clip not found at '{clip1Path}'.";
-
-            bool isSaved = saved.Equals("true", StringComparison.OrdinalIgnoreCase);
-            assetDir = ResolveAssetDir(assetDir, avatarRootName);
+            if (!_sessions.TryGetValue(systemName, out var session))
+                return $"Error: Session '{systemName}' not found.";
 
             if (!AgentSettings.RequestConfirmation(
-                "AAC ラジアルパペットの作成",
-                $"パラメータ: {paramName}\n" +
-                $"0%: {clip0.name}\n" +
-                $"100%: {clip1.name}\n" +
-                $"保存: {isSaved}"))
+                "AAC セッション破棄",
+                $"以下を削除します:\n  Session: {systemName}\n  Container: {session.ContainerPath}\n" +
+                $"※ シーン内に作成された holder GameObject は削除されません。"))
                 return "Cancelled: User denied the operation.";
 
-            var systemName = paramName.Replace(" ", "_");
-            var aac = CreateAacBase(systemName, avatarRoot.transform, assetDir);
-
-            var ctrl = aac.NewAnimatorController();
-            var layer = ctrl.NewLayer(systemName);
-            var param = layer.FloatParameter(paramName);
-
-            // Create 1D blend tree
-            var blendTree = aac.NewBlendTree().Simple1D(param)
-                .WithAnimation(aac.NewClip().NonLooping().Animating(edit => {
-                    // Copy keyframes from clip0
-                }), 0f)
-                .WithAnimation(aac.NewClip().NonLooping().Animating(edit => {
-                    // Copy keyframes from clip1
-                }), 1f);
-
-            // Actually use the original clips directly
-            var bt = aac.NewBlendTree().Simple1D(param)
-                .WithAnimation(aac.CopyClip(clip0), 0f)
-                .WithAnimation(aac.CopyClip(clip1), 1f);
-
-            var state = layer.NewState(paramName).WithAnimation(bt);
-
-            SaveController(ctrl, assetDir, systemName);
-
-            // MA setup
-            var holderName = $"AAC_{paramName}";
-            var holder = new GameObject(holderName);
-            Undo.RegisterCreatedObjectUndo(holder, "Create AAC Radial Puppet");
-            holder.transform.SetParent(avatarRoot.transform, false);
-
-            var maAc = MaAc.Create(holder);
-            maAc.NewMergeAnimator(ctrl, VRC.SDK3.Avatars.Components.VRCAvatarDescriptor.AnimLayerType.FX);
-
-            var maParam = maAc.NewParameter(param);
-            if (!isSaved) maParam.NotSaved();
-
-            maAc.EditMenuItemOnSelf().Radial(param).Name(paramName);
-
-            EditorUtility.SetDirty(holder);
+            if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(session.ContainerPath) != null)
+                AssetDatabase.DeleteAsset(session.ContainerPath);
+            _sessions.Remove(systemName);
             AssetDatabase.SaveAssets();
 
-            return $"Success: Created AAC radial puppet '{paramName}'.\n" +
-                   $"  0%: {clip0.name}\n" +
-                   $"  100%: {clip1.name}\n" +
-                   $"  Controller: {assetDir}/AAC_{systemName}_FX.controller\n" +
-                   $"  MA components added to '{holderName}'.";
+            return $"Success: Discarded session '{systemName}'.";
         }
 
-        // ========== 5. CreateIntToggleSwap ==========
+        // ========== 5. AacListSessions ==========
 
-        [AgentTool("Create an int-based multi-state swap (e.g., outfit swap). Each state uses a different int value. states: 'name=objectPaths;name2=objectPaths2' where each state turns on its objects and turns off others.")]
-        public static string CreateIntToggleSwap(string avatarRootName, string paramName,
-            string states, string saved = "true", string defaultState = "0", string assetDir = "")
+        [AgentTool("List currently active in-memory AAC sessions.", Risk = ToolRisk.Safe)]
+        public static string AacListSessions()
         {
-            var avatarRoot = FindAvatarRoot(avatarRootName);
-            if (avatarRoot == null)
-                return $"Error: GameObject '{avatarRootName}' not found.";
-
-            // Parse states: "name=path1,path2;name2=path3,path4"
-            var stateEntries = new List<(string name, List<GameObject> objects)>();
-            var allObjects = new List<GameObject>();
-
-            foreach (var entry in states.Split(';'))
-            {
-                var trimmed = entry.Trim();
-                if (string.IsNullOrEmpty(trimmed)) continue;
-                var eqParts = trimmed.Split('=');
-                if (eqParts.Length != 2)
-                    return $"Error: Invalid state entry '{trimmed}'. Expected 'name=path1,path2'.";
-
-                var name = eqParts[0].Trim();
-                var pathList = eqParts[1].Split(',').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToArray();
-
-                var objs = new List<GameObject>();
-                foreach (var path in pathList)
-                {
-                    var target = avatarRoot.transform.Find(path);
-                    if (target == null)
-                        return $"Error: Object '{path}' not found under '{avatarRootName}'.";
-                    objs.Add(target.gameObject);
-                    if (!allObjects.Contains(target.gameObject))
-                        allObjects.Add(target.gameObject);
-                }
-                stateEntries.Add((name, objs));
-            }
-
-            if (stateEntries.Count < 2)
-                return "Error: At least 2 states are required for int swap.";
-
-            bool isSaved = saved.Equals("true", StringComparison.OrdinalIgnoreCase);
-            int defaultIdx = 0;
-            int.TryParse(defaultState, out defaultIdx);
-            assetDir = ResolveAssetDir(assetDir, avatarRootName);
-
-            if (!AgentSettings.RequestConfirmation(
-                "AAC 整数スワップの作成",
-                $"パラメータ: {paramName}\n" +
-                $"状態数: {stateEntries.Count}\n" +
-                $"デフォルト: {defaultIdx}\n" +
-                $"保存: {isSaved}"))
-                return "Cancelled: User denied the operation.";
-
-            var systemName = paramName.Replace(" ", "_");
-            var aac = CreateAacBase(systemName, avatarRoot.transform, assetDir);
-
-            var ctrl = aac.NewAnimatorController();
-            var layer = ctrl.NewLayer(systemName);
-            var param = layer.IntParameter(paramName);
-
-            var aacStates = new List<AacFlState>();
-            for (int i = 0; i < stateEntries.Count; i++)
-            {
-                var (name, objs) = stateEntries[i];
-                var clip = aac.NewClip($"{systemName}_{name}");
-
-                // Turn on this state's objects, turn off all others
-                foreach (var allObj in allObjects)
-                {
-                    bool isOn = objs.Contains(allObj);
-                    clip.Toggling(allObj, isOn);
-                }
-
-                var state = layer.NewState(name).WithAnimation(clip);
-                aacStates.Add(state);
-            }
-
-            // Set default state
-            if (defaultIdx >= 0 && defaultIdx < aacStates.Count)
-                layer.WithDefaultState(aacStates[defaultIdx]);
-
-            // Transitions: from any state to each state based on int value
-            for (int i = 0; i < aacStates.Count; i++)
-            {
-                aacStates[i].TransitionsFromAny().When(param.IsEqualTo(i));
-            }
-
-            SaveController(ctrl, assetDir, systemName);
-
-            // MA setup
-            var holderName = $"AAC_{paramName}";
-            var holder = new GameObject(holderName);
-            Undo.RegisterCreatedObjectUndo(holder, "Create AAC Int Swap");
-            holder.transform.SetParent(avatarRoot.transform, false);
-
-            var maAc = MaAc.Create(holder);
-            maAc.NewMergeAnimator(ctrl, VRC.SDK3.Avatars.Components.VRCAvatarDescriptor.AnimLayerType.FX);
-
-            var maParam = maAc.NewParameter(param);
-            if (isSaved && defaultIdx > 0)
-                maParam.WithDefaultValue(defaultIdx);
-            else if (!isSaved)
-                maParam.NotSaved();
-
-            // Create menu items for each state
-            for (int i = 0; i < stateEntries.Count; i++)
-            {
-                var (name, _) = stateEntries[i];
-                var menuHolder = new GameObject(name);
-                Undo.RegisterCreatedObjectUndo(menuHolder, "Create AAC Menu Item");
-                menuHolder.transform.SetParent(holder.transform, false);
-                maAc.On(menuHolder).EditMenuItemOnSelf().ToggleSets(param, i).Name(name);
-            }
-
-            EditorUtility.SetDirty(holder);
-            AssetDatabase.SaveAssets();
+            if (_sessions.Count == 0)
+                return "(no active sessions)";
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Success: Created AAC int swap '{paramName}'.");
-            for (int i = 0; i < stateEntries.Count; i++)
+            sb.AppendLine($"Active sessions ({_sessions.Count}):");
+            foreach (var kv in _sessions)
             {
-                var (name, objs) = stateEntries[i];
-                sb.AppendLine($"  [{i}] {name}: {string.Join(", ", objs.Select(o => o.name))}");
+                var s = kv.Value;
+                sb.AppendLine($"  - {kv.Key}: avatar={s.AvatarRoot?.name ?? "(null)"}, scripts={s.ScriptLog.Count}, " +
+                              $"age={(DateTime.UtcNow - s.CreatedAt).TotalSeconds:F0}s, container={s.ContainerPath}");
             }
-            sb.AppendLine($"  Default: [{defaultIdx}]");
-
             return sb.ToString().TrimEnd();
         }
 
-        // ========== 6. RemoveGeneratedAnimator ==========
+        // ========== 6. AacInspectSession ==========
 
-        [AgentTool("Remove a previously generated AAC animator controller and associated MA components by system name.")]
-        public static string RemoveGeneratedAnimator(string avatarRootName, string systemName)
+        [AgentTool(
+            "Inspect an AAC session: shows the avatar root, asset paths, and summaries returned by previous AacExecuteScript calls.",
+            Risk = ToolRisk.Safe)]
+        public static string AacInspectSession(string systemName)
         {
-            var avatarRoot = FindAvatarRoot(avatarRootName);
-            if (avatarRoot == null)
-                return $"Error: GameObject '{avatarRootName}' not found.";
+            if (!_sessions.TryGetValue(systemName, out var session))
+                return $"Error: Session '{systemName}' not found.";
 
-            var holderName = $"AAC_{systemName}";
-            var holder = avatarRoot.transform.Find(holderName);
-            if (holder == null)
-            {
-                // Try with spaces replaced
-                holderName = $"AAC_{systemName.Replace(" ", "_")}";
-                holder = avatarRoot.transform.Find(holderName);
-            }
+            var sb = new StringBuilder();
+            sb.AppendLine($"Session '{systemName}':");
+            sb.AppendLine($"  AvatarRoot: {session.AvatarRoot?.name}");
+            sb.AppendLine($"  AssetDir:   {session.AssetDir}");
+            sb.AppendLine($"  Container:  {session.ContainerPath}");
+            sb.AppendLine($"  Age:        {(DateTime.UtcNow - session.CreatedAt).TotalSeconds:F0}s");
+            sb.AppendLine($"  Script log ({session.ScriptLog.Count} entries):");
+            for (int i = 0; i < session.ScriptLog.Count; i++)
+                sb.AppendLine($"    [{i}] {Truncate(session.ScriptLog[i], 300)}");
+            return sb.ToString().TrimEnd();
+        }
 
-            if (holder == null)
-                return $"Error: AAC holder '{holderName}' not found under '{avatarRootName}'.";
+        // ========== Internal: Test window access ==========
 
-            if (!AgentSettings.RequestConfirmation(
-                "AAC システムの削除",
-                $"'{holderName}' とその子オブジェクト、MAコンポーネントを削除します。\n" +
-                "生成されたアセットファイルは手動で削除してください。"))
-                return "Cancelled: User denied the operation.";
-
-            Undo.DestroyObjectImmediate(holder.gameObject);
-
-            return $"Success: Removed AAC system '{systemName}' (holder '{holderName}' destroyed).\n" +
-                   $"Note: Generated assets in the asset directory should be manually deleted if no longer needed.";
+        /// <summary>テストウィンドウからセッション一覧を参照するためのヘルパー。</summary>
+        internal static IReadOnlyDictionary<string, object> ListSessionsForTestWindow()
+        {
+            var dict = new Dictionary<string, object>();
+            foreach (var kv in _sessions)
+                dict[kv.Key] = new
+                {
+                    kv.Value.AvatarRoot,
+                    kv.Value.ContainerPath,
+                    kv.Value.ScriptLog.Count,
+                    kv.Value.CreatedAt
+                };
+            return dict;
         }
 
 #endif
