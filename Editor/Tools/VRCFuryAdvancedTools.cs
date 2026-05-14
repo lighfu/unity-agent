@@ -459,52 +459,89 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var fullController = FuryComponents.CreateFullController(holder);
 
-            var sb = new StringBuilder();
-            sb.AppendLine($"Success: Created VRCFury FullController on '{avatarRootName}'.");
+            var body = new StringBuilder();
+            bool anyFailure = false;
 
             if (!string.IsNullOrEmpty(controllerPath))
             {
                 var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(controllerPath);
                 if (controller == null)
                 {
-                    sb.AppendLine($"  Warning: Controller not found at '{controllerPath}'.");
+                    body.AppendLine($"  Warning: Controller not found at '{controllerPath}'.");
+                    anyFailure = true;
                 }
                 else
                 {
-                    // Parse layer type
-                    var vrcDescType = VRChatTools.FindVrcType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor");
-                    if (vrcDescType != null)
+                    // Parse layer type and attach via reflection (VRCFury API is internal).
+                    // Enum.Parse and Invoke can throw on bad input / API drift — guarded so
+                    // the failure surfaces as an honest Warning rather than an exception.
+                    bool attached = false;
+                    string failReason = "VRCFury/VRChat SDK reflection API not found (incompatible version?)";
+                    try
                     {
-                        var animLayerType = vrcDescType.Assembly.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor+AnimLayerType");
+                        var vrcDescType = VRChatTools.FindVrcType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor");
+                        var animLayerType = vrcDescType?.Assembly.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor+AnimLayerType");
                         if (animLayerType != null)
                         {
                             var layerEnum = Enum.Parse(animLayerType, layerType, true);
-                            // Use reflection to call AddController with proper enum
                             var addMethod = fullController.GetType().GetMethod("AddController");
                             if (addMethod != null)
+                            {
                                 addMethod.Invoke(fullController, new object[] { controller, layerEnum });
+                                attached = true;
+                            }
                         }
                     }
-                    sb.AppendLine($"  Controller: {controller.name} (type={layerType})");
+                    catch (ArgumentException)
+                    {
+                        failReason = $"invalid layerType '{layerType}' (expected e.g. Base/Additive/Gesture/Action/FX)";
+                    }
+                    catch (Exception ex)
+                    {
+                        failReason = $"reflection call failed: {(ex.InnerException ?? ex).Message}";
+                    }
+                    if (attached)
+                        body.AppendLine($"  Controller: {controller.name} (type={layerType})");
+                    else
+                    {
+                        body.AppendLine($"  Warning: Could not attach controller '{controller.name}' — {failReason}.");
+                        anyFailure = true;
+                    }
                 }
             }
 
             if (!string.IsNullOrEmpty(menuPath))
             {
                 var menuType = VRChatTools.FindVrcType("VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu");
-                if (menuType != null)
+                var menu = menuType != null ? AssetDatabase.LoadAssetAtPath(menuPath, menuType) : null;
+                if (menu == null)
                 {
-                    var menu = AssetDatabase.LoadAssetAtPath(menuPath, menuType);
-                    if (menu != null)
+                    body.AppendLine($"  Warning: Menu not found at '{menuPath}'.");
+                    anyFailure = true;
+                }
+                else
+                {
+                    bool attached = false;
+                    string failReason = "VRCFury AddMenu reflection API not found (incompatible version?)";
+                    var addMenuMethod = fullController.GetType().GetMethod("AddMenu");
+                    if (addMenuMethod != null)
                     {
-                        var addMenuMethod = fullController.GetType().GetMethod("AddMenu");
-                        if (addMenuMethod != null)
+                        try
+                        {
                             addMenuMethod.Invoke(fullController, new object[] { menu, "" });
-                        sb.AppendLine($"  Menu: {menu.name}");
+                            attached = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            failReason = $"AddMenu invoke failed: {(ex.InnerException ?? ex).Message}";
+                        }
                     }
+                    if (attached)
+                        body.AppendLine($"  Menu: {menu.name}");
                     else
                     {
-                        sb.AppendLine($"  Warning: Menu not found at '{menuPath}'.");
+                        body.AppendLine($"  Warning: Could not attach menu '{menu.name}' — {failReason}.");
+                        anyFailure = true;
                     }
                 }
             }
@@ -512,30 +549,53 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (!string.IsNullOrEmpty(paramsPath))
             {
                 var paramsType = VRChatTools.FindVrcType("VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters");
-                if (paramsType != null)
+                var prms = paramsType != null ? AssetDatabase.LoadAssetAtPath(paramsPath, paramsType) : null;
+                if (prms == null)
                 {
-                    var prms = AssetDatabase.LoadAssetAtPath(paramsPath, paramsType);
-                    if (prms != null)
+                    body.AppendLine($"  Warning: Params not found at '{paramsPath}'.");
+                    anyFailure = true;
+                }
+                else
+                {
+                    bool attached = false;
+                    string failReason = "VRCFury AddParams reflection API not found (incompatible version?)";
+                    var addParamsMethod = fullController.GetType().GetMethod("AddParams");
+                    if (addParamsMethod != null)
                     {
-                        var addParamsMethod = fullController.GetType().GetMethod("AddParams");
-                        if (addParamsMethod != null)
+                        try
+                        {
                             addParamsMethod.Invoke(fullController, new object[] { prms });
-                        sb.AppendLine($"  Params: {prms.name}");
+                            attached = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            failReason = $"AddParams invoke failed: {(ex.InnerException ?? ex).Message}";
+                        }
                     }
+                    if (attached)
+                        body.AppendLine($"  Params: {prms.name}");
                     else
                     {
-                        sb.AppendLine($"  Warning: Params not found at '{paramsPath}'.");
+                        body.AppendLine($"  Warning: Could not attach params '{prms.name}' — {failReason}.");
+                        anyFailure = true;
                     }
                 }
             }
 
             EditorUtility.SetDirty(holder);
+
+            var sb = new StringBuilder();
+            sb.AppendLine(anyFailure
+                ? $"Partial: Created VRCFury FullController on '{avatarRootName}', but some assets could not be attached."
+                : $"Success: Created VRCFury FullController on '{avatarRootName}'.");
+            sb.Append(body.ToString());
             return sb.ToString().TrimEnd();
         }
 
         // ========== 7. CreateBlendShapeLink ==========
 
-        [AgentTool("Create a VRCFury BlendShapeLink to sync blend shapes from avatar body to outfit mesh. Since BlendShapeLink is internal, uses SerializedObject to configure.")]
+        [AgentTool(@"Add a VRCFury BlendShapeLink component to a mesh and configure its includeAll/excludes options (BlendShapeLink is internal, configured via reflection).
+LIMITATION: link source meshes are NOT auto-populated by this tool — after creation, open the VRCFury Inspector on the component and add the source mesh(es) manually. Without link sources the component has no effect.")]
         public static string CreateBlendShapeLink(string avatarRootName, string linkedMeshName,
             string includeAll = "true", string excludeList = "")
         {
@@ -582,37 +642,56 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             // Create the BlendShapeLink content
             var contentProp = so.FindProperty("content");
-            if (contentProp != null)
+            if (contentProp == null)
             {
-                var bsLink = Activator.CreateInstance(blendShapeLinkType);
-
-                // Set includeAll
-                var includeAllField = blendShapeLinkType.GetField("includeAll");
-                if (includeAllField != null)
-                    includeAllField.SetValue(bsLink, isIncludeAll ? 1 : 0); // enum: Skin=0, All=1
-
-                // Set excludes
-                if (!string.IsNullOrEmpty(excludeList))
-                {
-                    var excludesField = blendShapeLinkType.GetField("excludes");
-                    if (excludesField != null)
-                    {
-                        var excludeNames = excludeList.Split(';').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList();
-                        excludesField.SetValue(bsLink, excludeNames);
-                    }
-                }
-
-                contentProp.managedReferenceValue = bsLink;
+                // Without the 'content' property we cannot configure anything — roll back
+                // the component we just added rather than reporting a hollow success.
+                Undo.DestroyObjectImmediate(comp);
+                return "Error: VRCFury 'content' property not found. VRCFury may be an incompatible version.";
             }
 
+            var bsLink = Activator.CreateInstance(blendShapeLinkType);
+
+            // Set includeAll
+            var includeAllField = blendShapeLinkType.GetField("includeAll");
+            bool includeAllSet = includeAllField != null;
+            if (includeAllSet)
+                includeAllField.SetValue(bsLink, isIncludeAll ? 1 : 0); // enum: Skin=0, All=1
+
+            // Set excludes
+            bool excludesApplied = true;
+            if (!string.IsNullOrEmpty(excludeList))
+            {
+                var excludesField = blendShapeLinkType.GetField("excludes");
+                if (excludesField != null)
+                {
+                    var excludeNames = excludeList.Split(';').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList();
+                    excludesField.SetValue(bsLink, excludeNames);
+                }
+                else
+                {
+                    excludesApplied = false;
+                }
+            }
+
+            contentProp.managedReferenceValue = bsLink;
             so.ApplyModifiedProperties();
             EditorUtility.SetDirty(comp);
 
             var sb = new StringBuilder();
             sb.AppendLine($"Success: Created VRCFury BlendShapeLink on '{linkedMeshName}'.");
-            sb.AppendLine($"  Include all: {isIncludeAll}");
+            if (includeAllSet)
+                sb.AppendLine($"  Include all: {isIncludeAll}");
+            else
+                sb.AppendLine($"  Warning: 'includeAll' field not found — VRCFury default used instead.");
             if (!string.IsNullOrEmpty(excludeList))
-                sb.AppendLine($"  Excludes: {excludeList}");
+            {
+                if (excludesApplied)
+                    sb.AppendLine($"  Excludes: {excludeList}");
+                else
+                    sb.AppendLine($"  Warning: 'excludes' field not found — exclude list was NOT applied.");
+            }
+            sb.AppendLine("  Note: link source mesh(es) are NOT set by this tool — add them in the VRCFury Inspector, otherwise the component has no effect.");
 
             return sb.ToString().TrimEnd();
         }

@@ -268,19 +268,34 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             int cleaned = 0;
 
-            // Clean NDMF manual bake clones in scene
+            // Clean NDMF manual bake clones in scene.
+            // Name-based detection is heuristic: "(Clone)" is also the default name for any
+            // Instantiate() call, so destruction is gated behind explicit user confirmation.
             var clones = UnityEngine.Object.FindObjectsOfType<GameObject>()
                 .Where(g => g.name.Contains("(Clone)") && g.transform.parent == null)
                 .ToArray();
 
             if (clones.Length > 0)
             {
-                sb.AppendLine($"  Found {clones.Length} clone object(s) in scene (likely from manual bake):");
+                sb.AppendLine($"  Found {clones.Length} root clone object(s) in scene (heuristic match on '(Clone)' suffix):");
                 foreach (var clone in clones)
-                {
                     sb.AppendLine($"    - {clone.name}");
-                    Undo.DestroyObjectImmediate(clone);
-                    cleaned++;
+
+                if (AgentSettings.RequestConfirmation(
+                    "ビルドキャッシュのクリーンアップ",
+                    $"以下の {clones.Length} 個のルートオブジェクトを削除します。\n" +
+                    "名前に '(Clone)' を含むだけのオブジェクトも対象になります。意図しないオブジェクトが含まれていないか確認してください。\n\n" +
+                    string.Join("\n", clones.Select(c => $"  - {c.name}"))))
+                {
+                    foreach (var clone in clones)
+                    {
+                        Undo.DestroyObjectImmediate(clone);
+                        cleaned++;
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("  Skipped clone deletion (user declined).");
                 }
             }
 

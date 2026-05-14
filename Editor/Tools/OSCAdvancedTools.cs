@@ -513,7 +513,14 @@ Requires confirmation.")]
 
             if (!AddParameterDriverToState(state, true, new List<ParameterDriverEntry> { entry }, out string driverErr))
             {
-                // Clean up the layer if driver failed
+                // Clean up the half-built layer and empty clip asset so a failed call does
+                // not leave orphaned garbage. RemoveLayer also destroys the layer's state
+                // machine and its child states/transitions (manual .layers array splicing
+                // would leave those as orphan sub-assets bloating the controller).
+                fxController.RemoveLayer(fxController.layers.Length - 1);
+                AssetDatabase.DeleteAsset(clipPath);
+                EditorUtility.SetDirty(fxController);
+                AssetDatabase.SaveAssets();
                 return driverErr ?? "Error: Failed to add Parameter Driver.";
             }
 
