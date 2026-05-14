@@ -183,8 +183,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 try
                 {
                     if (string.IsNullOrEmpty(asm.Location)) continue;
-                    var name = asm.GetName().Name;
-                    if (!IsScriptReference(name)) continue;
+                    if (!ToolUtility.IsScriptReference(asm.GetName().Name)) continue;
                     compilerParams.ReferencedAssemblies.Add(asm.Location);
                 }
                 catch { /* dynamic assemblies have no Location */ }
@@ -229,48 +228,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         // BuildAacSource を変更した場合は同期して更新する。
         private const int LineOffset = 13;
 
-        // AacExecuteScript で参照するアセンブリのホワイトリスト。
-        // Unity Editor は数百のアセンブリをロードするため全部参照すると
-        // mono.exe のコマンドラインが 32767 文字 (Windows 制限) を超える。
-        private static readonly HashSet<string> s_ScriptReferenceExact =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            // .NET core
-            "mscorlib", "System", "System.Core", "System.Xml", "netstandard",
-            // AAC
-            "AnimatorAsCode.V1",
-            "AnimatorAsCode.V1.VRChat",
-            "AnimatorAsCode.V1.ModularAvatar",
-            // UnityAgent
-            "AjisaiFlow.UnityAgent.SDK",
-            "AjisaiFlow.UnityAgent.Editor",
-            // NDMF
-            "nadena.dev.ndmf",
-            "nadena.dev.ndmf.runtime",
-            "nadena.dev.ndmf.vrchat",
-        };
-
-        // prefix マッチ群 — Unity / VRChat / Modular Avatar 等のモジュールを
-        // 個別に列挙せず、prefix でまとめて拾う。
-        private static readonly string[] s_ScriptReferencePrefixes = new[]
-        {
-            "UnityEngine",                          // CoreModule / AnimationModule / IMGUIModule / etc
-            "UnityEditor",                          // CoreModule / GraphViewModule / etc
-            "VRC.SDK3",                             // SDK3 / SDK3A / SDK3A.Editor / SDK3.Avatars / etc
-            "VRC.SDKBase",                          // SDKBase / SDKBase.Editor
-            "VRCSDK",                               // VRCSDK3 / VRCSDK3-Editor (legacy naming)
-            "nadena.dev.modular-avatar.",           // .core / .core.editor
-        };
-
-        private static bool IsScriptReference(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return false;
-            if (s_ScriptReferenceExact.Contains(name)) return true;
-            foreach (var prefix in s_ScriptReferencePrefixes)
-                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            return false;
-        }
+        // 参照アセンブリのホワイトリストは ToolUtility.IsScriptReference に共通化済み
+        // (RunEditorScript と共有 — mono.exe コマンドライン長オーバーフロー対策)。
 
         private static string BuildAacSource(string code)
         {

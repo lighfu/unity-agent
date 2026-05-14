@@ -38,13 +38,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 GenerateExecutable = false
             };
 
-            // Add references from all loaded assemblies
+            // Add references from loaded assemblies, filtered through a whitelist.
+            // Referencing every loaded assembly (200-400+ in the Editor) overflows the
+            // Windows CreateProcess 32767-char command-line limit and mono.exe fails to
+            // start ("ファイル名または拡張子が長すぎます"). See ToolUtility.IsScriptReference.
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try
                 {
-                    if (!string.IsNullOrEmpty(asm.Location))
-                        compilerParams.ReferencedAssemblies.Add(asm.Location);
+                    if (string.IsNullOrEmpty(asm.Location)) continue;
+                    if (!ToolUtility.IsScriptReference(asm.GetName().Name)) continue;
+                    compilerParams.ReferencedAssemblies.Add(asm.Location);
                 }
                 catch
                 {

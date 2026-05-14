@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 
@@ -126,6 +128,76 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 default:
                     return false;
             }
+        }
+
+        // ===== Runtime C# compilation reference whitelist =====
+        // Tools that compile user-supplied C# at runtime (RunEditorScript, AacExecuteScript)
+        // pass referenced assemblies to the Mono compiler as /reference: command-line args.
+        // The Unity Editor loads 200-400+ assemblies; passing all of them overflows the
+        // Windows CreateProcess 32767-char command-line limit and mono.exe fails to start
+        // ("ファイル名または拡張子が長すぎます"). Both tools filter the AppDomain assembly
+        // list through IsScriptReference so the command line stays well under the limit.
+
+        private static readonly HashSet<string> s_ScriptReferenceExact =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // .NET core — reference ONLY "netstandard". The project is on the .NET Standard
+            // 2.1 API compat level, where netstandard.dll is the canonical reference assembly
+            // (surfaces System.Object .. AppDomain). Adding mscorlib/System/System.Core/
+            // System.Xml alongside it makes mcs fail with "type X is defined multiple times"
+            // because the implementation assemblies redefine the same BCL types. At runtime
+            // netstandard's type-forwards resolve to the already-loaded implementation.
+            "netstandard",
+            // UnityAgent
+            "AjisaiFlow.UnityAgent.SDK",
+            "AjisaiFlow.UnityAgent.Editor",
+            // AnimatorAsCode (AacExecuteScript)
+            "AnimatorAsCode.V1",
+            "AnimatorAsCode.V1.VRChat",
+            "AnimatorAsCode.V1.ModularAvatar",
+            // NDMF
+            "nadena.dev.ndmf",
+            "nadena.dev.ndmf.runtime",
+            "nadena.dev.ndmf.vrchat",
+        };
+
+        // Prefix matches — pick up whole assembly families without enumerating every module.
+        // Third-party avatar tooling names are best-effort: multiple likely spellings are
+        // listed so prefix matching catches version/packaging variations. A miss only
+        // produces a clear "type not found" compile error, never a crash.
+        private static readonly string[] s_ScriptReferencePrefixes = new[]
+        {
+            "UnityEngine",                  // CoreModule / AnimationModule / IMGUIModule / ...
+            "UnityEditor",                  // CoreModule / GraphViewModule / ...
+            "VRC.SDK3",                     // SDK3 / SDK3A / SDK3A.Editor / SDK3.Avatars / ...
+            "VRC.SDKBase",                  // SDKBase / SDKBase.Editor
+            "VRC.Dynamics",                 // PhysBone / Contact runtime
+            "VRCSDK",                       // VRCSDK3 / VRCSDK3-Editor (legacy naming)
+            "nadena.dev.modular-avatar.",   // .core / .core.editor
+            "com.vrcfury",                  // VRCFury (package-style assembly naming)
+            "VRCFury",                      // VRCFury (alt assembly naming)
+            "lilToon",                      // lilToon shader / editor
+            "jp.lilxyzw",                   // lilToon (package-style naming)
+            "Thry",                         // Thry Editor (common shader GUI framework)
+            "net.rs64",                     // TexTransTool
+            "TexTransTool",
+            "TexTransCore",
+        };
+
+        /// <summary>
+        /// Whether an assembly should be passed as a /reference: to the runtime C# compiler.
+        /// Filters the AppDomain assembly list down to a whitelist so the Mono compiler
+        /// command line stays under the Windows 32767-char CreateProcess limit.
+        /// Pass the simple assembly name (e.g. asm.GetName().Name).
+        /// </summary>
+        public static bool IsScriptReference(string assemblyName)
+        {
+            if (string.IsNullOrEmpty(assemblyName)) return false;
+            if (s_ScriptReferenceExact.Contains(assemblyName)) return true;
+            foreach (var prefix in s_ScriptReferencePrefixes)
+                if (assemblyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
         }
     }
 }
