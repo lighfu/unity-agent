@@ -89,6 +89,36 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             }
         }
 
+        public bool TryOpenPreviewWindow()
+        {
+            if (!IsHealthy) return false;
+            try
+            {
+                // FaceEmo's PreviewWindow is in Detail.ExpressionEditor.Views.PreviewWindow
+                // It's typically shown via EditorWindow.GetWindow<PreviewWindow>()
+                var pwType = Type.GetType($"Suzuryg.FaceEmo.Detail.ExpressionEditor.Views.PreviewWindow, {DetailAsm}");
+                if (pwType == null) { LastReflectionError = "PreviewWindow type not found"; return false; }
+
+                var getWindow = typeof(EditorWindow)
+                    .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                    .FirstOrDefault(m => m.Name == "GetWindow"
+                        && m.IsGenericMethod && m.GetParameters().Length == 0);
+                if (getWindow == null) { LastReflectionError = "EditorWindow.GetWindow<T>() not found"; return false; }
+
+                // NOTE: fallback path if GetWindow<T> reflection ever fails would be
+                // `ScriptableObject.CreateInstance(pwType) as EditorWindow; window?.Show();`
+                // — intentionally not implemented; primary path is preferred for focus/dock behaviour.
+                var window = getWindow.MakeGenericMethod(pwType).Invoke(null, null);
+                return window != null;
+            }
+            catch (Exception ex)
+            {
+                var inner = (ex as TargetInvocationException)?.InnerException ?? ex;
+                LastReflectionError = $"TryOpenPreviewWindow: {inner.GetType().Name}: {inner.Message}";
+                return false;
+            }
+        }
+
         private bool Fail(string msg)
         {
             IsHealthy = false;

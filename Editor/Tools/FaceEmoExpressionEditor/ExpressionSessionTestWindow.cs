@@ -53,6 +53,22 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 Log("SKIP: FACE_EMO not defined.");
 #endif
             }
+            if (GUILayout.Button("Test: Bridge.TryOpenPreviewWindow"))
+            {
+#if FACE_EMO
+                var gate = FaceEmoGate.RequireExpressionEditingReady();
+                if (!gate.Ok) { Log(gate.ErrorMessage); }
+                else
+                {
+                    var bridge = new ExpressionEditorBridge();
+                    bridge.TryOpen(gate.Launcher, new AnimationClip { name = "PreviewProbe" });
+                    bool ok = bridge.TryOpenPreviewWindow();
+                    Log($"TryOpenPreviewWindow → {ok}, err={bridge.LastReflectionError}");
+                }
+#else
+                Log("SKIP: FACE_EMO not defined.");
+#endif
+            }
 
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
