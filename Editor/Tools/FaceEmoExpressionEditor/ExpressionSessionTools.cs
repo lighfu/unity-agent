@@ -29,7 +29,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             }
             catch (System.Exception ex)
             {
-                return ex.Message;
+                return $"Error: {ex.Message}";
             }
         }
 
