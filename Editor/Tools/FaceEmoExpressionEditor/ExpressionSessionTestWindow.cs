@@ -119,6 +119,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 Log("SKIP: FACE_EMO not defined.");
 #endif
             }
+            if (GUILayout.Button("Test: OpenForMode('Neutral')"))
+            {
+#if FACE_EMO
+                try
+                {
+                    var s = FaceEmoExpressionSession.OpenForMode("Neutral");
+                    Log($"Opened existing: Mode={s.Mode}, ModeId={s.ModeId}, Clip={s.Clip?.name}");
+                }
+                catch (System.Exception ex) { Log("Error: " + ex.Message); }
+#else
+                Log("SKIP: FACE_EMO not defined.");
+#endif
+            }
 
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));

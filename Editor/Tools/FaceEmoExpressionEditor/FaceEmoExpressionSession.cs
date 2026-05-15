@@ -34,7 +34,56 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         private FaceEmoExpressionSession() { }
 
         public static FaceEmoExpressionSession OpenForMode(string modeName, string gameObjectName = "")
-            => throw new NotImplementedException(); // Task 3.3
+        {
+            var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            if (!gate.Ok) throw new InvalidOperationException(gate.ErrorMessage);
+
+            var menu = FaceEmoAPI.LoadMenu(gate.Launcher);
+            if (menu == null) throw new InvalidOperationException("Error: Failed to load FaceEmo menu.");
+            var (modeId, mode) = FaceEmoAPI.FindExpression(menu, modeName);
+            if (modeId == null) throw new InvalidOperationException($"Error: Mode '{modeName}' not found in FaceEmo menu.");
+
+            string guid = null;
+            var animProp = mode.GetType().GetProperty("Animation");
+            if (animProp != null)
+            {
+                var anim = animProp.GetValue(mode);
+                if (anim != null)
+                    guid = anim.GetType().GetProperty("GUID")?.GetValue(anim) as string;
+            }
+            AnimationClip clip = null;
+            if (!string.IsNullOrEmpty(guid))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!string.IsNullOrEmpty(path))
+                    clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+            }
+            if (clip == null) clip = new AnimationClip { name = $"{modeName}_clip" };
+
+            _active?.Dispose();
+            var session = new FaceEmoExpressionSession
+            {
+                Launcher = gate.Launcher,
+                IsNewExpression = false,
+                ModeId = modeId,
+                PendingDisplayName = modeName,
+                Clip = clip,
+            };
+
+            session._bridge = new ExpressionEditorBridge();
+            if (session._bridge.TryOpen(session.Launcher, session.Clip))
+            {
+                session._bridge.TryOpenPreviewWindow();
+                session.Mode = SyncMode.Live;
+            }
+            else
+            {
+                Debug.LogWarning($"[FaceEmoExpressionSession] Bridge unhealthy ({session._bridge.LastReflectionError}). Falling back to Degraded.");
+                session.Mode = SyncMode.Degraded;
+            }
+            _active = session;
+            return session;
+        }
 
         public static FaceEmoExpressionSession OpenForNewExpression(string displayName, string animSavePath, string gameObjectName = "")
         {
