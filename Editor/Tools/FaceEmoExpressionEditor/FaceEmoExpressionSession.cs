@@ -44,14 +44,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             var (modeId, mode) = FaceEmoAPI.FindExpression(menu, modeName);
             if (modeId == null) throw new InvalidOperationException($"Error: Mode '{modeName}' not found in FaceEmo menu.");
 
-            string guid = null;
-            var animProp = mode.GetType().GetProperty("Animation");
-            if (animProp != null)
-            {
-                var anim = animProp.GetValue(mode);
-                if (anim != null)
-                    guid = anim.GetType().GetProperty("GUID")?.GetValue(anim) as string;
-            }
+            string guid = mode.Animation?.GUID;
             AnimationClip clip = null;
             if (!string.IsNullOrEmpty(guid))
             {
@@ -94,13 +87,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             // Dispose previous ambient session
             _active?.Dispose();
 
+            bool isAuto = string.IsNullOrEmpty(displayName);
+            string tmpName = isAuto ? GenerateTmpName() : null;
             var session = new FaceEmoExpressionSession
             {
                 Launcher = gate.Launcher,
                 IsNewExpression = true,
-                PendingDisplayName = string.IsNullOrEmpty(displayName) ? GenerateTmpName() : displayName,
+                PendingDisplayName = isAuto ? tmpName : displayName,
                 PendingSavePath = animSavePath,
-                TmpName = displayName == null ? GenerateTmpName() : null,
+                TmpName = tmpName,
                 Clip = new AnimationClip(),
             };
             session.Clip.name = session.PendingDisplayName;
@@ -144,11 +139,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         private void DegradedSet(string smrRelativePath, string shapeName, float value)
         {
             AssetPathFallback.WriteBlendShapeCurve(Clip, smrRelativePath, shapeName, value);
-            // For asset clips, ensure save
+            // Mark serialized-asset clips dirty so the next AssetDatabase.SaveAssets persists the curve write.
+            // In-memory clips become dirty automatically via SetEditorCurve.
             if (!string.IsNullOrEmpty(AssetDatabase.GetAssetPath(Clip)))
-            {
                 EditorUtility.SetDirty(Clip);
-            }
             AssetPathFallback.RefreshFaceEmoWindow(Launcher);
         }
 
@@ -188,8 +182,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             string finalPath = PendingSavePath;
             if (string.IsNullOrEmpty(finalPath))
                 finalPath = $"Assets/UnityAgent/Expressions/{PendingDisplayName ?? Clip.name}.anim";
+            finalPath = finalPath.Replace('\\', '/');
 
-            string dir = System.IO.Path.GetDirectoryName(finalPath);
+            string dir = System.IO.Path.GetDirectoryName(finalPath)?.Replace('\\', '/');
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
             {
                 // Create folder hierarchy
@@ -203,14 +198,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             EditorUtility.SetDirty(Clip);
             AssetDatabase.SaveAssets();
 
+            // Re-derive the path from the clip itself so the GUID always points to the live asset,
+            // whether we just created it at finalPath or it already existed at a different path
+            // (OpenForMode → UpdateExpressionAnimation flow).
+            string clipPath = AssetDatabase.GetAssetPath(Clip);
+            if (string.IsNullOrEmpty(clipPath))
+                throw new InvalidOperationException("Failed to obtain asset path for clip after save.");
+            string guid = AssetDatabase.AssetPathToGUID(clipPath);
+
             // 2. Register / update Mode in FaceEmo menu
             var menu = FaceEmoAPI.LoadMenu(Launcher);
             if (menu == null) throw new InvalidOperationException("Failed to load FaceEmo menu.");
 
-            string guid = AssetDatabase.AssetPathToGUID(finalPath);
-            var animObj = Activator.CreateInstance(
-                Type.GetType("Suzuryg.FaceEmo.Domain.Animation, jp.suzuryg.face-emo.domain.Runtime"),
-                new object[] { guid });
+            var anim = new Suzuryg.FaceEmo.Domain.Animation(guid);
 
             if (IsNewExpression)
             {
@@ -219,13 +219,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                     dest = FaceEmoAPI.ResolveDestination(menu, "Unregistered");
                 string modeId = FaceEmoAPI.AddMode(menu, dest);
                 FaceEmoAPI.ModifyModeProperties(menu, modeId, displayName: PendingDisplayName);
-                FaceEmoAPI.SetModeAnimation(menu, (Suzuryg.FaceEmo.Domain.Animation)animObj, modeId);
+                FaceEmoAPI.SetModeAnimation(menu, anim, modeId);
                 ModeId = modeId;
                 IsNewExpression = false;
             }
             else
             {
-                FaceEmoAPI.SetModeAnimation(menu, (Suzuryg.FaceEmo.Domain.Animation)animObj, ModeId);
+                FaceEmoAPI.SetModeAnimation(menu, anim, ModeId);
             }
             FaceEmoAPI.SaveMenu(Launcher, menu, $"Commit Expression '{PendingDisplayName}'");
         }
@@ -240,6 +240,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             if (_active == this) _active = null;
             _bridge?.Dispose();
             _bridge = null;
+
+            // Destroy uncommitted in-memory clip to avoid editor-object leak
+            if (Clip != null && IsNewExpression && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(Clip)))
+            {
+                UnityEngine.Object.DestroyImmediate(Clip);
+            }
+            Clip = null;
         }
 
         // ----- helpers -----
