@@ -29,6 +29,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 SpikeSetBlendShape();
             }
 
+            EditorGUILayout.LabelField("Phase 1: FaceEmoGate", EditorStyles.boldLabel);
+            if (GUILayout.Button("Probe: RequireExpressionEditingReady()"))
+            {
+                var r = FaceEmoGate.RequireExpressionEditingReady();
+                Log($"Ok={r.Ok}, Msg={(r.Ok ? "(no error)" : r.ErrorMessage)}");
+            }
+
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
             EditorGUILayout.TextArea(_log, GUILayout.ExpandHeight(true));
