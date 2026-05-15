@@ -122,7 +122,29 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         }
 
         public void SetBlendShape(string smrRelativePath, string shapeName, float value)
-            => throw new NotImplementedException(); // Task 3.4/3.5
+        {
+            if (string.IsNullOrEmpty(smrRelativePath) || string.IsNullOrEmpty(shapeName))
+                throw new ArgumentException("smrRelativePath and shapeName are required");
+
+            if (Mode == SyncMode.Live)
+            {
+                if (_bridge != null && _bridge.TrySetBlendShape(smrRelativePath, shapeName, value))
+                    return;
+
+                // Live failed at runtime — downgrade for the rest of the session
+                Debug.LogWarning($"[FaceEmoExpressionSession] Live SetBlendShape failed ({_bridge?.LastReflectionError}). Downgrading to Degraded.");
+                Mode = SyncMode.Degraded;
+            }
+
+            // Degraded path (Task 3.5 implements DegradedSet)
+            DegradedSet(smrRelativePath, shapeName, value);
+        }
+
+        private void DegradedSet(string smrRelativePath, string shapeName, float value)
+        {
+            // Implemented in Task 3.5
+            throw new NotImplementedException();
+        }
 
         public IReadOnlyDictionary<string, float> GetCurrentValues()
             => throw new NotImplementedException(); // Task 3.6
