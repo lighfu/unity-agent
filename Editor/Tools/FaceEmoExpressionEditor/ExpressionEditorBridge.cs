@@ -23,6 +23,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         private object _facade;             // ExpressionEditorModelFacade
         private FaceEmoLauncherComponent _launcher;
 
+        // Cached reflection members (populated in TryOpen after _facade is set).
+        // Null after Dispose or before first successful TryOpen.
+        private Type _blendShapeType;
+        private MethodInfo _setBlendShapeValueMethod;
+        private PropertyInfo _animatedBlendShapesProperty;
+
         private const string AppMainAsm = "jp.suzuryg.face-emo.appmain.Editor";
         private const string DetailAsm = "jp.suzuryg.face-emo.detail.Editor";
 
@@ -33,11 +39,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
         public bool TryOpen(FaceEmoLauncherComponent launcher, AnimationClip clip)
         {
+            // Reset state for retry safety: stale references from a prior successful
+            // TryOpen must not leak through if this TryOpen fails early.
+            _expressionEditor = null;
+            _facade = null;
+            _launcher = null;
+            _blendShapeType = null;
+            _setBlendShapeValueMethod = null;
+            _animatedBlendShapesProperty = null;
+            IsHealthy = false;
+
             if (launcher == null || clip == null)
             {
-                LastReflectionError = "TryOpen: null launcher or clip";
-                IsHealthy = false;
-                return false;
+                return Fail("TryOpen: null launcher or clip");
             }
 
             try
@@ -78,6 +92,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 _facade = facadeField.GetValue(_expressionEditor);
                 if (_facade == null) { return Fail("Facade field is null"); }
 
+                // 4. Cache reflection members so Session loops don't pay GetMethod/GetProperty cost per shape.
+                _blendShapeType = Type.GetType("Suzuryg.FaceEmo.Domain.BlendShape, jp.suzuryg.face-emo.domain.Runtime");
+                if (_blendShapeType == null) { return Fail("BlendShape type not found"); }
+
+                _setBlendShapeValueMethod = _facade.GetType().GetMethod("SetBlendShapeValue");
+                if (_setBlendShapeValueMethod == null) { return Fail("Facade.SetBlendShapeValue not found"); }
+
+                _animatedBlendShapesProperty = _facade.GetType().GetProperty("AnimatedBlendShapes");
+                if (_animatedBlendShapesProperty == null) { return Fail("Facade.AnimatedBlendShapes not found"); }
+
                 IsHealthy = true;
                 LastReflectionError = null;
                 return true;
@@ -85,7 +109,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             catch (Exception ex)
             {
                 var inner = (ex as TargetInvocationException)?.InnerException ?? ex;
-                return Fail($"{inner.GetType().Name}: {inner.Message}");
+                return Fail($"TryOpen: {inner.GetType().Name}: {inner.Message}");
             }
         }
 
@@ -95,11 +119,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             if (!IsHealthy || _facade == null) return false;
             try
             {
-                var prop = _facade.GetType().GetProperty("AnimatedBlendShapes");
-                if (prop == null) { LastReflectionError = "AnimatedBlendShapes property not found"; return false; }
+                if (_animatedBlendShapesProperty == null)
+                {
+                    return Fail("TryGetAnimatedBlendShapes: cached AnimatedBlendShapes property is null (Bridge bug)");
+                }
 
-                var dict = prop.GetValue(_facade) as System.Collections.IDictionary;
-                if (dict == null) { LastReflectionError = "AnimatedBlendShapes is not IDictionary"; return false; }
+                var dict = _animatedBlendShapesProperty.GetValue(_facade) as System.Collections.IDictionary;
+                if (dict == null) { return Fail("TryGetAnimatedBlendShapes: AnimatedBlendShapes is not IDictionary"); }
 
                 var result = new Dictionary<(string, string), float>();
                 foreach (System.Collections.DictionaryEntry entry in dict)
@@ -118,8 +144,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             catch (Exception ex)
             {
                 var inner = (ex as TargetInvocationException)?.InnerException ?? ex;
-                LastReflectionError = $"TryGetAnimatedBlendShapes: {inner.GetType().Name}: {inner.Message}";
-                return false;
+                return Fail($"TryGetAnimatedBlendShapes: {inner.GetType().Name}: {inner.Message}");
             }
         }
 
@@ -128,24 +153,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             if (!IsHealthy || _facade == null) return false;
             try
             {
-                // Build BlendShape struct (FaceEmo Domain type) via reflection
-                var bsType = Type.GetType("Suzuryg.FaceEmo.Domain.BlendShape, jp.suzuryg.face-emo.domain.Runtime");
-                if (bsType == null) { LastReflectionError = "BlendShape type not found"; return false; }
+                if (_blendShapeType == null)
+                {
+                    return Fail("TrySetBlendShape: cached BlendShape type is null (Bridge bug)");
+                }
+                if (_setBlendShapeValueMethod == null)
+                {
+                    return Fail("TrySetBlendShape: cached SetBlendShapeValue method is null (Bridge bug)");
+                }
 
-                // BlendShape ctor takes (string path, string name) per FaceEmo domain conventions
-                var bs = Activator.CreateInstance(bsType, new object[] { smrRelativePath, shapeName });
+                // Confirmed via FaceEmo source: public BlendShape(string path, string name) — (path, name) order.
+                var bs = Activator.CreateInstance(_blendShapeType, new object[] { smrRelativePath, shapeName });
 
-                var setMethod = _facade.GetType().GetMethod("SetBlendShapeValue");
-                if (setMethod == null) { LastReflectionError = "SetBlendShapeValue not found"; return false; }
-
-                setMethod.Invoke(_facade, new object[] { bs, value });
+                _setBlendShapeValueMethod.Invoke(_facade, new object[] { bs, value });
                 return true;
             }
             catch (Exception ex)
             {
                 var inner = (ex as TargetInvocationException)?.InnerException ?? ex;
-                LastReflectionError = $"TrySetBlendShape: {inner.GetType().Name}: {inner.Message}";
-                return false;
+                return Fail($"TrySetBlendShape: {inner.GetType().Name}: {inner.Message}");
             }
         }
 
@@ -157,28 +183,47 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 // FaceEmo's PreviewWindow is in Detail.ExpressionEditor.Views.PreviewWindow
                 // It's typically shown via EditorWindow.GetWindow<PreviewWindow>()
                 var pwType = Type.GetType($"Suzuryg.FaceEmo.Detail.ExpressionEditor.Views.PreviewWindow, {DetailAsm}");
-                if (pwType == null) { LastReflectionError = "PreviewWindow type not found"; return false; }
+                if (pwType == null) { return Fail("TryOpenPreviewWindow: PreviewWindow type not found"); }
 
                 var getWindow = typeof(EditorWindow)
                     .GetMethods(BindingFlags.Public | BindingFlags.Static)
                     .FirstOrDefault(m => m.Name == "GetWindow"
                         && m.IsGenericMethod && m.GetParameters().Length == 0);
-                if (getWindow == null) { LastReflectionError = "EditorWindow.GetWindow<T>() not found"; return false; }
+                if (getWindow == null) { return Fail("TryOpenPreviewWindow: EditorWindow.GetWindow<T>() not found"); }
 
                 // NOTE: fallback path if GetWindow<T> reflection ever fails would be
                 // `ScriptableObject.CreateInstance(pwType) as EditorWindow; window?.Show();`
                 // — intentionally not implemented; primary path is preferred for focus/dock behaviour.
                 var window = getWindow.MakeGenericMethod(pwType).Invoke(null, null);
-                return window != null;
+                if (window == null)
+                {
+                    return Fail("TryOpenPreviewWindow: GetWindow returned null");
+                }
+                return true;
             }
             catch (Exception ex)
             {
                 var inner = (ex as TargetInvocationException)?.InnerException ?? ex;
-                LastReflectionError = $"TryOpenPreviewWindow: {inner.GetType().Name}: {inner.Message}";
-                return false;
+                return Fail($"TryOpenPreviewWindow: {inner.GetType().Name}: {inner.Message}");
             }
         }
 
+        /// <summary>
+        /// Sets <see cref="IsHealthy"/> to false, records <paramref name="msg"/> on
+        /// <see cref="LastReflectionError"/>, and logs a Warning.
+        ///
+        /// Called from TryOpen and from any Try* method whose failure indicates the
+        /// Bridge has become unhealthy. Callers reach here exactly once per state
+        /// transition: if Session retries Live calls in a loop, the first failure
+        /// logs and Session demotes to Degraded, so subsequent calls short-circuit
+        /// on <c>!IsHealthy</c> and don't re-enter the Bridge.
+        ///
+        /// Trade-off: per-call failures inside a Session loop (e.g. 32 blendshapes)
+        /// could still spam the console if Session keeps calling without demoting.
+        /// If that becomes a problem in practice, split into <c>Fail</c> /
+        /// <c>FailQuiet</c> later. Today this is acceptable because the first
+        /// failure flips <see cref="IsHealthy"/> and the loop exits on the next check.
+        /// </summary>
         private bool Fail(string msg)
         {
             IsHealthy = false;
@@ -192,6 +237,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             // No explicit close — FaceEmo keeps its window open
             _expressionEditor = null;
             _facade = null;
+            _launcher = null;
+            _blendShapeType = null;
+            _setBlendShapeValueMethod = null;
+            _animatedBlendShapesProperty = null;
         }
     }
 }
