@@ -206,6 +206,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 Log("SKIP: FACE_EMO not defined.");
 #endif
             }
+            if (GUILayout.Button("Test: Renderer.RenderGestureTable('Neutral')"))
+            {
+#if FACE_EMO
+                var gate = FaceEmoGate.RequireExpressionEditingReady();
+                if (gate.Ok)
+                {
+                    using var r = new FaceEmoThumbnailRenderer();
+                    if (r.TryInitialize(gate.Launcher))
+                    {
+                        var path = r.RenderGestureTable("Neutral");
+                        Log(path != null ? $"OK: PNG at {path}" : $"FAIL: {r.LastReflectionError}");
+                    }
+                    else { Log($"FAIL init: {r.LastReflectionError}"); }
+                }
+                else { Log(gate.ErrorMessage); }
+#else
+                Log("SKIP: FACE_EMO not defined.");
+#endif
+            }
 
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));

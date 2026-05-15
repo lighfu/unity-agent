@@ -110,6 +110,122 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             LastReflectionError = "disposed";
         }
 
+        private static readonly string[] GestureNames =
+        {
+            "Neutral", "Fist", "HandOpen", "Fingerpoint",
+            "Victory", "RockNRoll", "HandGun", "ThumbsUp"
+        };
+
+        /// <summary>
+        /// For each of the 8 hand gestures, find the matching branch's animation in the given Mode.
+        /// Returns an array of 8 (Animation, AnimationClip) pairs, indexed by HandGesture (0-7).
+        /// Falls back to the Mode's base animation when no branch matches a given gesture.
+        /// </summary>
+        private (Suzuryg.FaceEmo.Domain.Animation anim, AnimationClip clip)[] ResolveGestureAnimations(Suzuryg.FaceEmo.Domain.IMode mode)
+        {
+            var result = new (Suzuryg.FaceEmo.Domain.Animation, AnimationClip)[8];
+            var baseAnim = mode.Animation;
+            var baseClip = baseAnim != null && !string.IsNullOrEmpty(baseAnim.GUID)
+                ? AssetDatabase.LoadAssetAtPath<AnimationClip>(AssetDatabase.GUIDToAssetPath(baseAnim.GUID))
+                : null;
+
+            // Initialize all slots to base
+            for (int i = 0; i < 8; i++) result[i] = (baseAnim, baseClip);
+
+            // Walk branches; for each branch, if conditions cover a specific gesture, override that slot
+            if (mode.Branches != null)
+            {
+                foreach (var branch in mode.Branches)
+                {
+                    if (branch == null || branch.Conditions == null) continue;
+                    foreach (var cond in branch.Conditions)
+                    {
+                        int gestureIdx = (int)cond.HandGesture;
+                        if (gestureIdx < 0 || gestureIdx >= 8) continue;
+                        var slotAnim = branch.BaseAnimation ?? baseAnim;
+                        if (slotAnim != null && !string.IsNullOrEmpty(slotAnim.GUID))
+                        {
+                            var slotClip = AssetDatabase.LoadAssetAtPath<AnimationClip>(AssetDatabase.GUIDToAssetPath(slotAnim.GUID));
+                            if (slotClip != null) result[gestureIdx] = (slotAnim, slotClip);
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Render an 8-cell gesture table (B — GestureTableThumbnailDrawer) and save as a composite PNG.
+        /// Returns the saved PNG path, or null on failure.
+        /// </summary>
+        public string RenderGestureTable(string modeName)
+        {
+            if (!IsHealthy) { LastReflectionError = "Renderer not healthy"; return null; }
+            if (_launcher == null) { LastReflectionError = "Launcher is null"; return null; }
+
+            var menu = FaceEmoAPI.LoadMenu(_launcher);
+            if (menu == null) { LastReflectionError = "Could not load FaceEmo menu"; return null; }
+            var (_, mode) = FaceEmoAPI.FindExpression(menu, modeName);
+            if (mode == null) { LastReflectionError = $"Mode '{modeName}' not found"; return null; }
+
+            var slots = ResolveGestureAnimations(mode);
+
+            // Render each cell — also track whether MakeReadableCopy allocated a new texture
+            var cells = new Texture2D[8];
+            var cellOwnsTexture = new bool[8];
+            int cellW = 0, cellH = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                if (slots[i].clip == null) continue;
+                var tex = DriveSyncRender(_gestureDrawer, slots[i].anim, slots[i].clip);
+                if (tex == null) continue;
+                var readable = MakeReadableCopy(tex);
+                cells[i] = readable;
+                cellOwnsTexture[i] = readable != tex;
+                if (cellW == 0) { cellW = readable.width; cellH = readable.height; }
+            }
+
+            if (cellW == 0) { LastReflectionError = "No gesture cells could be rendered"; return null; }
+
+            // Composite into 4x2 grid (4 cols × 2 rows) with 2px border, gesture name label
+            const int padding = 4;
+            const int labelH = 14;
+            int gridW = cellW * 4 + padding * 5;
+            int gridH = (cellH + labelH) * 2 + padding * 3;
+            var composite = new Texture2D(gridW, gridH, TextureFormat.RGBA32, false);
+
+            // Fill with dark gray background
+            var bg = new Color32(40, 40, 48, 255);
+            var bgPixels = new Color32[gridW * gridH];
+            for (int p = 0; p < bgPixels.Length; p++) bgPixels[p] = bg;
+            composite.SetPixels32(bgPixels);
+
+            for (int i = 0; i < 8; i++)
+            {
+                int col = i % 4;
+                int row = i / 4;
+                int x = padding + col * (cellW + padding);
+                int y = padding + row * (cellH + labelH + padding);
+                if (cells[i] != null)
+                {
+                    var pixels = cells[i].GetPixels32();
+                    composite.SetPixels32(x, y + labelH, cellW, cellH, pixels);
+                }
+            }
+            composite.Apply();
+
+            string path = SaveAsPng(composite, $"{SanitizeFileName(modeName)}_gestures.png");
+
+            // Cleanup — destroy only textures WE allocated (not FaceEmo drawer's cached refs)
+            for (int i = 0; i < 8; i++)
+            {
+                if (cells[i] != null && cellOwnsTexture[i])
+                    UnityEngine.Object.DestroyImmediate(cells[i]);
+            }
+            UnityEngine.Object.DestroyImmediate(composite);
+            return path;
+        }
+
         /// <summary>
         /// Render the single-Mode thumbnail (A — MainThumbnailDrawer) and save as PNG.
         /// Returns the saved PNG path, or null on failure (sets <see cref="LastReflectionError"/>).
