@@ -186,17 +186,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             { Log("FAIL: AV3Setting or ThumbnailSetting missing on launcher."); return; }
 
             const string detailAsm = "jp.suzuryg.face-emo.detail.Editor";
+            object drawer = null;
             try
             {
                 var mainType = System.Type.GetType($"Suzuryg.FaceEmo.Detail.Drawing.MainThumbnailDrawer, {detailAsm}");
                 if (mainType == null) { Log("FAIL: MainThumbnailDrawer type not found."); return; }
 
-                var drawer = System.Activator.CreateInstance(mainType,
+                drawer = System.Activator.CreateInstance(mainType,
                     new object[] { launcher.AV3Setting, launcher.ThumbnailSetting });
                 Log($"OK: Drawer instantiated → {drawer.GetType().FullName}");
 
                 // Get first Mode from menu
                 var menu = FaceEmoAPI.LoadMenu(launcher);
+                if (menu == null) { Log("FAIL: No menu repository on launcher."); return; }
                 var modes = FaceEmoAPI.GetAllExpressions(menu);
                 if (modes.Count == 0) { Log("FAIL: No modes in menu."); return; }
                 var firstMode = modes[0].mode;
@@ -206,6 +208,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
                 // GetThumbnail returns hourglass first time; RequestUpdate + Update drives it
                 var baseType = mainType.BaseType; // ThumbnailDrawerBase
+                if (baseType == null) { Log("FAIL: MainThumbnailDrawer has no BaseType."); return; }
                 var getThumbnail = baseType.GetMethod("GetThumbnail");
                 var requestUpdate = baseType.GetMethod("RequestUpdate");
                 var updateMethod = baseType.GetMethod("Update");
@@ -237,13 +240,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 {
                     Log("OK: Thumbnail rendered. Visual verification — does the cached texture look correct?");
                 }
-
-                ((System.IDisposable)drawer).Dispose();
             }
             catch (System.Exception ex)
             {
                 var inner = (ex as System.Reflection.TargetInvocationException)?.InnerException ?? ex;
                 Log($"FAIL: {inner.GetType().Name}: {inner.Message}");
+            }
+            finally
+            {
+                (drawer as System.IDisposable)?.Dispose();
             }
 #else
             Log("SKIP: FACE_EMO not defined.");
