@@ -173,63 +173,71 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             // Render each cell — also track whether MakeReadableCopy allocated a new texture
             var cells = new Texture2D[8];
             var cellOwnsTexture = new bool[8];
-            int cellW = 0, cellH = 0;
-            for (int i = 0; i < 8; i++)
+            Texture2D composite = null;
+
+            try
             {
-                if (slots[i].clip == null) continue;
-                var tex = DriveSyncRender(_gestureDrawer, slots[i].anim, slots[i].clip);
-                if (tex == null) continue;
-                var readable = MakeReadableCopy(tex);
-                cells[i] = readable;
-                cellOwnsTexture[i] = readable != tex;
-                if (cellW == 0) { cellW = readable.width; cellH = readable.height; }
-            }
-
-            if (cellW == 0) { LastReflectionError = "No gesture cells could be rendered"; return null; }
-
-            // Composite into 4x2 grid (4 cols × 2 rows) with 2px border, gesture name label
-            const int padding = 4;
-            const int labelH = 14;
-            int gridW = cellW * 4 + padding * 5;
-            int gridH = (cellH + labelH) * 2 + padding * 3;
-            var composite = new Texture2D(gridW, gridH, TextureFormat.RGBA32, false);
-
-            // Fill with dark gray background
-            var bg = new Color32(40, 40, 48, 255);
-            var bgPixels = new Color32[gridW * gridH];
-            for (int p = 0; p < bgPixels.Length; p++) bgPixels[p] = bg;
-            composite.SetPixels32(bgPixels);
-
-            for (int i = 0; i < 8; i++)
-            {
-                int col = i % 4;
-                int row = i / 4;
-                int x = padding + col * (cellW + padding);
-                int y = padding + row * (cellH + labelH + padding);
-                if (cells[i] != null)
+                int cellW = 0, cellH = 0;
+                for (int i = 0; i < 8; i++)
                 {
-                    var pixels = cells[i].GetPixels32();
-                    composite.SetPixels32(x, y + labelH, cellW, cellH, pixels);
+                    if (slots[i].clip == null) continue;
+                    var tex = DriveSyncRender(_gestureDrawer, slots[i].anim, slots[i].clip);
+                    if (tex == null) continue;
+                    var readable = MakeReadableCopy(tex);
+                    cells[i] = readable;
+                    cellOwnsTexture[i] = readable != tex;
+                    if (cellW == 0) { cellW = readable.width; cellH = readable.height; }
                 }
+
+                if (cellW == 0) { LastReflectionError = "No gesture cells could be rendered"; return null; }
+
+                // Composite into 4x2 grid (4 cols × 2 rows) with 2px border, gesture name label
+                const int padding = 4;
+                const int labelH = 14;
+                int gridW = cellW * 4 + padding * 5;
+                int gridH = (cellH + labelH) * 2 + padding * 3;
+                composite = new Texture2D(gridW, gridH, TextureFormat.RGBA32, false);
+
+                // Fill with dark gray background
+                var bg = new Color32(40, 40, 48, 255);
+                var bgPixels = new Color32[gridW * gridH];
+                for (int p = 0; p < bgPixels.Length; p++) bgPixels[p] = bg;
+                composite.SetPixels32(bgPixels);
+
+                for (int i = 0; i < 8; i++)
+                {
+                    int col = i % 4;
+                    int row = i / 4;
+                    int x = padding + col * (cellW + padding);
+                    int y = padding + row * (cellH + labelH + padding);
+                    if (cells[i] != null)
+                    {
+                        var pixels = cells[i].GetPixels32();
+                        composite.SetPixels32(x, y + labelH, cellW, cellH, pixels);
+                    }
+                }
+                composite.Apply();
+
+                return SaveAsPng(composite, $"{SanitizeFileName(modeName)}_gestures.png");
             }
-            composite.Apply();
-
-            string path = SaveAsPng(composite, $"{SanitizeFileName(modeName)}_gestures.png");
-
-            // Cleanup — destroy only textures WE allocated (not FaceEmo drawer's cached refs)
-            for (int i = 0; i < 8; i++)
+            finally
             {
-                if (cells[i] != null && cellOwnsTexture[i])
-                    UnityEngine.Object.DestroyImmediate(cells[i]);
+                // Cleanup — destroy only textures WE allocated (not FaceEmo drawer's cached refs)
+                for (int i = 0; i < 8; i++)
+                {
+                    if (cells[i] != null && cellOwnsTexture[i])
+                        UnityEngine.Object.DestroyImmediate(cells[i]);
+                }
+                if (composite != null) UnityEngine.Object.DestroyImmediate(composite);
             }
-            UnityEngine.Object.DestroyImmediate(composite);
-            return path;
         }
 
         /// <summary>
-        /// Force FaceEmo's MainView to refresh its thumbnail cache by relaunching the window.
-        /// modeName is informational (logged), since the relaunch is global.
-        /// Returns true if the window was open and was refreshed; false if not open or on error.
+        /// Triggers FaceEmo's MainView to refresh its thumbnail cache by relaunching the window
+        /// (no-op if the window is not open). modeName is informational (logged for context).
+        /// Returns false only if the launcher reference is null; otherwise true. Note: the
+        /// underlying FaceEmoAPI.RefreshWindowIfOpen is void and silently swallows internal
+        /// reflection errors, so a "true" return does not guarantee a visible UI update.
         /// </summary>
         public bool RefreshMainView(string modeName = null)
         {

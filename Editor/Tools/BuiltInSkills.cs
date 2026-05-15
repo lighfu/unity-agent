@@ -295,13 +295,14 @@ ImportExpressions reads the existing FX Animator and recreates the expression se
 2. [OpenExpressionSession(newName='Smile')] → MainWindow + ExpressionEditor を開く (Live セッション)
 3. [SuggestExpressionShapes('Avatar', 'smile')] → 'shape1=80;shape2=100;...' を取得
 4. [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → ExpressionEditor のライブプレビューに即反映
-5. [CaptureFaceEmoModeThumbnail('Smile')] → AI 応答に表情画像を添付 (auto-session の場合は新規セッションの暫定名で呼ぶ)
-6. (任意) [ReadExpressionFromWindow()] → ユーザーが手で動かしたスライダーを取り込む
-7. [CommitExpressionSession()] → .anim 保存 + FaceEmo Menu に登録
-8. [RefreshFaceEmoMainView()] → MainView の Mode サムネを最新化
+5. (任意) [ReadExpressionFromWindow()] → ユーザーが手で動かしたスライダーを取り込む
+6. [CommitExpressionSession()] → .anim 保存 + FaceEmo Menu に登録
+7. [RefreshFaceEmoMainView()] → MainView の Mode サムネを最新化
+8. [CaptureFaceEmoModeThumbnail('Smile')] → 登録された Mode のサムネを PNG として保存し、AI 応答に画像添付
 9. [ApplyFaceEmoToAvatar()] → FX レイヤー生成
 ```
 This is the canonical flow. FaceEmo and a configured launcher+avatar are REQUIRED.
+Note: CaptureFaceEmoModeThumbnail / CaptureFaceEmoGestureTable / CaptureFaceEmoExMenuThumbnail all require the Mode to be COMMITTED to the FaceEmo menu first — call them after CommitExpressionSession.
 intent keywords supported: smile / angry / surprised / sad / cry / wink / sleep / kiss / shy
 plus Japanese aliases (笑顔/怒り/驚き/...). If preset confidence is low, fall back to Workflow C.
 
