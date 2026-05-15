@@ -202,6 +202,14 @@ It manages gesture-to-AnimationClip switching and generates FX layers via NDMF/M
 [ResetExpressionPreview('<faceSmrPath>')] — Reset blend shapes on a single SMR
 ```
 
+### Thumbnail Capture (Plan B)
+```
+[CaptureFaceEmoModeThumbnail('Smile')] — Save Mode face thumbnail as PNG (for AI response embedding)
+[CaptureFaceEmoGestureTable('Smile')] — Save 4×2 grid of all 8 gesture variants
+[CaptureFaceEmoExMenuThumbnail('Smile')] — Save the VRChat menu image
+[RefreshFaceEmoMainView()] — Force-refresh FaceEmo MainView thumbnails after edits
+```
+
 ### Expression Registration & Management
 ```
 [AddExpression('Angry', 'Registered', 'Assets/.../angry.anim')] — Add new expression
@@ -287,9 +295,11 @@ ImportExpressions reads the existing FX Animator and recreates the expression se
 2. [OpenExpressionSession(newName='Smile')] → MainWindow + ExpressionEditor を開く (Live セッション)
 3. [SuggestExpressionShapes('Avatar', 'smile')] → 'shape1=80;shape2=100;...' を取得
 4. [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → ExpressionEditor のライブプレビューに即反映
-5. (任意) [ReadExpressionFromWindow()] → ユーザーが手で動かしたスライダーを取り込む
-6. [CommitExpressionSession()] → .anim 保存 + FaceEmo Menu に登録
-7. [ApplyFaceEmoToAvatar()] → FX レイヤー生成
+5. [CaptureFaceEmoModeThumbnail('Smile')] → AI 応答に表情画像を添付 (auto-session の場合は新規セッションの暫定名で呼ぶ)
+6. (任意) [ReadExpressionFromWindow()] → ユーザーが手で動かしたスライダーを取り込む
+7. [CommitExpressionSession()] → .anim 保存 + FaceEmo Menu に登録
+8. [RefreshFaceEmoMainView()] → MainView の Mode サムネを最新化
+9. [ApplyFaceEmoToAvatar()] → FX レイヤー生成
 ```
 This is the canonical flow. FaceEmo and a configured launcher+avatar are REQUIRED.
 intent keywords supported: smile / angry / surprised / sad / cry / wink / sleep / kiss / shy

@@ -11,8 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - `OpenExpressionSession`, `ReadExpressionFromWindow`, `CommitExpressionSession`, `CloseExpressionSession` AgentTools.
 - `FaceEmoGate`, `FaceEmoExpressionSession`, `ExpressionEditorBridge`, `AssetPathFallback`.
+- Plan B (Thumbnail integration): `CaptureFaceEmoModeThumbnail`, `CaptureFaceEmoGestureTable`, `CaptureFaceEmoExMenuThumbnail`, `RefreshFaceEmoMainView` AgentTools.
+- `FaceEmoThumbnailRenderer` (internal, reflection layer for FaceEmo's MainThumbnailDrawer / GestureTableThumbnailDrawer / ExMenuThumbnailDrawer).
+- PNG output under `Library/UnityAgent/face-thumbnails/`.
 ### Notes
-- Plan B (Thumbnail / preview integration) is tracked separately and not yet released.
+- Plan B (Thumbnail integration) is included in this release.
 
 ## [0.10.4] — 2026-05-11
 
