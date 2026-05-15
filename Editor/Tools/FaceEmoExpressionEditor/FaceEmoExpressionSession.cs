@@ -37,12 +37,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         public static FaceEmoExpressionSession OpenForMode(string modeName, string gameObjectName = "")
         {
             var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
-            if (!gate.Ok) throw new InvalidOperationException(gate.ErrorMessage);
+            if (!gate.Ok) throw new InvalidOperationException(StripErrorPrefix(gate.ErrorMessage));
 
             var menu = FaceEmoAPI.LoadMenu(gate.Launcher);
-            if (menu == null) throw new InvalidOperationException("Error: Failed to load FaceEmo menu.");
+            if (menu == null) throw new InvalidOperationException("Failed to load FaceEmo menu.");
             var (modeId, mode) = FaceEmoAPI.FindExpression(menu, modeName);
-            if (modeId == null) throw new InvalidOperationException($"Error: Mode '{modeName}' not found in FaceEmo menu.");
+            if (modeId == null) throw new InvalidOperationException($"Mode '{modeName}' not found in FaceEmo menu.");
 
             string guid = mode.Animation?.GUID;
             AnimationClip clip = null;
@@ -82,7 +82,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         public static FaceEmoExpressionSession OpenForNewExpression(string displayName, string animSavePath, string gameObjectName = "")
         {
             var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
-            if (!gate.Ok) throw new InvalidOperationException(gate.ErrorMessage);
+            if (!gate.Ok) throw new InvalidOperationException(StripErrorPrefix(gate.ErrorMessage));
 
             // Dispose previous ambient session
             _active?.Dispose();
@@ -255,6 +255,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         {
             return "Tmp_" + Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant();
         }
+
+        // Strip the gate-supplied "Error: " prefix so tool-boundary catch sites (which prepend
+        // "Error: " unconditionally) don't produce a "Error: Error: ..." double prefix.
+        private static string StripErrorPrefix(string s)
+            => s != null && s.StartsWith("Error: ") ? s.Substring("Error: ".Length) : s;
     }
 }
 #endif
