@@ -216,7 +216,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                           $"(session mode: {session.Mode})");
             if (autoSession)
                 sb.AppendLine($"  (auto-session: \"{session.PendingDisplayName ?? session.TmpName}\". " +
-                              "Call CommitExpressionSession to persist, or OpenExpressionSession beforehand to control the name.)");
+                              "Use CreateAndRegisterExpression with this name to commit, or it remains in-memory until Unity reload.)");
             foreach (var line in smrResults) sb.AppendLine(line);
             if (resolved.Count > 0) sb.AppendLine($"  Resolved: {string.Join(", ", resolved)}");
             if (notFound.Count > 0)
@@ -431,20 +431,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (kv.Key.Contains(queryLower)) return kv.Value;
             }
             return null;
-        }
-
-        private static SkinnedMeshRenderer ResolveSmr(string hierarchyPath)
-        {
-            if (string.IsNullOrEmpty(hierarchyPath)) return null;
-            // GameObject.Find は階層パスを '/' 区切りで受け付ける
-            var go = GameObject.Find(hierarchyPath);
-            if (go == null)
-            {
-                // 末尾名で fallback 検索
-                var name = hierarchyPath.Substring(hierarchyPath.LastIndexOf('/') + 1);
-                go = MeshAnalysisTools.FindGameObject(name);
-            }
-            return go == null ? null : go.GetComponent<SkinnedMeshRenderer>();
         }
 
         private static string StripAvatarPrefix(string fullPath, string avatarRootPath)

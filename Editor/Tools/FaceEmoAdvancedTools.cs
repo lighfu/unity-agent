@@ -899,6 +899,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return $"Success: Committed active session as '{active.PendingDisplayName}' (ModeId={active.ModeId}).";
             }
 
+            // Snapshot prior session BEFORE OpenForNewExpression disposes it,
+            // so we can surface a clear warning if we are about to drop in-memory edits.
+            var priorActive = FaceEmoExpressionSession.Active;
+            string discardWarning = "";
+            if (priorActive != null && priorActive.IsNewExpression && priorActive.PendingDisplayName != expressionName)
+            {
+                discardWarning = $" (Note: discarded prior in-memory session \"{priorActive.PendingDisplayName}\".)";
+            }
+
             // Otherwise, snapshot current mesh state into a new session and commit
             var session = FaceEmoExpressionSession.OpenForNewExpression(expressionName, animPath, faceEmoObjectName);
             var go = MeshAnalysisTools.FindGameObject(meshObjectName);
@@ -917,7 +926,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 captured++;
             }
             session.Commit();
-            return $"Success: Created '{expressionName}' from {captured} active blendshapes (ModeId={session.ModeId}).";
+            return $"Success: Created '{expressionName}' from {captured} active blendshapes (ModeId={session.ModeId}).{discardWarning}";
         }
 
         [AgentTool("Preview a FaceEmo expression on the avatar mesh in Scene view. Resolves the animation from FaceEmo domain model and applies blend shapes. slot: 'Mode' (default), 'Base', 'Left', 'Right', 'Both'.")]
@@ -1096,13 +1105,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (go == null) return $"Error: Mesh '{meshObjectName}' not found.";
             var smr = go.GetComponent<SkinnedMeshRenderer>();
             if (smr == null || smr.sharedMesh == null) return $"Error: SMR or mesh missing.";
+            string relPath = string.IsNullOrEmpty(meshPath) ? meshObjectName : meshPath;
 
             int captured = 0;
             for (int i = 0; i < smr.sharedMesh.blendShapeCount; i++)
             {
                 float w = smr.GetBlendShapeWeight(i);
                 if (Mathf.Abs(w) < 0.001f) continue;
-                session.SetBlendShape(meshObjectName, smr.sharedMesh.GetBlendShapeName(i), w);
+                session.SetBlendShape(relPath, smr.sharedMesh.GetBlendShapeName(i), w);
                 captured++;
             }
             session.OverrideSavePath(animPath);

@@ -119,8 +119,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
         public void SetBlendShape(string smrRelativePath, string shapeName, float value)
         {
-            if (string.IsNullOrEmpty(smrRelativePath) || string.IsNullOrEmpty(shapeName))
-                throw new ArgumentException("smrRelativePath and shapeName are required");
+            if (smrRelativePath == null) throw new ArgumentNullException(nameof(smrRelativePath));
+            if (string.IsNullOrEmpty(shapeName)) throw new ArgumentException("shapeName is required", nameof(shapeName));
+            // smrRelativePath of "" means "the animator's root GameObject" — accept it.
 
             if (Mode == SyncMode.Live)
             {
