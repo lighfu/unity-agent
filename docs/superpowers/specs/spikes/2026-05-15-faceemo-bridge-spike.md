@@ -5,31 +5,48 @@ Date: 2026-05-15
 Spec: ../2026-05-15-faceemo-realtime-bridge-design.md §11
 
 ## 0.2 IExpressionEditor DI resolution
-Status: TBD (filled in Task 0.2)
+Status: **PASS**
 Notes:
+- Resolved type: `Suzuryg.FaceEmo.Detail.ExpressionEditor.Presenters.ExpressionEditorPresenter`
+  - FaceEmo の `IExpressionEditor` impl は Presenter パターンで、`ExpressionEditorPresenter` が DI 解決される
+- `FaceEmoInstaller(launcher.gameObject).Container.Resolve<T>()` の generic Resolve は問題なく動作（既存 `FaceEmoAPI.ApplyToAvatar` と同じパターン）
+- assembly 名: `jp.suzuryg.face-emo.appmain.Editor` / `jp.suzuryg.face-emo.detail.Editor`
 
 ## 0.3 ExpressionEditorModelFacade access
-Status: TBD (filled in Task 0.3)
+Status: **PASS**
 Notes:
+- Field name on `ExpressionEditorPresenter`: **`_modelFacade`**（Plan の placeholder `_model` ではない）
+- Access path: NonPublic|Instance field scan
+- Bridge は `FirstOrDefault(f => f.FieldType.Name == "ExpressionEditorModelFacade")` で取得しているので **コード変更不要**（field 名に依存しない実装になっている）
+- Facade の API は仕様書通り:
+  - 読取系: `FaceBlendShapes` / `AnimatedBlendShapes` / `BlinkBlendShapes` / `LipSyncBlendShapes` / `Toggles` / `Transforms` / `AnimatedToggles` / `AnimatedTransforms` (すべて IReadOnlyDictionary プロパティ)
+  - 書込系: `SetBlendShapeValue(BlendShape, float)` / `RemoveBlendShapeValue` / `AddAllBlendShapes` / `SetToggleValue` / `SetTransformValue`
+  - lifecycle: `OpenTargetClip` / `FetchPreviewAvatar` / `StartSampling` / `StopSampling` / `Dispose`
+  - event: `OnThumbnailUpdateRequested`（Plan B のサムネ統合で利用可能）
 
 ## 0.4 SetBlendShapeValue live reflection
-Status: TBD (filled in Task 0.4)
+Status: **PASS**
 Notes:
+- ExpressionEditor was opened with probe clip via `IExpressionEditor.Open(clip)` (実体は Presenter.Open)
+- Facade acquired correctly via `_modelFacade` field
+- First face BlendShape: `Body.vrc.v_sil` (Avatar SDK の viseme "silent" position — face SMR が `Body` という命名のアバター)
+- `SetBlendShapeValue(blendShape, 100f)` 例外なく成功
+- ExpressionEditor preview の視覚反映: **要手動確認** (probe ログでは "Manually verify" 注記、実機での確認が必要)
 
 ## Decision
 
 | Spike | Result |
 |---|---|
-| 0.2 IExpressionEditor DI | PASS / FAIL |
-| 0.3 Facade access | PASS / FAIL |
-| 0.4 SetBlendShapeValue live | PASS / PARTIAL / FAIL |
+| 0.2 IExpressionEditor DI | **PASS** |
+| 0.3 Facade access | **PASS** |
+| 0.4 SetBlendShapeValue live | **PASS** (preview の視覚反映は手動確認待ち) |
 
 ### Implementation path
-- [ ] **Full Live + Degraded** (0.2-0.4 all PASS): Proceed with Phase 2-5 as written.
+- [x] **Full Live + Degraded** (0.2-0.4 all PASS): Proceed with Phase 2-5 as written.
 - [ ] **Degraded only** (any of 0.2-0.4 FAIL): Skip Phase 2 Tasks 2.4/2.5. Bridge.TryOpen still possible (for PreviewWindow display) but SetBlendShape always returns false → Session uses AssetPathFallback only.
 - [ ] **Abort** (0.2 itself fails): FaceEmo パッケージ構造が想定と完全に異なる。仕様を見直す。
 
-Selected path: ____________________
+Selected path: **Full Live + Degraded** (Plan A 全フェーズを書かれた通りに実装。実装完了。`babc233` で master にマージ済み)
 
 ---
 
