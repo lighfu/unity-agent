@@ -136,6 +136,34 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         }
 
         /// <summary>
+        /// Render the ExMenu (VRChat-baked) thumbnail (C — ExMenuThumbnailDrawer) and save as PNG.
+        /// Returns the saved PNG path, or null on failure (sets <see cref="LastReflectionError"/>).
+        /// Does NOT call Fail() — per-call user-data errors must not flip IsHealthy.
+        /// File name is prefixed with "exmenu_" to distinguish from the Main Mode thumbnail.
+        /// </summary>
+        public string RenderExMenuThumbnail(string modeName)
+        {
+            if (!IsHealthy) { LastReflectionError = "Renderer not healthy"; return null; }
+            if (_launcher == null) { LastReflectionError = "Launcher is null"; return null; }
+
+            var menu = FaceEmoAPI.LoadMenu(_launcher);
+            if (menu == null) { LastReflectionError = "Could not load FaceEmo menu"; return null; }
+            var (_, mode) = FaceEmoAPI.FindExpression(menu, modeName);
+            if (mode == null) { LastReflectionError = $"Mode '{modeName}' not found"; return null; }
+            var anim = mode.Animation;
+            if (anim == null || string.IsNullOrEmpty(anim.GUID))
+            { LastReflectionError = $"Mode '{modeName}' has no animation"; return null; }
+
+            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(AssetDatabase.GUIDToAssetPath(anim.GUID));
+            if (clip == null) { LastReflectionError = $"Clip not found for GUID {anim.GUID}"; return null; }
+
+            var texture = DriveSyncRender(_exMenuDrawer, anim, clip);
+            if (texture == null) { LastReflectionError = "ExMenu render timed out"; return null; }
+
+            return SaveAsPng(texture, $"exmenu_{SanitizeFileName(modeName)}.png");
+        }
+
+        /// <summary>
         /// Render a thumbnail synchronously by repeatedly calling Update() until the cache fills.
         /// Returns the cached Texture2D or null on timeout. Wraps reflection exceptions and
         /// surfaces them via <see cref="LastReflectionError"/>.
