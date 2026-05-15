@@ -1060,7 +1060,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Reset all blend shapes to 0 after expression preview. " +
             "Call this after finishing expression creation or adjustment.")]
         public static string ResetExpressionPreview(string meshObjectName)
-            => BlendShapeTools.ResetBlendShapes(meshObjectName);
+        {
+            var gate = FaceEmoGate.RequireExpressionEditingReady();
+            if (!gate.Ok) return gate.ErrorMessage;
+            return BlendShapeTools.ResetBlendShapes(meshObjectName);
+        }
 
         [AgentTool("Get current non-zero blend shape values on a mesh. " +
             "Useful for capturing expression state before saving to animation clip.")]
