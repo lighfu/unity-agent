@@ -5,6 +5,9 @@ using System.Linq;
 using System.Text;
 using AjisaiFlow.UnityAgent.SDK;
 using AjisaiFlow.UnityAgent.Editor.Tools.FaceProfile;
+#if FACE_EMO
+using AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor;
+#endif
 using UnityEditor;
 using UnityEngine;
 
@@ -174,34 +177,42 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 resolved.Add($"{shapeName}={value:F0}");
             }
 
-            // 各 SMR に値設定
+#if FACE_EMO
+            // FaceEmo Gate
+            var gate = FaceEmoGate.RequireExpressionEditingReady();
+            if (!gate.Ok) return gate.ErrorMessage;
+
+            // Get or create ambient session
+            var session = FaceEmoExpressionEditor.FaceEmoExpressionSession.Active;
+            bool autoSession = false;
+            if (session == null)
+            {
+                string tmpPath = $"Assets/UnityAgent/Expressions/{System.IO.Path.GetRandomFileName().Replace(".","")}.anim";
+                session = FaceEmoExpressionEditor.FaceEmoExpressionSession.OpenForNewExpression(null, tmpPath);
+                autoSession = true;
+            }
+
             int appliedCount = 0;
             var smrResults = new List<string>();
             foreach (var kv in smrUpdates)
             {
-                var smr = ResolveSmr(kv.Key);
-                if (smr == null || smr.sharedMesh == null)
-                {
-                    smrResults.Add($"  [skip] SMR or mesh missing at path '{kv.Key}' (avatar may have changed since cache; rerun AnalyzeFaceBlendShapes with force=true)");
-                    continue;
-                }
-                Undo.RecordObject(smr, "SetExpressionPreviewMulti");
-                int shapeCount = smr.sharedMesh.blendShapeCount;
+                string smrPath = StripAvatarPrefix(kv.Key, profile.avatarRootPath);
                 foreach (var update in kv.Value)
                 {
-                    if (update.idx >= 0 && update.idx < shapeCount)
-                    {
-                        smr.SetBlendShapeWeight(update.idx, update.value);
-                        appliedCount++;
-                    }
+                    session.SetBlendShape(smrPath, update.shapeName, update.value);
+                    appliedCount++;
                 }
-                smrResults.Add($"  [{smr.name}] {kv.Value.Count} shape(s)");
+                smrResults.Add($"  [{System.IO.Path.GetFileName(kv.Key)}] {kv.Value.Count} shape(s)");
             }
 
             SceneView.RepaintAll();
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Success: Applied {appliedCount} blend shape value(s) across {smrUpdates.Count} SMR(s).");
+            sb.AppendLine($"Success: Applied {appliedCount} blend shape value(s) across {smrUpdates.Count} SMR(s). " +
+                          $"(session mode: {session.Mode})");
+            if (autoSession)
+                sb.AppendLine($"  (auto-session: \"{session.PendingDisplayName ?? session.TmpName}\". " +
+                              "Call CommitExpressionSession to persist, or OpenExpressionSession beforehand to control the name.)");
             foreach (var line in smrResults) sb.AppendLine(line);
             if (resolved.Count > 0) sb.AppendLine($"  Resolved: {string.Join(", ", resolved)}");
             if (notFound.Count > 0)
@@ -209,6 +220,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (rangeWarnings.Count > 0)
                 sb.AppendLine($"  Range warnings: {string.Join("; ", rangeWarnings)}");
             return sb.ToString().TrimEnd();
+#else
+            return "Error: FaceEmo (jp.suzuryg.face-emo) is not installed. Expression editing is only available with FaceEmo.";
+#endif
         }
 
         [AgentTool("プロファイル上の categorized shape を、複数のカテゴリキーワードで一括検索する。" +
@@ -427,6 +441,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 go = MeshAnalysisTools.FindGameObject(name);
             }
             return go == null ? null : go.GetComponent<SkinnedMeshRenderer>();
+        }
+
+        private static string StripAvatarPrefix(string fullPath, string avatarRootPath)
+        {
+            if (string.IsNullOrEmpty(avatarRootPath) || !fullPath.StartsWith(avatarRootPath))
+                return fullPath;
+            string relative = fullPath.Substring(avatarRootPath.Length);
+            return relative.TrimStart('/');
         }
 
         private static List<(string name, float value)> ParseShapeData(string data)
