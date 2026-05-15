@@ -50,6 +50,15 @@ Selected path: **Full Live + Degraded** (Plan A 全フェーズを書かれた�
 
 ---
 
+## B.0 ThumbnailDrawer instantiation + render
+Status: TBD (user runs Spike B.0 button)
+Notes:
+- Drawer types: MainThumbnailDrawer / GestureTableThumbnailDrawer / ExMenuThumbnailDrawer
+- Ctor args: (AV3Setting, ThumbnailSetting) — both public properties on FaceEmoLauncherComponent
+- Render driver: GetThumbnail + RequestUpdate + Update() loop until GetCachedThumbnailOrNull returns non-null
+- Drives synchronously, no main-thread blocking event loop required
+- Expected: Cached after a few Update() iterations (1-10 typical)
+
 ## Integration Test Checklist (Plan A 完了後の手動検証)
 
 シーン: FaceEmo + ターゲットアバター（既知の BlendShape を持つ "Body" mesh）

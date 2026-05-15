@@ -163,11 +163,91 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 #endif
             }
 
+            EditorGUILayout.LabelField("Phase B: Thumbnail (Plan B Spike)", EditorStyles.boldLabel);
+            if (GUILayout.Button("Spike B.0: Instantiate ThumbnailDrawers + render first Mode"))
+            {
+                SpikeThumbnailRender();
+            }
+
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
             EditorGUILayout.TextArea(_log, GUILayout.ExpandHeight(true));
             EditorGUILayout.EndScrollView();
             if (GUILayout.Button("Clear")) _log = "";
+        }
+
+        private void SpikeThumbnailRender()
+        {
+            Log("--- Spike B.0 ---");
+#if FACE_EMO
+            var launcher = FaceEmoAPI.FindLauncher();
+            if (launcher == null) { Log("FAIL: No launcher."); return; }
+            if (launcher.AV3Setting == null || launcher.ThumbnailSetting == null)
+            { Log("FAIL: AV3Setting or ThumbnailSetting missing on launcher."); return; }
+
+            const string detailAsm = "jp.suzuryg.face-emo.detail.Editor";
+            try
+            {
+                var mainType = System.Type.GetType($"Suzuryg.FaceEmo.Detail.Drawing.MainThumbnailDrawer, {detailAsm}");
+                if (mainType == null) { Log("FAIL: MainThumbnailDrawer type not found."); return; }
+
+                var drawer = System.Activator.CreateInstance(mainType,
+                    new object[] { launcher.AV3Setting, launcher.ThumbnailSetting });
+                Log($"OK: Drawer instantiated → {drawer.GetType().FullName}");
+
+                // Get first Mode from menu
+                var menu = FaceEmoAPI.LoadMenu(launcher);
+                var modes = FaceEmoAPI.GetAllExpressions(menu);
+                if (modes.Count == 0) { Log("FAIL: No modes in menu."); return; }
+                var firstMode = modes[0].mode;
+                var anim = firstMode.Animation;
+                if (anim == null) { Log("FAIL: First mode has no Animation."); return; }
+                Log($"Probing first mode '{firstMode.DisplayName}', anim GUID={anim.GUID}");
+
+                // GetThumbnail returns hourglass first time; RequestUpdate + Update drives it
+                var baseType = mainType.BaseType; // ThumbnailDrawerBase
+                var getThumbnail = baseType.GetMethod("GetThumbnail");
+                var requestUpdate = baseType.GetMethod("RequestUpdate");
+                var updateMethod = baseType.GetMethod("Update");
+                var getCached = baseType.GetMethod("GetCachedThumbnailOrNull");
+                if (getThumbnail == null || requestUpdate == null || updateMethod == null || getCached == null)
+                { Log("FAIL: Required ThumbnailDrawerBase methods not all found."); return; }
+
+                var clip = UnityEditor.AssetDatabase.LoadAssetAtPath<AnimationClip>(
+                    UnityEditor.AssetDatabase.GUIDToAssetPath(anim.GUID));
+                if (clip == null) { Log($"FAIL: Could not load clip for GUID {anim.GUID}."); return; }
+
+                // First GetThumbnail: returns hourglass placeholder, schedules update
+                getThumbnail.Invoke(drawer, new object[] { anim });
+                requestUpdate.Invoke(drawer, new object[] { clip });
+
+                // Drive synchronously up to 50 iterations; each Update() advances the coroutine
+                Texture2D result = null;
+                for (int i = 0; i < 50; i++)
+                {
+                    updateMethod.Invoke(drawer, null);
+                    result = getCached.Invoke(drawer, new object[] { anim }) as Texture2D;
+                    if (result != null) { Log($"Cached after {i + 1} Update() iterations: {result.width}x{result.height}"); break; }
+                }
+                if (result == null)
+                {
+                    Log("PARTIAL: Drawer didn't fill cache after 50 iterations. May need event-pump tick or different polling.");
+                }
+                else
+                {
+                    Log("OK: Thumbnail rendered. Visual verification — does the cached texture look correct?");
+                }
+
+                ((System.IDisposable)drawer).Dispose();
+            }
+            catch (System.Exception ex)
+            {
+                var inner = (ex as System.Reflection.TargetInvocationException)?.InnerException ?? ex;
+                Log($"FAIL: {inner.GetType().Name}: {inner.Message}");
+            }
+#else
+            Log("SKIP: FACE_EMO not defined.");
+#endif
         }
 
         private void Log(string msg)
