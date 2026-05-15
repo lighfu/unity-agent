@@ -25,13 +25,13 @@ Notes:
   - event: `OnThumbnailUpdateRequested`（Plan B のサムネ統合で利用可能）
 
 ## 0.4 SetBlendShapeValue live reflection
-Status: **PASS**
+Status: **PASS (full)**
 Notes:
 - ExpressionEditor was opened with probe clip via `IExpressionEditor.Open(clip)` (実体は Presenter.Open)
 - Facade acquired correctly via `_modelFacade` field
 - First face BlendShape: `Body.vrc.v_sil` (Avatar SDK の viseme "silent" position — face SMR が `Body` という命名のアバター)
 - `SetBlendShapeValue(blendShape, 100f)` 例外なく成功
-- ExpressionEditor preview の視覚反映: **要手動確認** (probe ログでは "Manually verify" 注記、実機での確認が必要)
+- **ExpressionEditor preview の視覚反映を実機で確認済み** (`Body.vrc.v_sil` が値 100 で正しく表示される)。Live モードの双方向同期が end-to-end で動作することが確認された。追加の Repaint や `Sampler.StartSampling` は不要だった
 
 ## Decision
 
@@ -39,7 +39,7 @@ Notes:
 |---|---|
 | 0.2 IExpressionEditor DI | **PASS** |
 | 0.3 Facade access | **PASS** |
-| 0.4 SetBlendShapeValue live | **PASS** (preview の視覚反映は手動確認待ち) |
+| 0.4 SetBlendShapeValue live | **PASS** (preview の視覚反映も実機確認済み) |
 
 ### Implementation path
 - [x] **Full Live + Degraded** (0.2-0.4 all PASS): Proceed with Phase 2-5 as written.
