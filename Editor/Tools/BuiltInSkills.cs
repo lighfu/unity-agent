@@ -257,6 +257,16 @@ Hand: Left / Right / Either / Both / OneSide
 [ConfigureFeatureToggles()] — Configure feature toggles
 ```
 
+## Preconditions (REQUIRED)
+
+All expression-modifying tools require:
+1. FaceEmo (`jp.suzuryg.face-emo`) installed
+2. A `FaceEmoLauncher` in the scene (created via `ExecuteMenu('FaceEmo/New Menu')`)
+3. `TargetAvatar` configured on the launcher (via `ConfigureTargetAvatar`)
+
+If any precondition is missing, tools return an Error with the recovery step.
+Analysis tools (AnalyzeFaceBlendShapes, SearchExpressionShapesV2) are read-only and NOT gated.
+
 ## Workflows
 
 ### A. Setup FaceEmo on Avatar (""FaceEmoを適用して"")
@@ -273,31 +283,28 @@ ImportExpressions reads the existing FX Animator and recreates the expression se
 
 ### B. Create Expression from Preset (RECOMMENDED — fastest path) (""笑顔の表情を作って"")
 ```
-1. [AnalyzeFaceBlendShapes('Avatar')] → Build/refresh profile (one-time per avatar)
-2. [SuggestExpressionShapes('Avatar', 'smile')] → Returns 'shape1=80;shape2=100;...' from preset
-3. [SetExpressionPreviewMulti('Avatar', '<shapeData from step 2>')] → Apply across SMRs
-4. [CaptureFacePreview('Avatar')] → Stable preview image
-5. [AskUser] → Confirm appearance
-6. [CreateAndRegisterExpression('<faceSmrPath>', 'Smile', 'Assets/.../smile.anim')] → Save + register
-7. [AddGestureBranch('Smile', 'Left=Fist')] → Assign gesture (if user specified)
-8. (Reset omitted — Apply step replaces values; reset only when leaving preview)
+1. [AnalyzeFaceBlendShapes('Avatar')]
+2. [OpenExpressionSession(newName='Smile')] → MainWindow + ExpressionEditor を開く (Live セッション)
+3. [SuggestExpressionShapes('Avatar', 'smile')] → 'shape1=80;shape2=100;...' を取得
+4. [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → ExpressionEditor のライブプレビューに即反映
+5. (任意) [ReadExpressionFromWindow()] → ユーザーが手で動かしたスライダーを取り込む
+6. [CommitExpressionSession()] → .anim 保存 + FaceEmo Menu に登録
+7. [ApplyFaceEmoToAvatar()] → FX レイヤー生成
 ```
+This is the canonical flow. FaceEmo and a configured launcher+avatar are REQUIRED.
 intent keywords supported: smile / angry / surprised / sad / cry / wink / sleep / kiss / shy
 plus Japanese aliases (笑顔/怒り/驚き/...). If preset confidence is low, fall back to Workflow C.
 
 ### C. Create Expression Manually (preset miss / fine-tuning) (""人差し指で驚いた表情にして"")
 ```
-1. [ListFaceEmoExpressions()] → Check existing assignments
-2. If gesture already assigned → [AskUser] whether to overwrite (deny → stop)
-3. [AnalyzeFaceBlendShapes('Avatar')] → Get face SMR path + categorized shapes
-4. [SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')] → Find candidates across categories
-5. [SetExpressionPreviewMulti('Avatar', 'eye_surprised=100;mouth_open=60;brow_up=80')] → Build (values 0-100)
-6. [CaptureFacePreview('Avatar')] → Verify
-7. [AskUser] → Confirm appearance
-8. [CreateAndRegisterExpression('<faceSmrPath>', 'Surprised', 'Assets/.../surprised.anim')] → Save + register
-9. [AddGestureBranch('Surprised', 'Left=FingerPoint')] → Assign gesture
+1. [OpenExpressionSession(newName='Surprised')] → ExpressionEditor を開く
+2. [AnalyzeFaceBlendShapes('Avatar')] → SMR / カテゴリ確認
+3. [SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')] → カテゴリ別 shape 候補
+4. [SetExpressionPreviewMulti('Avatar', 'eye_surprised=100;mouth_open=60;brow_up=80')] → ライブ反映
+5. (任意) [ReadExpressionFromWindow()] → 手調整を取り込む
+6. [CommitExpressionSession()] → 保存・登録
 ```
-If overwriting: remove the old expression first with [RemoveExpression], then proceed from step 3.
+If overwriting: remove the old expression first with [RemoveExpression], then proceed from step 2.
 NEVER pass `'Body'` literally — derive `<faceSmrPath>` from AnalyzeFaceBlendShapes output.
 
 ### D. Edit Existing Expression

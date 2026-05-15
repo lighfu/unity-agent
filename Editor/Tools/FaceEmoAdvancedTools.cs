@@ -3,6 +3,7 @@ using Suzuryg.FaceEmo.Domain;
 using Suzuryg.FaceEmo.Components;
 using Suzuryg.FaceEmo.Components.Data;
 using Suzuryg.FaceEmo.Components.Settings;
+using AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor;
 using FaceEmoMenu = Suzuryg.FaceEmo.Domain.Menu;
 using FaceEmoAnimation = Suzuryg.FaceEmo.Domain.Animation;
 #endif
@@ -880,21 +881,52 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         //  F. Cross-tool Integration (2 tools)
         // ═══════════════════════════════════════════
 
-        [AgentTool("Create AnimationClip from current blend shapes AND register as new FaceEmo expression in one step. meshObjectName: mesh with blend shapes. expressionName: display name. animPath: where to save clip. meshPath: optional relative path from avatar root.")]
+        [AgentTool("Create AnimationClip from current blend shapes AND register as new FaceEmo expression in one step. meshObjectName: mesh with blend shapes. expressionName: display name. animPath: where to save clip. meshPath: optional relative path from avatar root. " +
+            "If a matching ambient session is already open (same name or unspecified), commits it; otherwise snapshots the mesh and commits via Session.")]
         public static string CreateAndRegisterExpression(string meshObjectName,
             string expressionName, string animPath, string meshPath = "",
             string destination = "Registered", string faceEmoObjectName = "")
         {
-            // Step 1: Create animation clip from blend shapes
-            string clipResult = BlendShapeTools.CreateExpressionClip(meshObjectName, animPath, meshPath);
-            if (clipResult.StartsWith("Error")) return clipResult;
+            var gate = FaceEmoGate.RequireExpressionEditingReady(faceEmoObjectName);
+            if (!gate.Ok) return gate.ErrorMessage;
 
-            // Step 2: Register in FaceEmo
-            string addResult = AddExpression(expressionName, destination, animPath, faceEmoObjectName);
-            if (addResult.StartsWith("Error"))
-                return $"Warning: Animation clip created but FaceEmo registration failed.\nClip: {clipResult}\nFaceEmo: {addResult}";
+            // If there's an active session matching this name, commit it
+            var active = FaceEmoExpressionSession.Active;
+            if (active != null && active.IsNewExpression
+                && (active.PendingDisplayName == expressionName || string.IsNullOrEmpty(expressionName)))
+            {
+                active.Commit();
+                return $"Success: Committed active session as '{active.PendingDisplayName}' (ModeId={active.ModeId}).";
+            }
 
-            return $"Success: Created expression '{expressionName}' with animation from '{meshObjectName}'.\n  Clip: {animPath}\n  {addResult}";
+            // Snapshot prior session BEFORE OpenForNewExpression disposes it,
+            // so we can surface a clear warning if we are about to drop in-memory edits.
+            var priorActive = FaceEmoExpressionSession.Active;
+            string discardWarning = "";
+            if (priorActive != null && priorActive.IsNewExpression && priorActive.PendingDisplayName != expressionName)
+            {
+                discardWarning = $" (Note: discarded prior in-memory session \"{priorActive.PendingDisplayName}\".)";
+            }
+
+            // Otherwise, snapshot current mesh state into a new session and commit
+            var session = FaceEmoExpressionSession.OpenForNewExpression(expressionName, animPath, faceEmoObjectName);
+            var go = MeshAnalysisTools.FindGameObject(meshObjectName);
+            if (go == null) return $"Error: Mesh '{meshObjectName}' not found.";
+            var smr = go.GetComponent<SkinnedMeshRenderer>();
+            if (smr == null || smr.sharedMesh == null) return $"Error: SkinnedMeshRenderer or mesh missing on '{meshObjectName}'.";
+            string relPath = string.IsNullOrEmpty(meshPath) ? meshObjectName : meshPath;
+
+            int captured = 0;
+            for (int i = 0; i < smr.sharedMesh.blendShapeCount; i++)
+            {
+                float w = smr.GetBlendShapeWeight(i);
+                if (Mathf.Abs(w) < 0.001f) continue;
+                string name = smr.sharedMesh.GetBlendShapeName(i);
+                session.SetBlendShape(relPath, name, w);
+                captured++;
+            }
+            session.Commit();
+            return $"Success: Created '{expressionName}' from {captured} active blendshapes (ModeId={session.ModeId}).{discardWarning}";
         }
 
         [AgentTool("Preview a FaceEmo expression on the avatar mesh in Scene view. Resolves the animation from FaceEmo domain model and applies blend shapes. slot: 'Mode' (default), 'Base', 'Left', 'Right', 'Both'.")]
@@ -983,9 +1015,41 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         [AgentTool("Set blend shape values to preview an expression on the mesh. " +
             "Format: 'shapeName=value;shapeName2=value2' (values 0-100). " +
-            "Use SearchExpressionShapes first to find correct shape names.")]
+            "Use SearchExpressionShapes first to find correct shape names. " +
+            "Routes through FaceEmoExpressionSession (Live via Bridge, Degraded via clip-fallback).")]
         public static string SetExpressionPreview(string meshObjectName, string blendShapeData)
-            => BlendShapeTools.SetMultipleBlendShapes(meshObjectName, blendShapeData);
+        {
+            if (string.IsNullOrWhiteSpace(meshObjectName))
+                return "Error: meshObjectName is empty.";
+            if (string.IsNullOrWhiteSpace(blendShapeData))
+                return "Error: blendShapeData is empty. Format: 'shapeName=value;shapeName2=value2'";
+
+            var gate = FaceEmoGate.RequireExpressionEditingReady();
+            if (!gate.Ok) return gate.ErrorMessage;
+
+            var session = FaceEmoExpressionSession.Active;
+            bool autoSession = false;
+            if (session == null)
+            {
+                string tmpPath = $"Assets/UnityAgent/Expressions/{System.IO.Path.GetRandomFileName().Replace(".","")}.anim";
+                session = FaceEmoExpressionSession.OpenForNewExpression(null, tmpPath);
+                autoSession = true;
+            }
+
+            var pairs = blendShapeData.Split(';');
+            int applied = 0;
+            foreach (var pair in pairs)
+            {
+                var idx = pair.IndexOf('=');
+                if (idx < 0) continue;
+                string name = pair.Substring(0, idx).Trim();
+                if (!float.TryParse(pair.Substring(idx + 1).Trim(), out float value)) continue;
+                session.SetBlendShape(meshObjectName, name, value);
+                applied++;
+            }
+            return $"Success: Applied {applied} blendshapes via {session.Mode} session." +
+                   (autoSession ? $" (auto-session: \"{session.PendingDisplayName}\")" : "");
+        }
 
         [AgentTool("Capture avatar face/expression preview using a dedicated camera (no SceneView side effects). " +
             "Internally delegates to CaptureFacePreview — produces a stable, reproducible image regardless of current SceneView state. " +
@@ -1005,7 +1069,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Reset all blend shapes to 0 after expression preview. " +
             "Call this after finishing expression creation or adjustment.")]
         public static string ResetExpressionPreview(string meshObjectName)
-            => BlendShapeTools.ResetBlendShapes(meshObjectName);
+        {
+            var gate = FaceEmoGate.RequireExpressionEditingReady();
+            if (!gate.Ok) return gate.ErrorMessage;
+            return BlendShapeTools.ResetBlendShapes(meshObjectName);
+        }
 
         [AgentTool("Get current non-zero blend shape values on a mesh. " +
             "Useful for capturing expression state before saving to animation clip.")]
@@ -1018,39 +1086,68 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         [AgentTool("Re-create expression animation clip from current mesh blend shapes " +
             "and update an existing FaceEmo expression's animation assignment. " +
-            "Use after adjusting blend shapes with SetExpressionPreview to update an existing expression.")]
+            "Use after adjusting blend shapes with SetExpressionPreview to update an existing expression. " +
+            "Routes through FaceEmoExpressionSession.OpenForMode + OverrideSavePath + Commit.")]
         public static string UpdateExpressionAnimation(string expressionName,
             string meshObjectName, string animPath, string meshPath = "",
             string gameObjectName = "")
         {
-            // Step 1: Create clip from current mesh weights
-            string clipResult = BlendShapeTools.CreateExpressionClip(meshObjectName, animPath, meshPath);
-            if (clipResult.StartsWith("Error")) return clipResult;
+            if (string.IsNullOrWhiteSpace(expressionName))
+                return "Error: expressionName is empty.";
+            if (string.IsNullOrWhiteSpace(meshObjectName))
+                return "Error: meshObjectName is empty.";
 
-            // Step 2: Update FaceEmo assignment
-            string setResult = SetExpressionAnimation(expressionName, animPath, "Mode", -1, gameObjectName);
-            if (setResult.StartsWith("Error"))
-                return $"Warning: Clip created at '{animPath}' but FaceEmo update failed: {setResult}";
+            var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            if (!gate.Ok) return gate.ErrorMessage;
 
-            return $"Updated '{expressionName}': animation re-created from '{meshObjectName}' and FaceEmo assignment updated.";
+            var session = FaceEmoExpressionSession.OpenForMode(expressionName, gameObjectName);
+            var go = MeshAnalysisTools.FindGameObject(meshObjectName);
+            if (go == null) return $"Error: Mesh '{meshObjectName}' not found.";
+            var smr = go.GetComponent<SkinnedMeshRenderer>();
+            if (smr == null || smr.sharedMesh == null) return $"Error: SMR or mesh missing.";
+            string relPath = string.IsNullOrEmpty(meshPath) ? meshObjectName : meshPath;
+
+            int captured = 0;
+            for (int i = 0; i < smr.sharedMesh.blendShapeCount; i++)
+            {
+                float w = smr.GetBlendShapeWeight(i);
+                if (Mathf.Abs(w) < 0.001f) continue;
+                session.SetBlendShape(relPath, smr.sharedMesh.GetBlendShapeName(i), w);
+                captured++;
+            }
+            session.OverrideSavePath(animPath);
+            session.Commit();
+            return $"Success: Updated '{expressionName}' with {captured} blendshapes.";
         }
 
         [AgentTool("Create expression animation clip from explicit blend shape data " +
             "and register as new FaceEmo expression in one step. " +
             "Format: 'shapeName=value;shapeName2=value2'. No mesh preview step needed. " +
-            "destination: 'Registered' (max 7), group name, or 'Unregistered'.")]
+            "destination is reserved for compatibility; commit always targets Registered (falling back to Unregistered if full).")]
         public static string CreateExpressionFromData(string displayName,
             string animPath, string meshPath, string blendShapeData,
             string destination = "Registered", string gameObjectName = "")
         {
-            string clipResult = BlendShapeTools.CreateExpressionClipFromData(animPath, meshPath, blendShapeData);
-            if (clipResult.StartsWith("Error")) return clipResult;
+            if (string.IsNullOrWhiteSpace(displayName))
+                return "Error: displayName is empty.";
+            if (string.IsNullOrWhiteSpace(blendShapeData))
+                return "Error: blendShapeData is empty. Format: 'shapeName=value;shapeName2=value2'";
 
-            string addResult = AddExpression(displayName, destination, animPath, gameObjectName);
-            if (addResult.StartsWith("Error"))
-                return $"Warning: Clip created at '{animPath}' but FaceEmo registration failed: {addResult}";
+            var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            if (!gate.Ok) return gate.ErrorMessage;
 
-            return $"Created expression '{displayName}' from data.\n  Clip: {animPath}\n  {addResult}";
+            var session = FaceEmoExpressionSession.OpenForNewExpression(displayName, animPath, gameObjectName);
+            var pairs = blendShapeData.Split(';');
+            foreach (var pair in pairs)
+            {
+                var idx = pair.IndexOf('=');
+                if (idx < 0) continue;
+                string name = pair.Substring(0, idx).Trim();
+                if (!float.TryParse(pair.Substring(idx + 1).Trim(), out float v)) continue;
+                session.SetBlendShape(meshPath, name, v);
+            }
+            session.Commit();
+            return $"Success: Created '{displayName}' from data (ModeId={session.ModeId}, mode={session.Mode}).";
         }
 
         // ═══════════════════════════════════════════

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- FaceEmo is now REQUIRED for expression editing. Expression tools refuse to run without FaceEmo installed + a configured launcher + TargetAvatar.
+- Expression building now drives FaceEmo's ExpressionEditor live preview (when reflection access is healthy) or falls back to `.anim` write + window refresh (Degraded mode).
+### Added
+- `OpenExpressionSession`, `ReadExpressionFromWindow`, `CommitExpressionSession`, `CloseExpressionSession` AgentTools.
+- `FaceEmoGate`, `FaceEmoExpressionSession`, `ExpressionEditorBridge`, `AssetPathFallback`.
+### Notes
+- Plan B (Thumbnail / preview integration) is tracked separately and not yet released.
 
 ## [0.10.4] — 2026-05-11
 
