@@ -106,6 +106,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             _gestureDrawer = null;
             _exMenuDrawer = null;
             _launcher = null;
+            IsHealthy = false;
+            LastReflectionError = "disposed";
         }
 
         /// <summary>
@@ -200,15 +202,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         private string SaveAsPng(Texture2D texture, string fileName)
         {
             if (texture == null) return null;
+            Texture2D readable = null;
             try
             {
                 Directory.CreateDirectory(CacheRoot);
                 string path = Path.Combine(CacheRoot, fileName).Replace('\\', '/');
 
                 // EncodeToPNG requires readable texture — copy via RenderTexture if needed.
-                var readable = MakeReadableCopy(texture);
+                readable = MakeReadableCopy(texture);
                 File.WriteAllBytes(path, readable.EncodeToPNG());
-                if (readable != texture) UnityEngine.Object.DestroyImmediate(readable);
                 return path;
             }
             catch (Exception ex)
@@ -216,21 +218,38 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 LastReflectionError = $"SaveAsPng: {ex.GetType().Name}: {ex.Message}";
                 return null;
             }
+            finally
+            {
+                if (readable != null && readable != texture)
+                    UnityEngine.Object.DestroyImmediate(readable);
+            }
         }
 
         private static Texture2D MakeReadableCopy(Texture2D source)
         {
             if (source.isReadable) return source;
             var rt = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
-            Graphics.Blit(source, rt);
             var prev = RenderTexture.active;
-            RenderTexture.active = rt;
-            var copy = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
-            copy.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
-            copy.Apply();
-            RenderTexture.active = prev;
-            RenderTexture.ReleaseTemporary(rt);
-            return copy;
+            Texture2D copy = null;
+            try
+            {
+                Graphics.Blit(source, rt);
+                RenderTexture.active = rt;
+                copy = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+                copy.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+                copy.Apply();
+                return copy;
+            }
+            catch
+            {
+                if (copy != null) UnityEngine.Object.DestroyImmediate(copy);
+                throw;
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(rt);
+            }
         }
 
         private static string SanitizeFileName(string name)
