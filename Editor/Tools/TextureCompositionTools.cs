@@ -156,50 +156,58 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             float opacity = 1.0f,
             string outputName = "")
         {
-            var baseTex = LoadAndEnsureReadable(baseTexturePath);
-            if (baseTex == null) return $"Error: Base texture not found at '{baseTexturePath}'.";
-
-            var overlayTex = LoadAndEnsureReadable(overlayTexturePath);
-            if (overlayTex == null) return $"Error: Overlay texture not found at '{overlayTexturePath}'.";
-
-            string[] validModes = { "normal", "multiply", "screen", "overlay", "soft_light", "hard_light", "color_dodge", "color_burn", "darken", "lighten", "difference", "exclusion" };
-            if (!Array.Exists(validModes, m => m == blendMode))
-                return $"Error: Invalid blendMode '{blendMode}'. Valid: {string.Join(", ", validModes)}.";
-
-            opacity = Mathf.Clamp01(opacity);
-
-            int width = baseTex.width;
-            int height = baseTex.height;
-
-            Texture2D resizedOverlay = overlayTex;
-            if (overlayTex.width != width || overlayTex.height != height)
-                resizedOverlay = ResizeTextureInternal(overlayTex, width, height);
-
-            Color[] basePixels = baseTex.GetPixels();
-            Color[] overlayPixels = resizedOverlay.GetPixels();
-            Color[] resultPixels = new Color[basePixels.Length];
-
-            for (int i = 0; i < basePixels.Length; i++)
-                resultPixels[i] = ApplyBlendMode(basePixels[i], overlayPixels[i], blendMode, opacity);
-
-            var resultTex = new Texture2D(width, height, TextureFormat.RGBA32, false);
-            resultTex.SetPixels(resultPixels);
-            resultTex.Apply();
-
-            if (string.IsNullOrEmpty(outputName))
+            Texture2D baseTex = null, overlayTex = null, resizedOverlay = null, resultTex = null;
+            // try/finally guarantees every working texture is released even on an early
+            // return (overlay-not-found, invalid blendMode) or an exception in GetPixels/resize.
+            try
             {
-                string baseName = Path.GetFileNameWithoutExtension(baseTexturePath);
-                outputName = $"{baseName}_{blendMode}";
+                baseTex = LoadAndEnsureReadable(baseTexturePath);
+                if (baseTex == null) return $"Error: Base texture not found at '{baseTexturePath}'.";
+
+                overlayTex = LoadAndEnsureReadable(overlayTexturePath);
+                if (overlayTex == null) return $"Error: Overlay texture not found at '{overlayTexturePath}'.";
+
+                string[] validModes = { "normal", "multiply", "screen", "overlay", "soft_light", "hard_light", "color_dodge", "color_burn", "darken", "lighten", "difference", "exclusion" };
+                if (!Array.Exists(validModes, m => m == blendMode))
+                    return $"Error: Invalid blendMode '{blendMode}'. Valid: {string.Join(", ", validModes)}.";
+
+                opacity = Mathf.Clamp01(opacity);
+
+                int width = baseTex.width;
+                int height = baseTex.height;
+
+                resizedOverlay = overlayTex;
+                if (overlayTex.width != width || overlayTex.height != height)
+                    resizedOverlay = ResizeTextureInternal(overlayTex, width, height);
+
+                Color[] basePixels = baseTex.GetPixels();
+                Color[] overlayPixels = resizedOverlay.GetPixels();
+                Color[] resultPixels = new Color[basePixels.Length];
+
+                for (int i = 0; i < basePixels.Length; i++)
+                    resultPixels[i] = ApplyBlendMode(basePixels[i], overlayPixels[i], blendMode, opacity);
+
+                resultTex = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                resultTex.SetPixels(resultPixels);
+                resultTex.Apply();
+
+                if (string.IsNullOrEmpty(outputName))
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(baseTexturePath);
+                    outputName = $"{baseName}_{blendMode}";
+                }
+
+                string savedPath = SaveGeneratedTexture(resultTex, outputName, true);
+                if (string.IsNullOrEmpty(savedPath)) return "Error: Failed to save blended texture.";
+                return $"Success: Blended textures with '{blendMode}' (opacity={opacity:F2}). Output: {savedPath} ({width}x{height})";
             }
-
-            string savedPath = SaveGeneratedTexture(resultTex, outputName, true);
-            UnityEngine.Object.DestroyImmediate(resultTex);
-            if (resizedOverlay != overlayTex) UnityEngine.Object.DestroyImmediate(resizedOverlay);
-            UnityEngine.Object.DestroyImmediate(baseTex);
-            UnityEngine.Object.DestroyImmediate(overlayTex);
-
-            if (string.IsNullOrEmpty(savedPath)) return "Error: Failed to save blended texture.";
-            return $"Success: Blended textures with '{blendMode}' (opacity={opacity:F2}). Output: {savedPath} ({width}x{height})";
+            finally
+            {
+                if (resultTex != null) UnityEngine.Object.DestroyImmediate(resultTex);
+                if (resizedOverlay != null && resizedOverlay != overlayTex) UnityEngine.Object.DestroyImmediate(resizedOverlay);
+                if (baseTex != null) UnityEngine.Object.DestroyImmediate(baseTex);
+                if (overlayTex != null) UnityEngine.Object.DestroyImmediate(overlayTex);
+            }
         }
 
         [AgentTool("Blend an overlay texture onto a GameObject's main texture with island filtering. Non-destructive (creates copy). overlayTexturePath: asset path to overlay image. blendMode: normal, multiply, screen, overlay, soft_light, hard_light, color_dodge, color_burn, darken, lighten, difference, exclusion. opacity: 0.0-1.0. islandIndices: semicolon-separated like '0;1;3' (empty=all).")]
@@ -230,21 +238,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Texture2D sourceTex = mat.mainTexture as Texture2D;
             if (sourceTex == null) return $"Error: No main texture found on material '{mat.name}'.";
 
-            var overlayTex = LoadAndEnsureReadable(overlayTexturePath);
-            if (overlayTex == null) return $"Error: Overlay texture not found at '{overlayTexturePath}'.";
-
-            string[] validModes = { "normal", "multiply", "screen", "overlay", "soft_light", "hard_light", "color_dodge", "color_burn", "darken", "lighten", "difference", "exclusion" };
-            if (!Array.Exists(validModes, m => m == blendMode))
-                return $"Error: Invalid blendMode '{blendMode}'. Valid: {string.Join(", ", validModes)}.";
-
-            opacity = Mathf.Clamp01(opacity);
-
-            string avatarName = ToolUtility.FindAvatarRootName(go);
-            if (string.IsNullOrEmpty(avatarName))
-                return "Error: Could not determine avatar root.";
-
+            // All working textures declared up front so the finally block can release them
+            // regardless of which early return / exception path is taken.
+            Texture2D overlayTex = null, editableTex = null, resizedOverlay = null;
             try
             {
+                overlayTex = LoadAndEnsureReadable(overlayTexturePath);
+                if (overlayTex == null) return $"Error: Overlay texture not found at '{overlayTexturePath}'.";
+
+                string[] validModes = { "normal", "multiply", "screen", "overlay", "soft_light", "hard_light", "color_dodge", "color_burn", "darken", "lighten", "difference", "exclusion" };
+                if (!Array.Exists(validModes, m => m == blendMode))
+                    return $"Error: Invalid blendMode '{blendMode}'. Valid: {string.Join(", ", validModes)}.";
+
+                opacity = Mathf.Clamp01(opacity);
+
+                string avatarName = ToolUtility.FindAvatarRootName(go);
+                if (string.IsNullOrEmpty(avatarName))
+                    return "Error: Could not determine avatar root.";
+
                 Undo.IncrementCurrentGroup();
                 int undoGroup = Undo.GetCurrentGroup();
                 Undo.SetCurrentGroupName("BlendTextureOntoGameObject via Agent");
@@ -277,7 +288,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
                 }
 
-                Texture2D editableTex = TextureUtility.CreateEditableTexture(sourceTex);
+                editableTex = TextureUtility.CreateEditableTexture(sourceTex);
                 if (editableTex == null) return "Error: Failed to create editable texture copy.";
 
                 if (!mat.name.EndsWith("_Customized"))
@@ -294,7 +305,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 int width = editableTex.width;
                 int height = editableTex.height;
 
-                Texture2D resizedOverlay = overlayTex;
+                resizedOverlay = overlayTex;
                 if (overlayTex.width != width || overlayTex.height != height)
                     resizedOverlay = ResizeTextureInternal(overlayTex, width, height);
 
@@ -326,13 +337,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 editableTex.SetPixels(basePixels);
                 editableTex.Apply();
 
-                if (resizedOverlay != overlayTex)
-                    UnityEngine.Object.DestroyImmediate(resizedOverlay);
-                UnityEngine.Object.DestroyImmediate(overlayTex);
-
                 string safeName = go.name.Replace("/", "_").Replace("\\", "_");
                 string texPath = TextureUtility.SaveTexture(editableTex, avatarName, sourceTex.name + "_" + safeName);
-                UnityEngine.Object.DestroyImmediate(editableTex);
                 if (string.IsNullOrEmpty(texPath)) return "Error: Failed to save blended texture.";
 
                 Texture2D savedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
@@ -353,6 +359,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 Debug.LogError($"[TextureCompositionTools] BlendTextureOntoGameObject Error: {ex}");
                 return $"Error: {ex.Message}";
+            }
+            finally
+            {
+                if (resizedOverlay != null && resizedOverlay != overlayTex)
+                    UnityEngine.Object.DestroyImmediate(resizedOverlay);
+                if (overlayTex != null) UnityEngine.Object.DestroyImmediate(overlayTex);
+                if (editableTex != null) UnityEngine.Object.DestroyImmediate(editableTex);
             }
         }
 

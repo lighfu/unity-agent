@@ -258,7 +258,14 @@ Example: 'Head=true;LeftArm=false;RightArm=false' to only enable head.")]
             AssetDatabase.SaveAssets();
 
             if (unknownParts.Count > 0)
-                return $"Error: Configured {appliedCount} body part(s), but rejected unknown part(s): {string.Join(", ", unknownParts)}. Valid: Root, Body, Head, LeftLeg, RightLeg, LeftArm, RightArm, LeftFingers, RightFingers, LeftFootIK, RightFootIK, LeftHandIK, RightHandIK.";
+            {
+                string rejected = $"rejected unknown part(s): {string.Join(", ", unknownParts)}. Valid: Root, Body, Head, LeftLeg, RightLeg, LeftArm, RightArm, LeftFingers, RightFingers, LeftFootIK, RightFootIK, LeftHandIK, RightHandIK.";
+                // appliedCount parts were already set and saved above — only report a hard
+                // Error when nothing at all could be applied.
+                return appliedCount > 0
+                    ? $"Partial: Configured {appliedCount} body part(s) on AvatarMask at '{maskPath}', but {rejected}"
+                    : $"Error: No body parts configured — {rejected}";
+            }
 
             return $"Success: Configured {appliedCount} body part(s) on AvatarMask at '{maskPath}'.";
         }

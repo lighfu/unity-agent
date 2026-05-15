@@ -213,7 +213,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (uvs == null || uvs.Length == 0) return $"Error: Mesh on '{gameObjectName}' has no UV coordinates.";
 
             int triCount = triangles.Length / 3;
-            float totalUVArea = 0f;
             float totalWorldArea = 0f;
             var texelDensities = new List<float>();
 
@@ -221,7 +220,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 int i0 = triangles[tri * 3], i1 = triangles[tri * 3 + 1], i2 = triangles[tri * 3 + 2];
                 float uvArea = ComputeUVTriangleArea(uvs[i0], uvs[i1], uvs[i2]);
-                totalUVArea += uvArea;
 
                 Vector3 e1 = vertices[i1] - vertices[i0];
                 Vector3 e2 = vertices[i2] - vertices[i0];
@@ -247,7 +245,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     if (hitCount[x, y] > 0) coveredPixels++;
 
             float coveragePercent = coveredPixels * 100f / totalRasterPixels;
-            float uvUtilization = Mathf.Clamp01(totalUVArea) * 100f;
 
             texelDensities.Sort();
             float minDensity = texelDensities.Count > 0 ? texelDensities[0] : 0f;
@@ -262,7 +259,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             sb.AppendLine($"  Triangles: {triCount}");
             sb.AppendLine();
             sb.AppendLine("  UV Coverage:");
-            sb.AppendLine($"    UV area utilization: {uvUtilization:F1}%");
             sb.AppendLine($"    Pixel coverage: {coveragePercent:F1}% (rasterized at {rasterRes}x{rasterRes})");
             sb.AppendLine($"    Wasted space: {100f - coveragePercent:F1}%");
             sb.AppendLine();

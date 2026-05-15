@@ -14,16 +14,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         {
             if (source == null) return null;
 
-            string path = AssetDatabase.GetAssetPath(source);
-            if (!string.IsNullOrEmpty(path))
-            {
-                TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
-                if (importer != null && !importer.isReadable)
-                {
-                    importer.isReadable = true;
-                    importer.SaveAndReimport();
-                }
-            }
+            // NOTE: we intentionally do NOT flip the source asset's importer.isReadable here.
+            // The Blit path below reads the GPU texture and reads pixels back from a
+            // RenderTexture, so it already handles non-readable / compressed source textures
+            // without any persistent change to the user's project assets.
 
             // Blit to RenderTexture to handle compressed formats.
             // Use sRGB read/write to prevent double-linearization in Linear color space projects.

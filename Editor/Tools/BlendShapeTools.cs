@@ -425,7 +425,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Edit a blend shape value in an existing animation clip. Adds or updates the curve for the specified blend shape.")]
+        [AgentTool("Edit a blend shape value in an existing animation clip. Adds or updates the curve for the specified blend shape. NOTE: a value below 0.01 REMOVES the blend shape's curve from the clip entirely (rather than writing a 0 keyframe) — pass a small positive value like 0.01 if you need an explicit near-zero keyframe.")]
         public static string EditExpressionClip(string animPath, string meshPath, string blendShapeName, float value)
         {
             var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(animPath);

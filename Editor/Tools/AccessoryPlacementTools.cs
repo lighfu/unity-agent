@@ -323,7 +323,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Undo.RecordObject(go.transform, "Align Accessory (Surface)");
             go.transform.position = targetPos;
             go.transform.rotation = targetRot;
-            if (scaleRatio > 0.01f && Mathf.Abs(scaleRatio - 1f) > 0.01f)
+            bool scaleApplied = scaleRatio > 0.01f && Mathf.Abs(scaleRatio - 1f) > 0.01f;
+            if (scaleApplied)
                 go.transform.localScale = Vector3.one * scaleRatio;
 
             Undo.CollapseUndoOperations(undoGroup);
@@ -334,7 +335,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             sb.AppendLine($"  Normal: ({surfaceNormal.x:F4}, {surfaceNormal.y:F4}, {surfaceNormal.z:F4})");
             sb.AppendLine($"  Position: ({targetPos.x:F4}, {targetPos.y:F4}, {targetPos.z:F4})");
             sb.AppendLine($"  Rotation: ({go.transform.eulerAngles.x:F1}, {go.transform.eulerAngles.y:F1}, {go.transform.eulerAngles.z:F1})");
-            sb.AppendLine($"  Scale: {scaleRatio:F3}");
+            sb.AppendLine(scaleApplied
+                ? $"  Scale: {scaleRatio:F3} (applied to localScale)"
+                : $"  Scale: unchanged (ratio {scaleRatio:F3} ≈ 1.0 — localScale left as-is)");
             return sb.ToString().TrimEnd();
         }
 
@@ -395,7 +398,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Undo.RecordObject(go.transform, "Align Accessory (Grip)");
             go.transform.position = targetPos;
             go.transform.rotation = alignRot;
-            if (scaleRatio > 0.01f && Mathf.Abs(scaleRatio - 1f) > 0.01f)
+            bool scaleApplied = scaleRatio > 0.01f && Mathf.Abs(scaleRatio - 1f) > 0.01f;
+            if (scaleApplied)
                 go.transform.localScale = Vector3.one * scaleRatio;
 
             Undo.CollapseUndoOperations(undoGroup);
@@ -406,7 +410,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             sb.AppendLine($"  Weapon longest axis: {(longestAxis == Vector3.right ? "X" : longestAxis == Vector3.up ? "Y" : "Z")}");
             sb.AppendLine($"  Position: ({targetPos.x:F4}, {targetPos.y:F4}, {targetPos.z:F4})");
             sb.AppendLine($"  Rotation: ({go.transform.eulerAngles.x:F1}, {go.transform.eulerAngles.y:F1}, {go.transform.eulerAngles.z:F1})");
-            sb.AppendLine($"  Scale: {scaleRatio:F3}");
+            sb.AppendLine(scaleApplied
+                ? $"  Scale: {scaleRatio:F3} (applied to localScale)"
+                : $"  Scale: unchanged (ratio {scaleRatio:F3} ≈ 1.0 — localScale left as-is)");
             return sb.ToString().TrimEnd();
         }
 
@@ -471,7 +477,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Undo.RecordObject(go.transform, "Align Accessory (Wrap)");
             go.transform.position = targetPos;
             go.transform.rotation = alignRot;
-            if (scaleRatio > 0.01f && Mathf.Abs(scaleRatio - 1f) > 0.01f)
+            bool scaleApplied = scaleRatio > 0.01f && Mathf.Abs(scaleRatio - 1f) > 0.01f;
+            if (scaleApplied)
                 go.transform.localScale = Vector3.one * scaleRatio;
 
             Undo.CollapseUndoOperations(undoGroup);
@@ -481,7 +488,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             sb.AppendLine($"  Hole axis: {holeAxisName} → aligned to bone direction");
             sb.AppendLine($"  Position: ({targetPos.x:F4}, {targetPos.y:F4}, {targetPos.z:F4})");
             sb.AppendLine($"  Rotation: ({go.transform.eulerAngles.x:F1}, {go.transform.eulerAngles.y:F1}, {go.transform.eulerAngles.z:F1})");
-            sb.AppendLine($"  Scale: {scaleRatio:F3}");
+            sb.AppendLine(scaleApplied
+                ? $"  Scale: {scaleRatio:F3} (applied to localScale)"
+                : $"  Scale: unchanged (ratio {scaleRatio:F3} ≈ 1.0 — localScale left as-is)");
             return sb.ToString().TrimEnd();
         }
 

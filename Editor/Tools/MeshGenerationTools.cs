@@ -368,6 +368,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             File.WriteAllBytes(fullPath, fbxData);
             AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
 
+            // Verify the downloaded bytes actually imported as a 3D model — a corrupt or
+            // non-FBX payload would otherwise still be reported as "Success".
+            var importedModel = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+            if (importedModel == null)
+            {
+                yield return $"Error: File was written to {assetPath} but did not import as a 3D model (the downloaded payload may be corrupt or not a valid FBX).";
+                yield break;
+            }
+
             ToolProgress.Report(1f, "インポート完了");
 
             yield return $"Success: 3D mesh imported to {assetPath}";

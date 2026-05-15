@@ -430,19 +430,32 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         private static string SampleAverageColor(Texture2D tex, Vector2[] uvs, int[] triangles, UVIsland island)
         {
+            Texture2D readable = null;
+            bool readableIsTemp = false;
             try
             {
-                // テクスチャの読み取り可能チェック
-                string path = AssetDatabase.GetAssetPath(tex);
-                if (!string.IsNullOrEmpty(path))
+                // Obtain a readable copy WITHOUT mutating the asset's import settings.
+                // InspectMeshIsland is a read-only inspect tool — it must not flip the
+                // texture importer's Read/Write flag (a slow, persistent project change).
+                // A non-readable / compressed texture is blitted into a temporary
+                // RenderTexture and read back instead.
+                if (tex.isReadable)
                 {
-                    TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
-                    if (importer != null && !importer.isReadable)
-                    {
-                        importer.isReadable = true;
-                        importer.SaveAndReimport();
-                        tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                    }
+                    readable = tex;
+                }
+                else
+                {
+                    RenderTexture rt = RenderTexture.GetTemporary(
+                        tex.width, tex.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                    Graphics.Blit(tex, rt);
+                    RenderTexture prev = RenderTexture.active;
+                    RenderTexture.active = rt;
+                    readable = new Texture2D(tex.width, tex.height, TextureFormat.RGBA32, false);
+                    readable.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+                    readable.Apply();
+                    RenderTexture.active = prev;
+                    RenderTexture.ReleaseTemporary(rt);
+                    readableIsTemp = true;
                 }
 
                 // アイランドのUV中心付近からサンプリング
@@ -458,10 +471,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     Vector2 uv2 = uvs[triangles[triIdx * 3 + 2]];
                     Vector2 center = (uv0 + uv1 + uv2) / 3f;
 
-                    int px = Mathf.Clamp(Mathf.FloorToInt(center.x * tex.width), 0, tex.width - 1);
-                    int py = Mathf.Clamp(Mathf.FloorToInt(center.y * tex.height), 0, tex.height - 1);
+                    int px = Mathf.Clamp(Mathf.FloorToInt(center.x * readable.width), 0, readable.width - 1);
+                    int py = Mathf.Clamp(Mathf.FloorToInt(center.y * readable.height), 0, readable.height - 1);
 
-                    total += tex.GetPixel(px, py);
+                    total += readable.GetPixel(px, py);
                     validSamples++;
                 }
 
@@ -482,6 +495,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             catch (System.NullReferenceException ex)
             {
                 AgentLogger.Debug(LogTag.Tool, $"SampleAverageColor: null reference, returning N/A. {ex.Message}");
+            }
+            finally
+            {
+                if (readableIsTemp && readable != null)
+                    Object.DestroyImmediate(readable);
             }
 
             return "N/A";

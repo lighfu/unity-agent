@@ -80,8 +80,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var comp = Undo.AddComponent(targetObj, _simplifierType);
             var so = new SerializedObject(comp);
             var qualityProp = so.FindProperty("quality");
-            if (qualityProp != null)
-                qualityProp.floatValue = quality;
+            if (qualityProp == null)
+            {
+                // The component was added, but its 'quality' serialized field could not be
+                // located — don't claim the requested quality was applied.
+                so.ApplyModifiedProperties();
+                EditorUtility.SetDirty(comp);
+                return $"Warning: Added MeshSimplifier to '{targetMeshName}', but could not set quality — " +
+                       "the NDMF Mesh Simplifier 'quality' serialized field was not found (the package API may have changed). " +
+                       "The component will use its default quality; adjust it in the Inspector.";
+            }
+            qualityProp.floatValue = quality;
             so.ApplyModifiedProperties();
             EditorUtility.SetDirty(comp);
 
@@ -148,6 +157,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             // Apply changes
             Undo.RecordObject(comp, "Configure MeshSimplifier");
             var changes = new List<string>();
+            var parseErrors = new List<string>();
 
             if (!string.IsNullOrEmpty(quality))
             {
@@ -160,6 +170,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         qProp.floatValue = qVal;
                         changes.Add($"  quality: {qVal:F3}");
                     }
+                    else
+                    {
+                        parseErrors.Add("  quality: serialized field not found on the component");
+                    }
+                }
+                else
+                {
+                    parseErrors.Add($"  quality: '{quality}' is not a valid number");
                 }
             }
 
@@ -169,12 +187,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 void SetOptionBool(string propName, string value)
                 {
                     if (string.IsNullOrEmpty(value)) return;
-                    if (!ToolUtility.TryParseBool(value, out bool bVal)) return;
+                    if (!ToolUtility.TryParseBool(value, out bool bVal))
+                    {
+                        parseErrors.Add($"  {propName}: '{value}' is not a valid bool (use true/false)");
+                        return;
+                    }
                     var p = optProp.FindPropertyRelative(propName);
                     if (p != null)
                     {
                         p.boolValue = bVal;
                         changes.Add($"  {propName}: {bVal}");
+                    }
+                    else
+                    {
+                        parseErrors.Add($"  {propName}: serialized field not found on the component");
                     }
                 }
 
@@ -182,10 +208,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 SetOptionBool("PreserveUVSeamEdges", preserveUVSeamEdges);
                 SetOptionBool("EnableSmartLink", enableSmartLink);
             }
+            else if (!string.IsNullOrEmpty(preserveBorderEdges)
+                  || !string.IsNullOrEmpty(preserveUVSeamEdges)
+                  || !string.IsNullOrEmpty(enableSmartLink))
+            {
+                parseErrors.Add("  options: 'options' serialized field not found on the component");
+            }
 
             so.ApplyModifiedProperties();
             EditorUtility.SetDirty(comp);
 
+            if (changes.Count == 0)
+                return $"Error: No MeshSimplifier settings were applied on '{targetMeshName}':\n{string.Join("\n", parseErrors)}";
+            if (parseErrors.Count > 0)
+                return $"Partial: Updated MeshSimplifier on '{targetMeshName}':\n{string.Join("\n", changes)}\n" +
+                       $"Not applied:\n{string.Join("\n", parseErrors)}";
             return $"Success: Updated MeshSimplifier on '{targetMeshName}':\n{string.Join("\n", changes)}";
         }
 

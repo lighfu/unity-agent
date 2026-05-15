@@ -218,13 +218,15 @@ reflectionProbes: 0=Off, 1=BlendProbes, 2=BlendProbesAndSkybox, 3=Simple.")]
                 trail.endColor = new Color(c.r, c.g, c.b, 0f);
             }
 
+            string matWarning = "";
             if (!string.IsNullOrEmpty(materialPath))
             {
                 var mat = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
                 if (mat != null) trail.sharedMaterial = mat;
+                else matWarning = $" [WARN] materialPath '{materialPath}' was not found — the TrailRenderer uses the default material.";
             }
 
-            return $"Success: Added TrailRenderer to '{goName}' (time={time}s, width={startWidth}→{endWidth}).";
+            return $"Success: Added TrailRenderer to '{goName}' (time={time}s, width={startWidth}→{endWidth}).{matWarning}";
         }
 
         [AgentTool("Configure an existing TrailRenderer. Use -1 for unchanged float values.")]
@@ -287,13 +289,15 @@ reflectionProbes: 0=Off, 1=BlendProbes, 2=BlendProbesAndSkybox, 3=Simple.")]
                 }
             }
 
+            string matWarning = "";
             if (!string.IsNullOrEmpty(materialPath))
             {
                 var mat = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
                 if (mat != null) line.sharedMaterial = mat;
+                else matWarning = $" [WARN] materialPath '{materialPath}' was not found — the LineRenderer uses the default material.";
             }
 
-            return $"Success: Added LineRenderer to '{goName}' (width={startWidth}→{endWidth}, points={line.positionCount}).";
+            return $"Success: Added LineRenderer to '{goName}' (width={startWidth}→{endWidth}, points={line.positionCount}).{matWarning}";
         }
 
         [AgentTool("Set positions on a LineRenderer. positions is semicolon-separated 'x,y,z' points.")]

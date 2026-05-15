@@ -15,7 +15,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     /// </summary>
     public static class AnimationClipTools
     {
-        [AgentTool("Create a new empty AnimationClip asset. savePath should be a folder (e.g. 'Assets/Animations'). Returns the asset path. Use SetAnimationCurve to add keyframes after creation.")]
+        [AgentTool("Create a new empty AnimationClip asset. savePath should be a folder (e.g. 'Assets/Animations'). NOTE: the 'length' parameter has NO effect — an empty clip has length 0, and its final length is determined by the keyframes you add via SetAnimationCurve. Use SetAnimationCurve to add keyframes after creation.")]
         public static string CreateAnimationClip(string clipName, string savePath = "Assets", float length = 1.0f, bool isLooping = false)
         {
             if (string.IsNullOrEmpty(clipName))
@@ -42,7 +42,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             AssetDatabase.CreateAsset(clip, assetPath);
             AssetDatabase.SaveAssets();
 
-            return $"Success: Created AnimationClip at '{assetPath}' (length={length}s, loop={isLooping}). Use SetAnimationCurve to add keyframes.";
+            return $"Success: Created AnimationClip at '{assetPath}' (loop={isLooping}). Length is 0 until keyframes are added — use SetAnimationCurve to add keyframes.";
         }
 
         [AgentTool(@"Add or replace an animation curve on an AnimationClip.
@@ -155,7 +155,7 @@ keyframes: Comma-separated 'time:value' pairs. Example: '0:0, 0.5:45, 1.0:0'
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Update AnimationClip settings: looping and wrap mode.")]
+        [AgentTool("Update an AnimationClip's loop time setting (whether the clip loops). isLooping maps to AnimationClipSettings.loopTime.")]
         public static string SetAnimationClipSettings(string clipPath, bool isLooping = true)
         {
             var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath);

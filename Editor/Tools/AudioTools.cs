@@ -33,7 +33,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (clip != null)
                     source.clip = clip;
                 else
-                    return $"Warning: Added AudioSource but clip not found at '{clipPath}'.";
+                    return $"Partial: AudioSource was added to '{goName}' (volume={volume}, spatial={spatialBlend}, loop={loop}) and remains on the object, " +
+                           $"but no clip was assigned — none found at '{clipPath}'. Assign one with ConfigureAudioSource (do NOT call AddAudioSource again — it would add a second component).";
             }
 
             return $"Success: Added AudioSource to '{goName}' (volume={volume}, spatial={spatialBlend}, loop={loop}).";

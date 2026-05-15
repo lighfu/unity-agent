@@ -106,7 +106,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
             else
             {
-                srcTex = EnsureReadable(srcTex);
+                srcTex = EnsureReadable(srcTex, out bool madeReadableCopy);
+                createdFallback |= madeReadableCopy;
             }
 
             Mesh mesh = ToolUtility.GetMesh(go);
@@ -282,7 +283,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
             else
             {
-                srcTex = EnsureReadable(srcTex);
+                srcTex = EnsureReadable(srcTex, out bool madeReadableCopy);
+                createdFallback |= madeReadableCopy;
             }
 
             Mesh mesh = ToolUtility.GetMesh(go);
@@ -300,105 +302,110 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             // Load external image
             byte[] imgBytes = File.ReadAllBytes(imagePath);
-            var inputTex = new Texture2D(2, 2);
-            if (!inputTex.LoadImage(imgBytes))
+            Texture2D inputTex = new Texture2D(2, 2);
+            Texture2D editTex = null;
+            // try/finally guarantees inputTex/editTex (and any temp srcTex copy) are released
+            // even if the paste loop, DilateColors, or SaveTexture throws.
+            try
             {
-                UnityEngine.Object.DestroyImmediate(inputTex);
-                return "Error: Failed to load image file.";
-            }
+                if (!inputTex.LoadImage(imgBytes))
+                    return "Error: Failed to load image file.";
 
-            // Determine UV bounds
-            Rect uvBounds;
-            if (islandList.Count == 0)
-                uvBounds = new Rect(0, 0, 1, 1);
-            else
-                uvBounds = ComputeIslandUVBounds(islands, islandList, uvs, tris);
+                // Determine UV bounds
+                Rect uvBounds;
+                if (islandList.Count == 0)
+                    uvBounds = new Rect(0, 0, 1, 1);
+                else
+                    uvBounds = ComputeIslandUVBounds(islands, islandList, uvs, tris);
 
-            int texW = srcTex.width;
-            int texH = srcTex.height;
+                int texW = srcTex.width;
+                int texH = srcTex.height;
 
-            // Create editable copy
-            Undo.IncrementCurrentGroup();
-            int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Apply External Texture");
+                // Create editable copy
+                Undo.IncrementCurrentGroup();
+                int undoGroup = Undo.GetCurrentGroup();
+                Undo.SetCurrentGroupName("Apply External Texture");
 
-            string avatarName = ToolUtility.FindAvatarRootName(go);
-            Texture2D editTex = TextureUtility.CreateEditableTexture(srcTex);
-            Color[] editPixels = editTex.GetPixels();
+                string avatarName = ToolUtility.FindAvatarRootName(go);
+                editTex = TextureUtility.CreateEditableTexture(srcTex);
+                Color[] editPixels = editTex.GetPixels();
 
-            // Create UV mask
-            bool[,] mask = null;
-            if (islandList.Count > 0)
-            {
-                int regionW = Mathf.CeilToInt(uvBounds.width * texW);
-                int regionH = Mathf.CeilToInt(uvBounds.height * texH);
-                int regionX = Mathf.FloorToInt(uvBounds.xMin * texW);
-                int regionY = Mathf.FloorToInt(uvBounds.yMin * texH);
-                mask = CreateUVMask(islands, islandList, uvs, tris, texW, texH, regionX, regionY, regionW, regionH);
-            }
-
-            // Map input image to UV bounds and paste
-            for (int py = Mathf.FloorToInt(uvBounds.yMin * texH); py < Mathf.CeilToInt(uvBounds.yMax * texH) && py < texH; py++)
-            {
-                for (int px = Mathf.FloorToInt(uvBounds.xMin * texW); px < Mathf.CeilToInt(uvBounds.xMax * texW) && px < texW; px++)
+                // Create UV mask
+                bool[,] mask = null;
+                if (islandList.Count > 0)
                 {
-                    if (px < 0 || py < 0) continue;
+                    int regionW = Mathf.CeilToInt(uvBounds.width * texW);
+                    int regionH = Mathf.CeilToInt(uvBounds.height * texH);
+                    int regionX = Mathf.FloorToInt(uvBounds.xMin * texW);
+                    int regionY = Mathf.FloorToInt(uvBounds.yMin * texH);
+                    mask = CreateUVMask(islands, islandList, uvs, tris, texW, texH, regionX, regionY, regionW, regionH);
+                }
 
-                    int localX = px - Mathf.FloorToInt(uvBounds.xMin * texW);
-                    int localY = py - Mathf.FloorToInt(uvBounds.yMin * texH);
-
-                    if (mask != null)
+                // Map input image to UV bounds and paste
+                for (int py = Mathf.FloorToInt(uvBounds.yMin * texH); py < Mathf.CeilToInt(uvBounds.yMax * texH) && py < texH; py++)
+                {
+                    for (int px = Mathf.FloorToInt(uvBounds.xMin * texW); px < Mathf.CeilToInt(uvBounds.xMax * texW) && px < texW; px++)
                     {
-                        int mw = mask.GetLength(0), mh = mask.GetLength(1);
-                        if (localX < 0 || localX >= mw || localY < 0 || localY >= mh || !mask[localX, localY])
-                            continue;
-                    }
+                        if (px < 0 || py < 0) continue;
 
-                    // Sample input texture
-                    float u = (px / (float)texW - uvBounds.xMin) / uvBounds.width;
-                    float v = (py / (float)texH - uvBounds.yMin) / uvBounds.height;
-                    int srcX = Mathf.Clamp(Mathf.FloorToInt(u * inputTex.width), 0, inputTex.width - 1);
-                    int srcY = Mathf.Clamp(Mathf.FloorToInt(v * inputTex.height), 0, inputTex.height - 1);
-                    Color inputColor = inputTex.GetPixel(srcX, srcY);
+                        int localX = px - Mathf.FloorToInt(uvBounds.xMin * texW);
+                        int localY = py - Mathf.FloorToInt(uvBounds.yMin * texH);
 
-                    // Alpha blend
-                    int idx = py * texW + px;
-                    if (inputColor.a > 0.01f)
-                    {
-                        Color existing = editPixels[idx];
-                        editPixels[idx] = Color.Lerp(existing, inputColor, inputColor.a);
+                        if (mask != null)
+                        {
+                            int mw = mask.GetLength(0), mh = mask.GetLength(1);
+                            if (localX < 0 || localX >= mw || localY < 0 || localY >= mh || !mask[localX, localY])
+                                continue;
+                        }
+
+                        // Sample input texture
+                        float u = (px / (float)texW - uvBounds.xMin) / uvBounds.width;
+                        float v = (py / (float)texH - uvBounds.yMin) / uvBounds.height;
+                        int srcX = Mathf.Clamp(Mathf.FloorToInt(u * inputTex.width), 0, inputTex.width - 1);
+                        int srcY = Mathf.Clamp(Mathf.FloorToInt(v * inputTex.height), 0, inputTex.height - 1);
+                        Color inputColor = inputTex.GetPixel(srcX, srcY);
+
+                        // Alpha blend
+                        int idx = py * texW + px;
+                        if (inputColor.a > 0.01f)
+                        {
+                            Color existing = editPixels[idx];
+                            editPixels[idx] = Color.Lerp(existing, inputColor, inputColor.a);
+                        }
                     }
                 }
-            }
 
-            // Dilate colors outward from mask edges to prevent bilinear filtering seam artifacts
-            if (mask != null)
+                // Dilate colors outward from mask edges to prevent bilinear filtering seam artifacts
+                if (mask != null)
+                {
+                    int regionX = Mathf.FloorToInt(uvBounds.xMin * texW);
+                    int regionY = Mathf.FloorToInt(uvBounds.yMin * texH);
+                    DilateColors(editPixels, texW, texH, mask, regionX, regionY, DilationPadding);
+                }
+
+                editTex.SetPixels(editPixels);
+                editTex.Apply();
+
+                // Save
+                string texPath = TextureUtility.SaveTexture(editTex, avatarName ?? go.name, srcTex.name);
+                if (string.IsNullOrEmpty(texPath)) return "Error: Failed to save texture.";
+
+                // Assign saved texture to the correct property
+                string prop = string.IsNullOrEmpty(textureProperty) ? "_MainTex" : textureProperty;
+                Texture2D savedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+                Undo.RecordObject(mat, "Apply External Texture");
+                mat.SetTexture(prop, savedTex);
+                EditorUtility.SetDirty(mat);
+                Undo.CollapseUndoOperations(undoGroup);
+
+                return $"Success: Applied image to material[{materialIndex}].{prop} on {(islandList.Count > 0 ? $"islands [{string.Join(",", islandList)}]" : "entire texture")}. Saved: {texPath}";
+            }
+            finally
             {
-                int regionX = Mathf.FloorToInt(uvBounds.xMin * texW);
-                int regionY = Mathf.FloorToInt(uvBounds.yMin * texH);
-                DilateColors(editPixels, texW, texH, mask, regionX, regionY, DilationPadding);
+                if (editTex != null) UnityEngine.Object.DestroyImmediate(editTex);
+                UnityEngine.Object.DestroyImmediate(inputTex);
+                if (createdFallback) UnityEngine.Object.DestroyImmediate(srcTex);
             }
-
-            editTex.SetPixels(editPixels);
-            editTex.Apply();
-
-            // Save
-            string texPath = TextureUtility.SaveTexture(editTex, avatarName ?? go.name, srcTex.name);
-            UnityEngine.Object.DestroyImmediate(editTex);
-            UnityEngine.Object.DestroyImmediate(inputTex);
-            if (createdFallback) UnityEngine.Object.DestroyImmediate(srcTex);
-
-            if (string.IsNullOrEmpty(texPath)) return "Error: Failed to save texture.";
-
-            // Assign saved texture to the correct property
-            string prop = string.IsNullOrEmpty(textureProperty) ? "_MainTex" : textureProperty;
-            Texture2D savedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-            Undo.RecordObject(mat, "Apply External Texture");
-            mat.SetTexture(prop, savedTex);
-            EditorUtility.SetDirty(mat);
-            Undo.CollapseUndoOperations(undoGroup);
-
-            return $"Success: Applied image to material[{materialIndex}].{prop} on {(islandList.Count > 0 ? $"islands [{string.Join(",", islandList)}]" : "entire texture")}. Saved: {texPath}";
         }
 
         [AgentTool("Generate a texture variation using AI image generation. Extracts the current texture from the specified material slot and texture property, " +
@@ -518,7 +525,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
             else
             {
-                srcTex = EnsureReadable(srcTex);
+                srcTex = EnsureReadable(srcTex, out bool madeReadableCopy);
+                createdFallback |= madeReadableCopy;
             }
 
             Mesh mesh = ToolUtility.GetMesh(go);
@@ -839,18 +847,34 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return list;
         }
 
-        private static Texture2D EnsureReadable(Texture2D tex)
+        /// <summary>
+        /// Returns a CPU-readable Texture2D for <paramref name="tex"/> without mutating the
+        /// source asset's import settings. If the texture is already readable the same
+        /// instance is returned (createdCopy=false). Otherwise it is blitted into a temporary
+        /// RenderTexture and read back into a NEW Texture2D (createdCopy=true) — the caller
+        /// owns that copy and must DestroyImmediate it.
+        /// Previously this flipped importer.isReadable + SaveAndReimport(), a slow and
+        /// persistent change to the user's project assets.
+        /// </summary>
+        private static Texture2D EnsureReadable(Texture2D tex, out bool createdCopy)
         {
-            string path = AssetDatabase.GetAssetPath(tex);
-            if (string.IsNullOrEmpty(path)) return tex;
-            var importer = AssetImporter.GetAtPath(path) as TextureImporter;
-            if (importer != null && !importer.isReadable)
-            {
-                importer.isReadable = true;
-                importer.SaveAndReimport();
-                tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-            }
-            return tex;
+            createdCopy = false;
+            if (tex == null) return null;
+            if (tex.isReadable) return tex;
+
+            RenderTexture rt = RenderTexture.GetTemporary(
+                tex.width, tex.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            Graphics.Blit(tex, rt);
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var readable = new Texture2D(tex.width, tex.height, TextureFormat.RGBA32, false);
+            readable.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            readable.Apply();
+            readable.name = tex.name;
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+            createdCopy = true;
+            return readable;
         }
 
     }

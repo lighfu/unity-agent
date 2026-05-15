@@ -103,7 +103,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== Tool: MoveVertices ==========
 
-        [AgentTool("Move vertices within a sphere or bone region by a world-space delta. falloff: 0=hard edge, 1=smooth linear falloff. Uses skinning-aware transform for SkinnedMeshRenderer.")]
+        [AgentTool("Move vertices within a sphere or bone region by a world-space delta. falloff: 0=hard edge, 1=smooth linear falloff. Uses skinning-aware transform for SkinnedMeshRenderer. SIDE EFFECT: saves the result as a generated mesh asset and reassigns the renderer's sharedMesh — the original imported mesh is left untouched.")]
         public static string MoveVertices(
             string gameObjectName,
             float deltaX, float deltaY, float deltaZ,
@@ -162,7 +162,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== Tool: ScaleVertices ==========
 
-        [AgentTool("Scale vertices relative to the sphere center. scaleX/Y/Z are multipliers (1.0=no change). falloff: 0=hard, 1=smooth.")]
+        [AgentTool("Scale vertices relative to the sphere center. scaleX/Y/Z are multipliers (1.0=no change). falloff: 0=hard, 1=smooth. SIDE EFFECT: saves the result as a generated mesh asset and reassigns the renderer's sharedMesh — the original imported mesh is left untouched.")]
         public static string ScaleVertices(
             string gameObjectName,
             float scaleX = 1f, float scaleY = 1f, float scaleZ = 1f,
@@ -220,7 +220,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== Tool: SmoothVertices ==========
 
-        [AgentTool("Smooth vertices using volume-preserving Taubin smoothing. Select by sphere or bone. iterations controls smoothing strength.")]
+        [AgentTool("Smooth vertices using volume-preserving Taubin smoothing. Select by sphere or bone. iterations controls smoothing strength. SIDE EFFECT: saves the result as a generated mesh asset and reassigns the renderer's sharedMesh — the original imported mesh is left untouched.")]
         public static string SmoothVertices(
             string gameObjectName,
             float centerX = float.NaN, float centerY = float.NaN, float centerZ = float.NaN,
@@ -302,7 +302,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== Tool: SetVertexPositions ==========
 
-        [AgentTool("Set specific vertex positions by index. vertexData format: 'index:x,y,z;index:x,y,z'. Coordinates are in world space. Use GetVertexPositions first to find indices.")]
+        [AgentTool("Set specific vertex positions by index. vertexData format: 'index:x,y,z;index:x,y,z'. Coordinates are in world space. Use GetVertexPositions first to find indices. SIDE EFFECT: saves the result as a generated mesh asset and reassigns the renderer's sharedMesh — the original imported mesh is left untouched.")]
         public static string SetVertexPositions(string gameObjectName, string vertexData)
         {
             var go = FindGO(gameObjectName);
@@ -454,6 +454,27 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName($"MeshEdit: {undoName}");
+
+            // If the renderer's current mesh is already a generated edit asset, overwrite it
+            // in place. Otherwise every successive edit calls GenerateUniqueAssetPath and
+            // leaves a growing trail of orphaned _edited .asset files.
+            string existingPath = AssetDatabase.GetAssetPath(ctx.mesh);
+            bool reuse = !string.IsNullOrEmpty(existingPath)
+                && existingPath.Replace('\\', '/').StartsWith(GeneratedDir)
+                && ctx.mesh.name.Contains("_edited");
+
+            if (reuse)
+            {
+                Undo.RecordObject(ctx.mesh, $"MeshEdit: {undoName}");
+                ctx.mesh.vertices = newVertices;
+                ctx.mesh.RecalculateNormals();
+                ctx.mesh.RecalculateBounds();
+                EditorUtility.SetDirty(ctx.mesh);
+                Undo.CollapseUndoOperations(undoGroup);
+                AssetDatabase.SaveAssets();
+                SceneView.RepaintAll();
+                return $"Saved (updated in place): {existingPath}";
+            }
 
             var newMesh = Object.Instantiate(ctx.mesh);
             newMesh.name = $"{ctx.mesh.name}_edited";

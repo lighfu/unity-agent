@@ -134,7 +134,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== Tool: SetBoneWeight ==========
 
-        [AgentTool("Set weight for a specific bone within a sphere region. Automatically normalizes weights. falloff: 0=hard, 1=smooth.")]
+        [AgentTool("Set a bone's weight on selected vertices. If a sphere center (centerX/Y/Z) is given, only vertices inside the sphere are affected and 'falloff' blends the change toward the sphere edge (0=hard cutoff, 1=smooth); WITHOUT a sphere the weight is applied to ALL vertices and 'falloff' is ignored. Weights are renormalized so each vertex sums to 1.0 — when other influences are present the bone's final weight is proportionally LESS than the requested value.")]
         public static string SetBoneWeight(
             string gameObjectName,
             string boneName,
@@ -355,6 +355,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var newWeights = (BoneWeight[])ctx.boneWeights.Clone();
             int fixed_count = 0;
+            int unfixableZeroWeight = 0;
 
             for (int i = 0; i < newWeights.Length; i++)
             {
@@ -370,16 +371,28 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         bw.weight2 *= inv;
                         bw.weight3 *= inv;
                         newWeights[i] = bw;
+                        fixed_count++;
                     }
-                    fixed_count++;
+                    else
+                    {
+                        // All-zero-weight vertex — genuinely broken, cannot be normalized
+                        // (there is no influence to scale up). Count it separately rather
+                        // than reporting it as "fixed".
+                        unfixableZeroWeight++;
+                    }
                 }
             }
 
             if (fixed_count == 0)
-                return $"All {newWeights.Length} vertices already normalized.";
+                return unfixableZeroWeight > 0
+                    ? $"No vertices normalized. {unfixableZeroWeight} vertex(es) have all-zero bone weights and cannot be normalized — assign at least one bone influence first."
+                    : $"All {newWeights.Length} vertices already normalized.";
 
             string result = ApplyWeightEdit(ctx, newWeights, "NormalizeBoneWeights");
-            return $"Normalized {fixed_count} / {newWeights.Length} vertices. {result}";
+            string unfixableNote = unfixableZeroWeight > 0
+                ? $" ({unfixableZeroWeight} all-zero-weight vertex(es) skipped — cannot normalize.)"
+                : "";
+            return $"Normalized {fixed_count} / {newWeights.Length} vertices.{unfixableNote} {result}";
         }
 
         // ========== Internal Helpers ==========
@@ -465,6 +478,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName($"WeightEdit: {undoName}");
+
+            // If the renderer's current mesh is already a generated weight-edit asset,
+            // overwrite it in place. Otherwise every successive edit would call
+            // GenerateUniqueAssetPath and leave a growing trail of orphaned _weightEdited
+            // .asset files (the previous one is never reassigned away cleanly).
+            string existingPath = AssetDatabase.GetAssetPath(ctx.mesh);
+            bool reuse = !string.IsNullOrEmpty(existingPath)
+                && existingPath.Replace('\\', '/').StartsWith(GeneratedDir)
+                && ctx.mesh.name.Contains("_weightEdited");
+
+            if (reuse)
+            {
+                Undo.RecordObject(ctx.mesh, $"WeightEdit: {undoName}");
+                ctx.mesh.boneWeights = newWeights;
+                EditorUtility.SetDirty(ctx.mesh);
+                Undo.CollapseUndoOperations(undoGroup);
+                AssetDatabase.SaveAssets();
+                SceneView.RepaintAll();
+                return $"Saved (updated in place): {existingPath}";
+            }
 
             var newMesh = Object.Instantiate(ctx.mesh);
             newMesh.name = $"{ctx.mesh.name}_weightEdited";

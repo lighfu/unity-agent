@@ -55,6 +55,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (string.IsNullOrEmpty(avatarName))
                 return "Error: Could not determine avatar root.";
 
+            Texture2D editableTex = null;
             try
             {
                 // Undo グループ開始
@@ -82,7 +83,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 }
 
                 // editable コピー作成
-                Texture2D editableTex = TextureUtility.CreateEditableTexture(sourceTex);
+                editableTex = TextureUtility.CreateEditableTexture(sourceTex);
                 if (editableTex == null)
                     return "Error: Failed to create editable texture copy.";
 
@@ -211,7 +212,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     return "Error: Failed to save gradient texture.";
 
                 Texture2D savedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-                UnityEngine.Object.DestroyImmediate(editableTex);
 
                 // マテリアルの mainTexture 変更を Undo 記録
                 Undo.RecordObject(mat, "Apply Gradient via Agent");
@@ -237,6 +237,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 Debug.LogError($"[TextureEditTools] ApplyGradient Error: {ex}");
                 return $"Error: {ex.Message}";
+            }
+            finally
+            {
+                if (editableTex != null) UnityEngine.Object.DestroyImmediate(editableTex);
             }
         }
 
@@ -314,6 +318,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (string.IsNullOrEmpty(avatarName))
                 return "Error: Could not determine avatar root.";
 
+            Texture2D editableTex = null;
             try
             {
                 Undo.IncrementCurrentGroup();
@@ -358,7 +363,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
                 }
 
-                Texture2D editableTex = TextureUtility.CreateEditableTexture(sourceTex);
+                editableTex = TextureUtility.CreateEditableTexture(sourceTex);
                 if (editableTex == null)
                     return "Error: Failed to create editable texture copy.";
 
@@ -425,7 +430,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     return "Error: Failed to save gradient texture.";
 
                 Texture2D savedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-                UnityEngine.Object.DestroyImmediate(editableTex);
 
                 Undo.RecordObject(mat, "ApplyGradientEx via Agent");
                 mat.mainTexture = savedTex;
@@ -447,6 +451,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 Debug.LogError($"[TextureEditTools] ApplyGradientEx Error: {ex}");
                 return $"Error: {ex.Message}";
+            }
+            finally
+            {
+                if (editableTex != null) UnityEngine.Object.DestroyImmediate(editableTex);
             }
         }
 
@@ -497,6 +505,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (string.IsNullOrEmpty(avatarName))
                 return "Error: Could not determine avatar root.";
 
+            Texture2D editableTex = null;
             try
             {
                 Undo.IncrementCurrentGroup();
@@ -536,7 +545,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
                 }
 
-                Texture2D editableTex = TextureUtility.CreateEditableTexture(sourceTex);
+                editableTex = TextureUtility.CreateEditableTexture(sourceTex);
                 if (editableTex == null)
                     return "Error: Failed to create editable texture copy.";
 
@@ -578,7 +587,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     return "Error: Failed to save adjusted texture.";
 
                 Texture2D savedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-                UnityEngine.Object.DestroyImmediate(editableTex);
 
                 Undo.RecordObject(mat, "AdjustHSV via Agent");
                 mat.mainTexture = savedTex;
@@ -599,6 +607,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 Debug.LogError($"[TextureEditTools] AdjustHSV Error: {ex}");
                 return $"Error: {ex.Message}";
+            }
+            finally
+            {
+                if (editableTex != null) UnityEngine.Object.DestroyImmediate(editableTex);
             }
         }
 
@@ -646,6 +658,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (string.IsNullOrEmpty(avatarName))
                 return "Error: Could not determine avatar root.";
 
+            Texture2D editableTex = null;
             try
             {
                 Undo.IncrementCurrentGroup();
@@ -683,7 +696,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
                 }
 
-                Texture2D editableTex = TextureUtility.CreateEditableTexture(sourceTex);
+                editableTex = TextureUtility.CreateEditableTexture(sourceTex);
                 if (editableTex == null) return "Error: Failed to create editable texture copy.";
 
                 if (!mat.name.EndsWith("_Customized"))
@@ -721,7 +734,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (string.IsNullOrEmpty(texPath)) return "Error: Failed to save adjusted texture.";
 
                 Texture2D savedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-                UnityEngine.Object.DestroyImmediate(editableTex);
                 Undo.RecordObject(mat, "AdjustBrightnessContrast via Agent");
                 mat.mainTexture = savedTex;
                 NeutralizeLilToonShadowColors(mat);
@@ -740,6 +752,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 Debug.LogError($"[TextureEditTools] AdjustBrightnessContrast Error: {ex}");
                 return $"Error: {ex.Message}";
+            }
+            finally
+            {
+                if (editableTex != null) UnityEngine.Object.DestroyImmediate(editableTex);
             }
         }
 

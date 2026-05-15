@@ -27,7 +27,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 goName: GameObject name. componentType: component class name (e.g. 'TrailRenderer').
 propertyPath: serialized property path (e.g. 'm_Parameters.widthCurve'). Use DeepInspectComponent to find paths.
 keyframes: comma-separated 'time:value' pairs. Example: '0:1, 0.5:0.5, 1:0'
-wrapMode: 0=Default, 1=Clamp, 2=Loop, 4=PingPong, 8=ClampForever.")]
+preWrapMode / postWrapMode: curve wrap behavior before the first key / after the last key.
+  -1=leave unchanged (default), 0=Default, 1=Clamp, 2=Loop, 4=PingPong, 8=ClampForever.")]
         public static string SetCurveProperty(string goName, string componentType, string propertyPath, string keyframes,
             int preWrapMode = -1, int postWrapMode = -1)
         {
