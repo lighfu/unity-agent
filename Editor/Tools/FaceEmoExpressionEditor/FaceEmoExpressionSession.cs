@@ -37,7 +37,40 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             => throw new NotImplementedException(); // Task 3.3
 
         public static FaceEmoExpressionSession OpenForNewExpression(string displayName, string animSavePath, string gameObjectName = "")
-            => throw new NotImplementedException(); // Task 3.2
+        {
+            var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            if (!gate.Ok) throw new InvalidOperationException(gate.ErrorMessage);
+
+            // Dispose previous ambient session
+            _active?.Dispose();
+
+            var session = new FaceEmoExpressionSession
+            {
+                Launcher = gate.Launcher,
+                IsNewExpression = true,
+                PendingDisplayName = string.IsNullOrEmpty(displayName) ? GenerateTmpName() : displayName,
+                PendingSavePath = animSavePath,
+                TmpName = displayName == null ? GenerateTmpName() : null,
+                Clip = new AnimationClip(),
+            };
+            session.Clip.name = session.PendingDisplayName;
+
+            // Try Live via Bridge
+            session._bridge = new ExpressionEditorBridge();
+            if (session._bridge.TryOpen(session.Launcher, session.Clip))
+            {
+                session._bridge.TryOpenPreviewWindow();
+                session.Mode = SyncMode.Live;
+            }
+            else
+            {
+                Debug.LogWarning($"[FaceEmoExpressionSession] Bridge unhealthy ({session._bridge.LastReflectionError}). Falling back to Degraded.");
+                session.Mode = SyncMode.Degraded;
+            }
+
+            _active = session;
+            return session;
+        }
 
         public void SetBlendShape(string smrRelativePath, string shapeName, float value)
             => throw new NotImplementedException(); // Task 3.4/3.5

@@ -105,6 +105,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 #endif
             }
 
+            EditorGUILayout.LabelField("Phase 3: Session", EditorStyles.boldLabel);
+            if (GUILayout.Button("Test: OpenForNewExpression('Smile')"))
+            {
+#if FACE_EMO
+                try
+                {
+                    var s = FaceEmoExpressionSession.OpenForNewExpression("Smile", "Assets/UnityAgent/Expressions/smile.anim");
+                    Log($"Session opened: Mode={s.Mode}, Clip={s.Clip.name}, Launcher={s.Launcher.gameObject.name}");
+                }
+                catch (System.Exception ex) { Log("Error: " + ex.Message); }
+#else
+                Log("SKIP: FACE_EMO not defined.");
+#endif
+            }
+
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
             EditorGUILayout.TextArea(_log, GUILayout.ExpandHeight(true));
