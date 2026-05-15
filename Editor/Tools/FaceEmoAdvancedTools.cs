@@ -881,21 +881,43 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         //  F. Cross-tool Integration (2 tools)
         // ═══════════════════════════════════════════
 
-        [AgentTool("Create AnimationClip from current blend shapes AND register as new FaceEmo expression in one step. meshObjectName: mesh with blend shapes. expressionName: display name. animPath: where to save clip. meshPath: optional relative path from avatar root.")]
+        [AgentTool("Create AnimationClip from current blend shapes AND register as new FaceEmo expression in one step. meshObjectName: mesh with blend shapes. expressionName: display name. animPath: where to save clip. meshPath: optional relative path from avatar root. " +
+            "If a matching ambient session is already open (same name or unspecified), commits it; otherwise snapshots the mesh and commits via Session.")]
         public static string CreateAndRegisterExpression(string meshObjectName,
             string expressionName, string animPath, string meshPath = "",
             string destination = "Registered", string faceEmoObjectName = "")
         {
-            // Step 1: Create animation clip from blend shapes
-            string clipResult = BlendShapeTools.CreateExpressionClip(meshObjectName, animPath, meshPath);
-            if (clipResult.StartsWith("Error")) return clipResult;
+            var gate = FaceEmoGate.RequireExpressionEditingReady(faceEmoObjectName);
+            if (!gate.Ok) return gate.ErrorMessage;
 
-            // Step 2: Register in FaceEmo
-            string addResult = AddExpression(expressionName, destination, animPath, faceEmoObjectName);
-            if (addResult.StartsWith("Error"))
-                return $"Warning: Animation clip created but FaceEmo registration failed.\nClip: {clipResult}\nFaceEmo: {addResult}";
+            // If there's an active session matching this name, commit it
+            var active = FaceEmoExpressionSession.Active;
+            if (active != null && active.IsNewExpression
+                && (active.PendingDisplayName == expressionName || string.IsNullOrEmpty(expressionName)))
+            {
+                active.Commit();
+                return $"Success: Committed active session as '{active.PendingDisplayName}' (ModeId={active.ModeId}).";
+            }
 
-            return $"Success: Created expression '{expressionName}' with animation from '{meshObjectName}'.\n  Clip: {animPath}\n  {addResult}";
+            // Otherwise, snapshot current mesh state into a new session and commit
+            var session = FaceEmoExpressionSession.OpenForNewExpression(expressionName, animPath, faceEmoObjectName);
+            var go = MeshAnalysisTools.FindGameObject(meshObjectName);
+            if (go == null) return $"Error: Mesh '{meshObjectName}' not found.";
+            var smr = go.GetComponent<SkinnedMeshRenderer>();
+            if (smr == null || smr.sharedMesh == null) return $"Error: SkinnedMeshRenderer or mesh missing on '{meshObjectName}'.";
+            string relPath = string.IsNullOrEmpty(meshPath) ? meshObjectName : meshPath;
+
+            int captured = 0;
+            for (int i = 0; i < smr.sharedMesh.blendShapeCount; i++)
+            {
+                float w = smr.GetBlendShapeWeight(i);
+                if (Mathf.Abs(w) < 0.001f) continue;
+                string name = smr.sharedMesh.GetBlendShapeName(i);
+                session.SetBlendShape(relPath, name, w);
+                captured++;
+            }
+            session.Commit();
+            return $"Success: Created '{expressionName}' from {captured} active blendshapes (ModeId={session.ModeId}).";
         }
 
         [AgentTool("Preview a FaceEmo expression on the avatar mesh in Scene view. Resolves the animation from FaceEmo domain model and applies blend shapes. slot: 'Mode' (default), 'Base', 'Left', 'Right', 'Both'.")]
@@ -1071,19 +1093,31 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Create expression animation clip from explicit blend shape data " +
             "and register as new FaceEmo expression in one step. " +
             "Format: 'shapeName=value;shapeName2=value2'. No mesh preview step needed. " +
-            "destination: 'Registered' (max 7), group name, or 'Unregistered'.")]
+            "destination is reserved for compatibility; commit always targets Registered (falling back to Unregistered if full).")]
         public static string CreateExpressionFromData(string displayName,
             string animPath, string meshPath, string blendShapeData,
             string destination = "Registered", string gameObjectName = "")
         {
-            string clipResult = BlendShapeTools.CreateExpressionClipFromData(animPath, meshPath, blendShapeData);
-            if (clipResult.StartsWith("Error")) return clipResult;
+            if (string.IsNullOrWhiteSpace(displayName))
+                return "Error: displayName is empty.";
+            if (string.IsNullOrWhiteSpace(blendShapeData))
+                return "Error: blendShapeData is empty. Format: 'shapeName=value;shapeName2=value2'";
 
-            string addResult = AddExpression(displayName, destination, animPath, gameObjectName);
-            if (addResult.StartsWith("Error"))
-                return $"Warning: Clip created at '{animPath}' but FaceEmo registration failed: {addResult}";
+            var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            if (!gate.Ok) return gate.ErrorMessage;
 
-            return $"Created expression '{displayName}' from data.\n  Clip: {animPath}\n  {addResult}";
+            var session = FaceEmoExpressionSession.OpenForNewExpression(displayName, animPath, gameObjectName);
+            var pairs = blendShapeData.Split(';');
+            foreach (var pair in pairs)
+            {
+                var idx = pair.IndexOf('=');
+                if (idx < 0) continue;
+                string name = pair.Substring(0, idx).Trim();
+                if (!float.TryParse(pair.Substring(idx + 1).Trim(), out float v)) continue;
+                session.SetBlendShape(meshPath, name, v);
+            }
+            session.Commit();
+            return $"Success: Created '{displayName}' from data (ModeId={session.ModeId}, mode={session.Mode}).";
         }
 
         // ═══════════════════════════════════════════
