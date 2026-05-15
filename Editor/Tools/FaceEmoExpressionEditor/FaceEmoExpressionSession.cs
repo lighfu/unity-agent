@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using Suzuryg.FaceEmo.Components;
+using Suzuryg.FaceEmo.Domain;
 using UnityEditor;
 using UnityEngine;
 
@@ -152,10 +153,87 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         }
 
         public IReadOnlyDictionary<string, float> GetCurrentValues()
-            => throw new NotImplementedException(); // Task 3.6
+        {
+            var result = new Dictionary<string, float>();
+
+            // Live path: read from facade
+            if (Mode == SyncMode.Live && _bridge != null &&
+                _bridge.TryGetAnimatedBlendShapes(out var live))
+            {
+                foreach (var kv in live)
+                    result[kv.Key.name] = kv.Value;
+                return result;
+            }
+
+            // Degraded / fallback: read from clip's curves
+            if (Clip != null)
+            {
+                foreach (var b in AnimationUtility.GetCurveBindings(Clip))
+                {
+                    if (!b.propertyName.StartsWith("blendShape.")) continue;
+                    var curve = AnimationUtility.GetEditorCurve(Clip, b);
+                    if (curve == null || curve.length == 0) continue;
+                    string shape = b.propertyName.Substring("blendShape.".Length);
+                    result[shape] = curve[0].value;
+                }
+            }
+            return result;
+        }
 
         public void Commit()
-            => throw new NotImplementedException(); // Task 3.6
+        {
+            if (Clip == null) throw new InvalidOperationException("No clip to commit.");
+
+            // 1. Save the clip asset
+            string finalPath = PendingSavePath;
+            if (string.IsNullOrEmpty(finalPath))
+                finalPath = $"Assets/UnityAgent/Expressions/{PendingDisplayName ?? Clip.name}.anim";
+
+            string dir = System.IO.Path.GetDirectoryName(finalPath);
+            if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
+            {
+                // Create folder hierarchy
+                string fullDir = System.IO.Path.Combine(Application.dataPath, "..", dir);
+                if (!System.IO.Directory.Exists(fullDir)) System.IO.Directory.CreateDirectory(fullDir);
+                AssetDatabase.Refresh();
+            }
+
+            if (string.IsNullOrEmpty(AssetDatabase.GetAssetPath(Clip)))
+                AssetDatabase.CreateAsset(Clip, finalPath);
+            EditorUtility.SetDirty(Clip);
+            AssetDatabase.SaveAssets();
+
+            // 2. Register / update Mode in FaceEmo menu
+            var menu = FaceEmoAPI.LoadMenu(Launcher);
+            if (menu == null) throw new InvalidOperationException("Failed to load FaceEmo menu.");
+
+            string guid = AssetDatabase.AssetPathToGUID(finalPath);
+            var animObj = Activator.CreateInstance(
+                Type.GetType("Suzuryg.FaceEmo.Domain.Animation, jp.suzuryg.face-emo.domain.Runtime"),
+                new object[] { guid });
+
+            if (IsNewExpression)
+            {
+                string dest = FaceEmoAPI.ResolveDestination(menu, "Registered");
+                if (!FaceEmoAPI.CanAddMenuItemTo(menu, dest))
+                    dest = FaceEmoAPI.ResolveDestination(menu, "Unregistered");
+                string modeId = FaceEmoAPI.AddMode(menu, dest);
+                FaceEmoAPI.ModifyModeProperties(menu, modeId, displayName: PendingDisplayName);
+                FaceEmoAPI.SetModeAnimation(menu, (Suzuryg.FaceEmo.Domain.Animation)animObj, modeId);
+                ModeId = modeId;
+                IsNewExpression = false;
+            }
+            else
+            {
+                FaceEmoAPI.SetModeAnimation(menu, (Suzuryg.FaceEmo.Domain.Animation)animObj, ModeId);
+            }
+            FaceEmoAPI.SaveMenu(Launcher, menu, $"Commit Expression '{PendingDisplayName}'");
+        }
+
+        public void OverrideSavePath(string path)
+        {
+            PendingSavePath = path;
+        }
 
         public void Dispose()
         {

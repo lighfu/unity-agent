@@ -147,6 +147,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 Log("SKIP: FACE_EMO not defined.");
 #endif
             }
+            if (GUILayout.Button("Test: Session.Commit"))
+            {
+#if FACE_EMO
+                try
+                {
+                    var s = FaceEmoExpressionSession.Active ?? FaceEmoExpressionSession.OpenForNewExpression("CommitTest", "Assets/UnityAgent/Expressions/CommitTest.anim");
+                    s.SetBlendShape("Body", "Smile", 80f);
+                    s.Commit();
+                    Log($"Committed: ModeId={s.ModeId}, ClipPath={UnityEditor.AssetDatabase.GetAssetPath(s.Clip)}");
+                }
+                catch (System.Exception ex) { Log("Error: " + ex.Message); }
+#else
+                Log("SKIP: FACE_EMO not defined.");
+#endif
+            }
 
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
