@@ -86,6 +86,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 Log("SKIP: FACE_EMO not defined.");
 #endif
             }
+            if (GUILayout.Button("Test: Bridge.TryGetAnimatedBlendShapes"))
+            {
+#if FACE_EMO
+                var gate = FaceEmoGate.RequireExpressionEditingReady();
+                if (!gate.Ok) { Log(gate.ErrorMessage); }
+                else
+                {
+                    var bridge = new ExpressionEditorBridge();
+                    bridge.TryOpen(gate.Launcher, new AnimationClip { name = "GetProbe" });
+                    bridge.TrySetBlendShape("Body", "Smile", 80f);
+                    bool ok = bridge.TryGetAnimatedBlendShapes(out var vals);
+                    Log($"TryGetAnimatedBlendShapes → ok={ok}, count={vals?.Count ?? 0}");
+                    if (vals != null) foreach (var kv in vals) Log($"  {kv.Key.path}/{kv.Key.name}={kv.Value:F1}");
+                }
+#else
+                Log("SKIP: FACE_EMO not defined.");
+#endif
+            }
 
             EditorGUILayout.LabelField("Log:", EditorStyles.boldLabel);
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));

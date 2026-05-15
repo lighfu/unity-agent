@@ -89,6 +89,40 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             }
         }
 
+        public bool TryGetAnimatedBlendShapes(out IReadOnlyDictionary<(string path, string name), float> values)
+        {
+            values = null;
+            if (!IsHealthy || _facade == null) return false;
+            try
+            {
+                var prop = _facade.GetType().GetProperty("AnimatedBlendShapes");
+                if (prop == null) { LastReflectionError = "AnimatedBlendShapes property not found"; return false; }
+
+                var dict = prop.GetValue(_facade) as System.Collections.IDictionary;
+                if (dict == null) { LastReflectionError = "AnimatedBlendShapes is not IDictionary"; return false; }
+
+                var result = new Dictionary<(string, string), float>();
+                foreach (System.Collections.DictionaryEntry entry in dict)
+                {
+                    // Key is BlendShape struct with Path and Name properties
+                    var key = entry.Key;
+                    var keyType = key.GetType();
+                    var path = keyType.GetProperty("Path")?.GetValue(key) as string ?? "";
+                    var name = keyType.GetProperty("Name")?.GetValue(key) as string ?? "";
+                    float v = Convert.ToSingle(entry.Value);
+                    result[(path, name)] = v;
+                }
+                values = result;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                var inner = (ex as TargetInvocationException)?.InnerException ?? ex;
+                LastReflectionError = $"TryGetAnimatedBlendShapes: {inner.GetType().Name}: {inner.Message}";
+                return false;
+            }
+        }
+
         public bool TrySetBlendShape(string smrRelativePath, string shapeName, float value)
         {
             if (!IsHealthy || _facade == null) return false;
