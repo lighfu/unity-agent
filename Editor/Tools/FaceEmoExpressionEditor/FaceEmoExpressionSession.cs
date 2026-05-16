@@ -88,6 +88,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 session.Mode = SyncMode.Degraded;
             }
             _active = session;
+            // Same post-open sweep as OpenForNewExpression — see note there.
+            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: true);
             return session;
         }
 
@@ -131,6 +133,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             }
 
             _active = session;
+            // Post-open sweep: FaceEmo's TryOpen path occasionally leaves an extra hidden
+            // avatar clone behind (suspected: PropertyEditorWindow's OnOpenClipRequested
+            // subscription re-firing Open in the same tick). Preserve the active session's
+            // clone (reference) and wipe any extras. Keeps the FaceEmo PreviewWindow clean.
+            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: true);
             return session;
         }
 
