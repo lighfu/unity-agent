@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.0] - 2026-05-17
+
+### Added — Plan C: Gesture-Aware Expression Workflow
+
+- 5 layers: Orchestrator / Discovery / Convention / Curation / Execution (`Editor/Tools/FaceEmoPlanC/`)
+- 10 new AgentTools under FaceEmoPlanC namespace:
+  - Discovery: `ResolveTargetAvatar`, `InspectFaceEmoState`, `AutoSetupFaceEmoForAvatar`
+  - Gesture: `ListGestureBindings`, `FindBranchByCondition`, `DetectGestureConflicts`, `AssignClipToGesture`
+  - Curation: `SuggestCandidateShapes`, `ApplyExpressionVariation`, `ListExpressionVariations`
+- Session API extensions (`FaceEmoExpressionEditor/FaceEmoExpressionSession.cs`):
+  - `OpenForBranch` — load existing Branch clip into Expression Editor
+  - `CommitAsBranchOf` — atomic 6-step commit + rollback (clip create → branch find/add → slot assign → menu save → mainview refresh)
+  - `CommitInPlace` — overwrite existing clip in place (EditExistingClip mode)
+  - `GetCurrentValuesWithPaths` — path-preserving blendshape read for commit
+  - Enums: `SessionEditMode` (NewMode/EditExistingClip/CreateBranchClip), `OverwriteMode` (Ask/Overwrite/EditExisting/Cancel)
+- `OpenExpressionSession` accepts `editMode='new-mode'|'create-branch-clip'|'edit-existing-clip'` (default 'new-mode')
+- New AgentTool `CommitExpressionSessionToBranch` for CreateBranchClip path
+- `CommitExpressionSession` routes to `CommitInPlace` when EditMode=EditExistingClip
+- `BuiltInSkills.cs` Workflow C guide (10-step gesture-aware flow)
+- Ctrl+Z atomic rollback (`Undo.SetCurrentGroupName` + `CollapseUndoOperations`)
+- `FaceProfileTools.LoadOrBuild` visibility changed from private to internal (CurationTools access)
+- Spec: `docs/superpowers/specs/2026-05-17-faceemo-plan-c-gesture-assignment-design.md`
+- Plan: `docs/superpowers/plans/2026-05-17-faceemo-plan-c-gesture-assignment.md`
+
 ## [Unreleased]
 ### Changed
 - FaceEmo is now REQUIRED for expression editing. Expression tools refuse to run without FaceEmo installed + a configured launcher + TargetAvatar.
