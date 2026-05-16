@@ -81,6 +81,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             s.Dispose();
             return $"Closed session '{name}'.";
         }
+
+        [AgentTool("FaceEmo の preview avatar の残骸を破棄する。FaceEmo はセッションを開くたびに HideAndDontSave 付きで " +
+            "アバターのクローンを (100,100,100) にインスタンス化する。Plan A の Bridge が適切に Dispose されなかった " +
+            "（domain reload 中断、クラッシュ等）場合、これらが累積して Scene/Game view に重なって見える。" +
+            "FaceEmo PreviewWindow に複数アバターが見えるときに呼ぶ。")]
+        public static string CleanupFaceEmoPreviewAvatars()
+        {
+            int n = ExpressionEditorBridge.CleanupOrphanPreviewAvatars();
+            return n == 0
+                ? "No orphan FaceEmo preview avatars found."
+                : $"Destroyed {n} orphan FaceEmo preview avatar(s).";
+        }
     }
 }
 #endif
