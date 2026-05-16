@@ -234,13 +234,54 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
         public void Dispose()
         {
-            // No explicit close — FaceEmo keeps its window open
+            // Dispose FaceEmo's ExpressionEditorPresenter so its CompositeDisposable chain
+            // disposes ExpressionEditorModelFacade → PreviewClipSampler → DestroyImmediate
+            // the instantiated preview avatar in the scene. Without this, each new TryOpen
+            // creates a fresh DI container + presenter + sampler + preview avatar, and the
+            // prior avatar lingers in the scene with HideAndDontSave (visible in Scene/Game
+            // view, invisible in Hierarchy) — N TryOpen calls leave N avatars stacked at
+            // PreviewClipSampler.Origin (100,100,100).
+            try { (_expressionEditor as IDisposable)?.Dispose(); }
+            catch (Exception ex) { Debug.Log($"[ExpressionEditorBridge] Dispose of IExpressionEditor non-fatal: {ex.Message}"); }
+
             _expressionEditor = null;
             _facade = null;
             _launcher = null;
             _blendShapeType = null;
             _setBlendShapeValueMethod = null;
             _animatedBlendShapesProperty = null;
+        }
+
+        /// <summary>
+        /// Find and destroy any leftover FaceEmo preview-avatar GameObjects in the active scene.
+        /// FaceEmo's PreviewClipSampler instantiates the TargetAvatar at world position (100,100,100)
+        /// with hideFlags=HideAndDontSave. If a session was abandoned without Dispose (e.g. domain
+        /// reload before disposal, or a TryOpen that crashed mid-flight), the cloned avatar lingers.
+        /// This helper sweeps them up. Safe to call any time — no-op if none found.
+        /// </summary>
+        /// <returns>Count of destroyed preview avatars.</returns>
+        public static int CleanupOrphanPreviewAvatars()
+        {
+            // FaceEmo's marker: hideFlags == HideAndDontSave AND positioned at (100,100,100)
+            // AND has a SkinnedMeshRenderer somewhere (typical avatar).
+            // Use FindObjectsOfTypeAll because HideAndDontSave hides from regular FindObjectsOfType.
+            int destroyed = 0;
+            var all = Resources.FindObjectsOfTypeAll<GameObject>();
+            const float epsilon = 0.001f;
+            var origin = new Vector3(100f, 100f, 100f);
+            foreach (var go in all)
+            {
+                if (go == null) continue;
+                if (go.hideFlags != HideFlags.HideAndDontSave) continue;
+                if (go.transform.parent != null) continue; // FaceEmo preview avatars are scene roots
+                if ((go.transform.position - origin).sqrMagnitude > epsilon) continue;
+                if (go.GetComponentInChildren<SkinnedMeshRenderer>(includeInactive: true) == null) continue;
+                UnityEngine.Object.DestroyImmediate(go);
+                destroyed++;
+            }
+            if (destroyed > 0)
+                Debug.Log($"[ExpressionEditorBridge] Cleaned up {destroyed} orphan FaceEmo preview avatar(s).");
+            return destroyed;
         }
     }
 }
