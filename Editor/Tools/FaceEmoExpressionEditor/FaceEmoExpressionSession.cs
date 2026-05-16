@@ -189,6 +189,106 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             return session;
         }
 
+        /// <summary>
+        /// 既存 Branch の指定 slot の clip を Editor で開く (EditExistingClip モード)。
+        /// Plan C 用。Branch 既存前提、無ければ throw。
+        /// </summary>
+        /// <param name="launcherName">target launcher 名 (Mode 同時編集検出用)</param>
+        /// <param name="modeName">target Mode 表示名</param>
+        /// <param name="gesture">"HandOpen" 等 (FaceEmoAPI.ParseGesture 形式)</param>
+        /// <param name="hand">"Either" 等 (FaceEmoAPI.ParseHand 形式)</param>
+        /// <param name="slot">"Base"/"Left"/"Right"/"Both"</param>
+        /// <param name="avatarRootName">avatar 同定用 (FaceEmoGate 経由)</param>
+        public static FaceEmoExpressionSession OpenForBranch(
+            string launcherName, string modeName,
+            string gesture, string hand, string slot,
+            string avatarRootName)
+        {
+            FaceEmoGate.Result gate;
+            if (!string.IsNullOrEmpty(avatarRootName))
+                gate = FaceEmoGate.RequireExpressionEditingReadyForAvatar(avatarRootName);
+            else if (!string.IsNullOrEmpty(launcherName))
+                gate = FaceEmoGate.RequireExpressionEditingReady(launcherName);
+            else
+                gate = FaceEmoGate.RequireExpressionEditingReady();
+            if (!gate.Ok) throw new InvalidOperationException(StripErrorPrefix(gate.ErrorMessage));
+
+            var menu = FaceEmoAPI.LoadMenu(gate.Launcher);
+            if (menu == null) throw new InvalidOperationException("Failed to load FaceEmo menu.");
+            var (modeId, mode) = FaceEmoAPI.FindExpression(menu, modeName);
+            if (modeId == null) throw new InvalidOperationException($"Mode '{modeName}' not found in FaceEmo menu.");
+
+            var hg = FaceEmoAPI.ParseGesture(gesture);
+            var hd = FaceEmoAPI.ParseHand(hand);
+            var slotType = FaceEmoAPI.ParseBranchSlot(slot) ?? BranchAnimationType.Base;
+
+            int branchIndex = -1;
+            for (int i = 0; i < (mode.Branches?.Count ?? 0); i++)
+            {
+                var b = mode.Branches[i];
+                if (b.Conditions == null) continue;
+                bool match = System.Linq.Enumerable.Any(b.Conditions, c => c.Hand == hd && c.HandGesture == hg);
+                if (match) { branchIndex = i; break; }
+            }
+            if (branchIndex < 0)
+                throw new InvalidOperationException($"Branch ({hand}, {gesture}) not found in Mode '{modeName}'.");
+
+            var branch = mode.Branches[branchIndex];
+            Suzuryg.FaceEmo.Domain.Animation anim;
+            switch (slotType)
+            {
+                case BranchAnimationType.Left:  anim = branch.LeftHandAnimation;  break;
+                case BranchAnimationType.Right: anim = branch.RightHandAnimation; break;
+                case BranchAnimationType.Both:  anim = branch.BothHandsAnimation; break;
+                default:                        anim = branch.BaseAnimation;      break;
+            }
+
+            AnimationClip clip = null;
+            if (anim != null && !string.IsNullOrEmpty(anim.GUID))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(anim.GUID);
+                if (!string.IsNullOrEmpty(path))
+                    clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+            }
+            if (clip == null)
+                throw new InvalidOperationException(
+                    $"Branch ({hand}, {gesture}) slot '{slot}' has no animation clip.");
+
+            _active?.Dispose();
+            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: false);
+            var session = new FaceEmoExpressionSession
+            {
+                Launcher = gate.Launcher,
+                IsNewExpression = false,
+                ModeId = modeId,
+                Clip = clip,
+                TmpName = null,
+                Mode = SyncMode.Live,
+                EditMode = SessionEditMode.EditExistingClip,
+                LauncherSnapshot = gate.Launcher?.gameObject?.name,
+                TargetModeName = modeName,
+                TargetGesture = gesture,
+                TargetHand = hand,
+                TargetSlot = slot,
+            };
+            session._bridge = new ExpressionEditorBridge();
+            if (session._bridge.TryOpen(gate.Launcher, clip))
+            {
+                session._bridge.TryOpenPreviewWindow();
+                session.Mode = SyncMode.Live;
+            }
+            else
+            {
+                Debug.LogWarning($"[FaceEmoExpressionSession] Bridge unhealthy ({session._bridge.LastReflectionError}). Falling back to Degraded.");
+                session._bridge.Dispose();
+                session._bridge = null;
+                session.Mode = SyncMode.Degraded;
+            }
+            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: true);
+            _active = session;
+            return session;
+        }
+
         public void SetBlendShape(string smrRelativePath, string shapeName, float value)
         {
             if (smrRelativePath == null) throw new ArgumentNullException(nameof(smrRelativePath));
