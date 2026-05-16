@@ -166,19 +166,27 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return go.GetComponent<FaceEmoLauncherComponent>();
             }
 
-            // Auto-find: prefer FaceEmo* named root objects
+            // Auto-find: prefer FaceEmo* named root objects WITH a configured TargetAvatar
+            // (scenes commonly accumulate multiple FaceEmo launchers — picking an unconfigured
+            // one would surface a "no TargetAvatar" gate error and confuse the AI/user).
             var roots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+            FaceEmoLauncherComponent firstUnconfigured = null;
             foreach (var root in roots)
             {
-                if (root.name.StartsWith("FaceEmo", StringComparison.OrdinalIgnoreCase))
-                {
-                    var comp = root.GetComponent<FaceEmoLauncherComponent>();
-                    if (comp != null) return comp;
-                }
+                if (!root.name.StartsWith("FaceEmo", StringComparison.OrdinalIgnoreCase)) continue;
+                var comp = root.GetComponent<FaceEmoLauncherComponent>();
+                if (comp == null) continue;
+                if (comp.AV3Setting != null && comp.AV3Setting.TargetAvatar != null)
+                    return comp;
+                firstUnconfigured ??= comp;
             }
+            if (firstUnconfigured != null) return firstUnconfigured;
 
-            // Fallback: search all objects in scene
-            return Object.FindObjectOfType<FaceEmoLauncherComponent>();
+            // Fallback: any launcher anywhere in the scene (prefer configured).
+            var all = Object.FindObjectsOfType<FaceEmoLauncherComponent>();
+            foreach (var c in all)
+                if (c.AV3Setting != null && c.AV3Setting.TargetAvatar != null) return c;
+            return all.Length > 0 ? all[0] : null;
         }
 
         /// <summary>

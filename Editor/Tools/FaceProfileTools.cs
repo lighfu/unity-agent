@@ -214,6 +214,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var sb = new StringBuilder();
             sb.AppendLine($"Success: Applied {appliedCount} blend shape value(s) across {smrUpdates.Count} SMR(s). " +
                           $"(session mode: {session.Mode})");
+            if (session.Mode == FaceEmoExpressionEditor.FaceEmoExpressionSession.SyncMode.Live)
+                sb.AppendLine("  Note: Live mode writes to FaceEmo's ExpressionEditor preview, NOT the scene mesh. " +
+                              "CaptureFacePreview / GetActiveBlendShapes will show the unmodified mesh. " +
+                              "Use CaptureFaceEmoModeThumbnail (after CommitExpressionSession) to verify visually.");
             if (autoSession)
                 sb.AppendLine($"  (auto-session: \"{session.PendingDisplayName ?? session.TmpName}\". " +
                               "Call CommitExpressionSession to persist, or OpenExpressionSession beforehand to control the name.)");

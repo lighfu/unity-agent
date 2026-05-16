@@ -303,6 +303,7 @@ ImportExpressions reads the existing FX Animator and recreates the expression se
 ```
 This is the canonical flow. FaceEmo and a configured launcher+avatar are REQUIRED.
 Note: CaptureFaceEmoModeThumbnail / CaptureFaceEmoGestureTable / CaptureFaceEmoExMenuThumbnail all require the Mode to be COMMITTED to the FaceEmo menu first — call them after CommitExpressionSession.
+IMPORTANT: In Live session mode, SetExpressionPreviewMulti writes to FaceEmo's ExpressionEditor preview, NOT the scene mesh. CaptureFacePreview / GetActiveBlendShapes will show the unmodified mesh and look like nothing happened. Trust the SetExpressionPreviewMulti success message; verify visually with CaptureFaceEmoModeThumbnail AFTER Commit.
 intent keywords supported: smile / angry / surprised / sad / cry / wink / sleep / kiss / shy
 plus Japanese aliases (笑顔/怒り/驚き/...). If preset confidence is low, fall back to Workflow C.
 
