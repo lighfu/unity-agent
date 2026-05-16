@@ -310,7 +310,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         //  Internal helpers
         // ═══════════════════════════════════════════
 
-        private static FaceBlendShapeProfile LoadOrBuild(string avatarRootName, out string error)
+        internal static FaceBlendShapeProfile LoadOrBuild(string avatarRootName, out string error)
         {
             error = null;
             var root = MeshAnalysisTools.FindGameObject(avatarRootName);
