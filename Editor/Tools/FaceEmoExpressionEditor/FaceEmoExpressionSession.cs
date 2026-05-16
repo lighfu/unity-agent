@@ -32,6 +32,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
         private ExpressionEditorBridge _bridge;
 
+        /// <summary>
+        /// Returns the GameObject FaceEmo currently has as its preview-avatar clone for this
+        /// session (via reflection through the Bridge). Null if no Bridge or chain not opened.
+        /// Used by cleanup utilities to skip the active session's avatar.
+        /// </summary>
+        internal GameObject CurrentPreviewAvatar => _bridge?.GetCurrentPreviewAvatar();
+
         private FaceEmoExpressionSession() { }
 
         public static FaceEmoExpressionSession OpenForMode(string modeName, string gameObjectName = "")

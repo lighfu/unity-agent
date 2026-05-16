@@ -241,8 +241,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             // prior avatar lingers in the scene with HideAndDontSave (visible in Scene/Game
             // view, invisible in Hierarchy) — N TryOpen calls leave N avatars stacked at
             // PreviewClipSampler.Origin (100,100,100).
+            //
+            // Belt-and-braces: capture the preview-avatar reference BEFORE Presenter.Dispose
+            // runs, and if it survives the dispose (FaceEmo's dispose chain has edge cases
+            // around docked PreviewWindow / domain reload state), destroy it directly.
+            var previewAvatarSnapshot = GetCurrentPreviewAvatar();
             try { (_expressionEditor as IDisposable)?.Dispose(); }
             catch (Exception ex) { Debug.Log($"[ExpressionEditorBridge] Dispose of IExpressionEditor non-fatal: {ex.Message}"); }
+            if (previewAvatarSnapshot != null)
+            {
+                try { UnityEngine.Object.DestroyImmediate(previewAvatarSnapshot); }
+                catch (Exception ex) { Debug.Log($"[ExpressionEditorBridge] DestroyImmediate(previewAvatar) non-fatal: {ex.Message}"); }
+            }
 
             _expressionEditor = null;
             _facade = null;
@@ -250,6 +260,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             _blendShapeType = null;
             _setBlendShapeValueMethod = null;
             _animatedBlendShapesProperty = null;
+        }
+
+        /// <summary>
+        /// Reflects through facade._previewClipSampler._previewAvatar to return the GameObject
+        /// FaceEmo currently has as its preview-avatar clone. Returns null if any step misses
+        /// (Bridge not Opened, or the field path has changed in a FaceEmo update).
+        /// </summary>
+        public GameObject GetCurrentPreviewAvatar()
+        {
+            if (_facade == null) return null;
+            try
+            {
+                var samplerField = _facade.GetType().GetField("_previewClipSampler", BindingFlags.NonPublic | BindingFlags.Instance);
+                var sampler = samplerField?.GetValue(_facade);
+                if (sampler == null) return null;
+                var avatarField = sampler.GetType().GetField("_previewAvatar", BindingFlags.NonPublic | BindingFlags.Instance);
+                return avatarField?.GetValue(sampler) as GameObject;
+            }
+            catch { return null; }
         }
 
         /// <summary>
@@ -271,17 +300,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             // (100,100,100) AND has a SkinnedMeshRenderer somewhere (typical avatar). Use
             // FindObjectsOfTypeAll because HideAndDontSave hides them from regular FindObjectsOfType.
             //
-            // Each preview avatar's name is "{targetAvatar.gameObject.name}(Clone)" because it's
-            // produced by Object.Instantiate(targetAvatar). If a session is currently active, its
-            // expected clone name is computed here and skipped so we don't yank the running
-            // session's avatar out from under it.
-            string activeCloneName = null;
-            if (preserveActiveSession)
-            {
-                var active = FaceEmoExpressionSession.Active;
-                var target = active?.Launcher?.AV3Setting?.TargetAvatar;
-                if (target != null) activeCloneName = target.gameObject.name + "(Clone)";
-            }
+            // Skip the active session's avatar by *reference equality*, not by name. Unity's
+            // Object.Instantiate appends " (1)", " (2)", … suffixes when names collide, so
+            // name-based matching can preserve a leftover (no-suffix) clone while destroying
+            // the current active (numbered-suffix) clone — exactly opposite of intent.
+            GameObject activeAvatar = null;
+            if (preserveActiveSession) activeAvatar = FaceEmoExpressionSession.Active?.CurrentPreviewAvatar;
 
             int destroyed = 0;
             int preserved = 0;
@@ -295,7 +319,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 if (go.transform.parent != null) continue; // FaceEmo preview avatars are scene roots
                 if ((go.transform.position - origin).sqrMagnitude > epsilon) continue;
                 if (go.GetComponentInChildren<SkinnedMeshRenderer>(includeInactive: true) == null) continue;
-                if (activeCloneName != null && go.name == activeCloneName)
+                if (activeAvatar != null && ReferenceEquals(go, activeAvatar))
                 {
                     preserved++;
                     continue;
