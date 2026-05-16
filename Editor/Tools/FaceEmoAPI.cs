@@ -263,7 +263,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             CleanupSerializableMenuChildren(menuRepo.SerializableMenu);
             menuRepo.SerializableMenu.Save(menu, isAsset: false);
             EditorUtility.SetDirty(menuRepo);
-            RefreshWindowIfOpen(launcher);
+            // NOTE: We intentionally do NOT call RefreshWindowIfOpen here. FaceEmo's MainView/
+            // HierarchyView Dispose chain can NRE on a stale window left over from a previous
+            // domain reload, and that exception fires on the editor tick after we return — out
+            // of any reachable try/catch. AI workflows call RefreshFaceEmoMainView explicitly
+            // (per BuiltInSkills.cs Workflow B step 7) when they want the UI to repaint. The
+            // saved data itself is already persisted in MenuRepositoryComponent above; the only
+            // cost of skipping the refresh is that the open FaceEmo window may show stale UI
+            // until it is manually re-launched.
             return true;
         }
 
@@ -856,20 +863,51 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         /// <summary>
         /// FaceEmo ウィンドウが開いていたら FaceEmoLauncher.Launch() で再起動する。
-        /// SaveMenu から自動呼び出しされるため、通常は明示呼び出し不要。
-        /// AV3Setting のみの変更（ConfigureTargetAvatar 等）で Menu 保存を伴わない場合に直接呼ぶ。
+        /// 直接呼び出し専用 (Plan B の RefreshFaceEmoMainView AgentTool 経由)。SaveMenu からは
+        /// 自動呼び出ししない — stale な MainView を Dispose しようとして HierarchyView.Dispose
+        /// が NRE を投げる FaceEmo 内部バグを回避するため。
         /// </summary>
+        /// <remarks>
+        /// 防御策: Launch を呼ぶ前に既存 MainWindow を Close() して stale state を破棄する。
+        /// Close 自体が NRE を投げても飲み込んで Launch を試行する。Launch も投げたら Debug.Log
+        /// (Warning ではない) で済ませる — 保存データ自体は SaveMenu の時点で永続化済みなので
+        /// 致命的ではない。
+        /// </remarks>
         public static void RefreshWindowIfOpen(FaceEmoLauncherComponent launcher)
         {
+            var mainWindowType = Type.GetType(
+                $"Suzuryg.FaceEmo.AppMain.MainWindow, {AppMainEditorAssembly}");
+            if (mainWindowType == null) return;
+
+            // Force-close any existing MainWindow instances FIRST so Launch creates fresh state.
+            // FaceEmo's MainView.Dispose → HierarchyView.Dispose can NRE on stale fields from a
+            // prior domain reload; closing here first means Launch's Build.Clean has nothing to
+            // dispose (or the stale dispose happens here where we can swallow it).
             try
             {
-                var mainWindowType = Type.GetType(
-                    $"Suzuryg.FaceEmo.AppMain.MainWindow, {AppMainEditorAssembly}");
-                if (mainWindowType == null) return;
-
                 var windows = Resources.FindObjectsOfTypeAll(mainWindowType);
-                if (windows == null || windows.Length == 0) return;
+                if (windows != null)
+                {
+                    foreach (var w in windows)
+                    {
+                        if (w is EditorWindow ew)
+                        {
+                            try { ew.Close(); }
+                            catch (Exception closeEx)
+                            {
+                                Debug.Log($"[FaceEmoAPI] Stale MainWindow close non-fatal: {closeEx.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception scanEx)
+            {
+                Debug.Log($"[FaceEmoAPI] MainWindow scan non-fatal: {scanEx.Message}");
+            }
 
+            try
+            {
                 var launcherType = Type.GetType(
                     $"Suzuryg.FaceEmo.AppMain.FaceEmoLauncher, {AppMainEditorAssembly}");
                 if (launcherType == null) return;
@@ -882,7 +920,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[FaceEmoAPI] Failed to refresh FaceEmo window: {ex.Message}");
+                // Demoted from LogWarning — FaceEmo's MainWindow re-launch occasionally fails
+                // with internal Dispose NRE that is upstream and not actionable from here.
+                // The saved data persists regardless.
+                Debug.Log($"[FaceEmoAPI] Refresh FaceEmo window non-fatal: {ex.Message}");
             }
         }
 
