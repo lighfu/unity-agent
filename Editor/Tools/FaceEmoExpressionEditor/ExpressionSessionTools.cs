@@ -53,7 +53,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         }
 
         [AgentTool("編集中のセッションを保存し、新規なら FaceEmo Menu に Mode として登録する。" +
-            "animPath 指定で保存先を上書き。")]
+            "animPath 指定で保存先を上書き。" +
+            "Registered が FaceEmo の 7 個上限に達している場合は Unregistered に fallback し、その旨を Note で返す。")]
         public static string CommitExpressionSession(string animPath = "")
         {
             var s = FaceEmoExpressionSession.Active;
@@ -63,7 +64,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 if (!string.IsNullOrEmpty(animPath))
                     s.OverrideSavePath(animPath);
                 s.Commit();
-                return $"Committed: ModeId={s.ModeId}, name='{s.PendingDisplayName}'.";
+                return $"Committed: ModeId={s.ModeId}, name='{s.PendingDisplayName}', destination={s.LastCommitDestination}."
+                       + s.GetUnregisteredFallbackNote();
             }
             catch (System.Exception ex)
             {

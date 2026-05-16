@@ -239,9 +239,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
             if (IsNewExpression)
             {
-                string dest = FaceEmoAPI.ResolveDestination(menu, "Registered");
-                if (!FaceEmoAPI.CanAddMenuItemTo(menu, dest))
+                string registeredDest = FaceEmoAPI.ResolveDestination(menu, "Registered");
+                string dest;
+                if (FaceEmoAPI.CanAddMenuItemTo(menu, registeredDest))
+                {
+                    dest = registeredDest;
+                    LastCommitDestination = "Registered";
+                }
+                else
+                {
                     dest = FaceEmoAPI.ResolveDestination(menu, "Unregistered");
+                    LastCommitDestination = "Unregistered";
+                }
                 string modeId = FaceEmoAPI.AddMode(menu, dest);
                 FaceEmoAPI.ModifyModeProperties(menu, modeId, displayName: PendingDisplayName);
                 FaceEmoAPI.SetModeAnimation(menu, anim, modeId);
@@ -251,8 +260,33 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             else
             {
                 FaceEmoAPI.SetModeAnimation(menu, anim, ModeId);
+                LastCommitDestination = "Existing";
             }
             FaceEmoAPI.SaveMenu(Launcher, menu, $"Commit Expression '{PendingDisplayName}'");
+        }
+
+        /// <summary>
+        /// "Registered" | "Unregistered" | "Existing" — set by Commit. Useful for callers
+        /// to detect the FaceEmo 7-item cap fallback and surface a Note to the user.
+        /// Null until first Commit.
+        /// </summary>
+        public string LastCommitDestination { get; private set; }
+
+        /// <summary>
+        /// If this session's last Commit hit the FaceEmo Registered cap and fell back to
+        /// Unregistered, returns a multi-sentence Note string explaining how to recover.
+        /// Returns empty string otherwise. Designed to be appended to AgentTool success
+        /// messages so the AI/user sees the cap state and actionable next steps.
+        /// </summary>
+        public string GetUnregisteredFallbackNote()
+        {
+            if (LastCommitDestination != "Unregistered") return string.Empty;
+            string name = PendingDisplayName ?? ModeId ?? "<name>";
+            return " Note: Registered list is at FaceEmo's 7-item cap, so this Mode landed in Unregistered" +
+                   " (still gesture-assignable but NOT visible in the VRChat radial Expression Menu)." +
+                   " To make it appear in the radial menu, either" +
+                   $" (a) RemoveExpression on an existing Registered item to free a slot, then MoveExpressionItem('{name}', 'Registered'), or" +
+                   $" (b) CreateExpressionGroup('<groupName>', 'Registered') and MoveExpressionItem('{name}', '<groupName>') to consolidate (a Group counts as 1 slot).";
         }
 
         public void OverrideSavePath(string path)

@@ -896,7 +896,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 && (active.PendingDisplayName == expressionName || string.IsNullOrEmpty(expressionName)))
             {
                 active.Commit();
-                return $"Success: Committed active session as '{active.PendingDisplayName}' (ModeId={active.ModeId}).";
+                return $"Success: Committed active session as '{active.PendingDisplayName}' (ModeId={active.ModeId}, destination={active.LastCommitDestination})."
+                       + active.GetUnregisteredFallbackNote();
             }
 
             // Snapshot prior session BEFORE OpenForNewExpression disposes it,
@@ -926,7 +927,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 captured++;
             }
             session.Commit();
-            return $"Success: Created '{expressionName}' from {captured} active blendshapes (ModeId={session.ModeId}).{discardWarning}";
+            return $"Success: Created '{expressionName}' from {captured} active blendshapes (ModeId={session.ModeId}, destination={session.LastCommitDestination}).{discardWarning}"
+                   + session.GetUnregisteredFallbackNote();
         }
 
         [AgentTool("Preview a FaceEmo expression on the avatar mesh in Scene view. Resolves the animation from FaceEmo domain model and applies blend shapes. slot: 'Mode' (default), 'Base', 'Left', 'Right', 'Both'.")]
@@ -1147,7 +1149,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 session.SetBlendShape(meshPath, name, v);
             }
             session.Commit();
-            return $"Success: Created '{displayName}' from data (ModeId={session.ModeId}, mode={session.Mode}).";
+            return $"Success: Created '{displayName}' from data (ModeId={session.ModeId}, mode={session.Mode}, destination={session.LastCommitDestination})."
+                   + session.GetUnregisteredFallbackNote();
         }
 
         // ═══════════════════════════════════════════
