@@ -284,8 +284,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 session._bridge = null;
                 session.Mode = SyncMode.Degraded;
             }
-            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: true);
             _active = session;
+            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: true);
             return session;
         }
 
@@ -359,6 +359,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 else if (overwriteMode == OverwriteMode.Cancel)
                 {
                     throw new InvalidOperationException("Existing branch present and overwriteMode=Cancel.");
+                }
+                else if (overwriteMode == OverwriteMode.EditExisting)
+                {
+                    throw new InvalidOperationException("OverwriteMode.EditExisting on existing branch: use OpenForBranch + CommitInPlace instead of CommitAsBranchOf.");
                 }
 
                 // ④ slot 割当

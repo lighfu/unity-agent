@@ -139,6 +139,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoPlanC.AgentTools
                 new Animation(guid));
             FaceEmoAPI.SaveMenu(launcher, menu);
             UnityEditor.AssetDatabase.SaveAssets();
+            try { FaceEmoAPI.RefreshWindowIfOpen(launcher); } catch { /* non-fatal */ }
             UnityEditor.Undo.CollapseUndoOperations(undoGroup);
             return $"OK branchIndex={branchIdx} slot={slot} isNew={isNew}";
         }
