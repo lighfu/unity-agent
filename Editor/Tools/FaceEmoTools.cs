@@ -407,6 +407,43 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         {
             EnsureTypes();
 
+            // Strategy 0 (highest priority): read from the launcher's own MenuRepositoryComponent.
+            // This is the source of truth that Plan A's FaceEmoAPI.LoadMenu uses. Without this,
+            // the older strategies fall back to AssetDatabase backup assets that may not reflect
+            // current scene state — leading the AI to retry endlessly when expressions actually
+            // ARE registered but the listing tool shows them as missing.
+            {
+                var launcherGO = (launcherComp as Component)?.gameObject;
+                if (launcherGO != null)
+                {
+                    var menuRepoType = FindType("Suzuryg.FaceEmo.Components.Data.MenuRepositoryComponent")
+                                    ?? FindType("Suzuryg.FaceEmo.Components.MenuRepositoryComponent");
+                    if (menuRepoType != null)
+                    {
+                        var menuRepo = launcherGO.GetComponent(menuRepoType);
+                        if (menuRepo != null)
+                        {
+                            // SerializableMenu may be exposed as field or property — try both.
+                            object serMenu = null;
+                            var serMenuField = menuRepoType.GetField("SerializableMenu");
+                            if (serMenuField != null) serMenu = serMenuField.GetValue(menuRepo);
+                            if (serMenu == null)
+                            {
+                                var serMenuProp = menuRepoType.GetProperty("SerializableMenu");
+                                if (serMenuProp != null) serMenu = serMenuProp.GetValue(menuRepo);
+                            }
+                            var serMenuObj = serMenu as UnityEngine.Object;
+                            if (serMenuObj != null)
+                            {
+                                sb.AppendLine($"  Source: scene launcher '{launcherGO.name}' MenuRepositoryComponent (live data)");
+                                DumpMenuFromSerializableMenu(serMenuObj, sb);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Strategy 1: Find FaceEmoProject via AssetDatabase
             if (_projectType != null)
             {
