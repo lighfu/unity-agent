@@ -198,6 +198,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 session = FaceEmoExpressionEditor.FaceEmoExpressionSession.OpenForNewExpression(null, tmpPath, gate.Launcher.gameObject.name);
                 autoSession = true;
             }
+            else if (session.Launcher != null && session.Launcher.AV3Setting != null
+                     && session.Launcher.AV3Setting.TargetAvatar != null
+                     && session.Launcher.AV3Setting.TargetAvatar.gameObject.name != avatarRootName)
+            {
+                // Avatar mismatch — the active session was opened for a different avatar.
+                // Emit a clear error rather than silently writing the wrong avatar's shapes
+                // to a different launcher's menu (which is what previously hid registrations
+                // under the wrong FaceEmo launcher).
+                return $"Error: Active session targets avatar '{session.Launcher.AV3Setting.TargetAvatar.gameObject.name}' " +
+                       $"but you requested '{avatarRootName}'. Call CloseExpressionSession then " +
+                       $"OpenExpressionSession(avatarRootName='{avatarRootName}', newName='<name>') first, " +
+                       $"or pass the avatar this session targets.";
+            }
 
             int appliedCount = 0;
             var smrResults = new List<string>();

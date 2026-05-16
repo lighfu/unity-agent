@@ -10,22 +10,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
     {
         [AgentTool("FaceEmo MainWindow + ExpressionEditor を開き、対象 Mode (modeName 指定) または新規表情 (newName 指定) の編集セッションを開始する。" +
             "以降の SetExpressionPreviewMulti 等はこのセッション経由で動作する。" +
-            "両方未指定なら新規 (auto name)。")]
-        public static string OpenExpressionSession(string modeName = "", string newName = "")
+            "両方未指定なら新規 (auto name)。" +
+            "avatarRootName を指定すると、そのアバターをターゲットとする launcher を選んでセッションが作られる " +
+            "(Workflow B の正規形 — Milfy_Another の表情を作りたいなら avatarRootName='Milfy_Another' を必ず渡す)。" +
+            "未指定だと scene 内の最初の configured launcher が選ばれ、後続の SetExpressionPreviewMulti が別 avatar の launcher の menu に commit してしまう可能性がある。")]
+        public static string OpenExpressionSession(string modeName = "", string newName = "", string avatarRootName = "")
         {
             try
             {
                 FaceEmoExpressionSession session;
                 if (!string.IsNullOrEmpty(modeName))
-                    session = FaceEmoExpressionSession.OpenForMode(modeName);
+                    session = FaceEmoExpressionSession.OpenForMode(modeName, gameObjectName: "", avatarRootName: avatarRootName);
                 else
                 {
                     string name = string.IsNullOrEmpty(newName) ? FaceEmoExpressionSession.GenerateTmpName() : newName;
                     string path = $"Assets/UnityAgent/Expressions/{name}.anim";
-                    session = FaceEmoExpressionSession.OpenForNewExpression(name, path);
+                    session = FaceEmoExpressionSession.OpenForNewExpression(name, path, gameObjectName: "", avatarRootName: avatarRootName);
                 }
                 return $"Session opened: name='{session.PendingDisplayName ?? session.ModeId}', mode={session.Mode}, " +
-                       $"isNew={session.IsNewExpression}.";
+                       $"isNew={session.IsNewExpression}, launcher='{session.Launcher?.gameObject.name}'" +
+                       $" (TargetAvatar='{session.Launcher?.AV3Setting?.TargetAvatar?.gameObject.name ?? "?"}').";
             }
             catch (System.Exception ex)
             {

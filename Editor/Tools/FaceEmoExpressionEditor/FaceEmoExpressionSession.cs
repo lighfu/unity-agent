@@ -41,9 +41,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
         private FaceEmoExpressionSession() { }
 
-        public static FaceEmoExpressionSession OpenForMode(string modeName, string gameObjectName = "")
+        public static FaceEmoExpressionSession OpenForMode(string modeName, string gameObjectName = "", string avatarRootName = "")
         {
-            var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            FaceEmoGate.Result gate;
+            if (!string.IsNullOrEmpty(gameObjectName))
+                gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            else if (!string.IsNullOrEmpty(avatarRootName))
+                gate = FaceEmoGate.RequireExpressionEditingReadyForAvatar(avatarRootName);
+            else
+                gate = FaceEmoGate.RequireExpressionEditingReady();
             if (!gate.Ok) throw new InvalidOperationException(StripErrorPrefix(gate.ErrorMessage));
 
             var menu = FaceEmoAPI.LoadMenu(gate.Launcher);
@@ -93,9 +99,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             return session;
         }
 
-        public static FaceEmoExpressionSession OpenForNewExpression(string displayName, string animSavePath, string gameObjectName = "")
+        public static FaceEmoExpressionSession OpenForNewExpression(string displayName, string animSavePath, string gameObjectName = "", string avatarRootName = "")
         {
-            var gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            // Prefer explicit launcher name; otherwise use avatar-aware lookup if avatarRootName given.
+            FaceEmoGate.Result gate;
+            if (!string.IsNullOrEmpty(gameObjectName))
+                gate = FaceEmoGate.RequireExpressionEditingReady(gameObjectName);
+            else if (!string.IsNullOrEmpty(avatarRootName))
+                gate = FaceEmoGate.RequireExpressionEditingReadyForAvatar(avatarRootName);
+            else
+                gate = FaceEmoGate.RequireExpressionEditingReady();
             if (!gate.Ok) throw new InvalidOperationException(StripErrorPrefix(gate.ErrorMessage));
 
             // Dispose previous ambient session

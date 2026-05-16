@@ -292,7 +292,7 @@ ImportExpressions reads the existing FX Animator and recreates the expression se
 ### B. Create Expression from Preset (RECOMMENDED — fastest path) (""笑顔の表情を作って"")
 ```
 1. [AnalyzeFaceBlendShapes('Avatar')]
-2. [OpenExpressionSession(newName='Smile')] → MainWindow + ExpressionEditor を開く (Live セッション)
+2. [OpenExpressionSession(newName='Smile', avatarRootName='Avatar')] → MainWindow + ExpressionEditor を開く (Live セッション。avatarRootName を必ず渡すこと — 渡さないと scene の最初の configured launcher が選ばれ、別 avatar の menu に commit されてしまう)
 3. [SuggestExpressionShapes('Avatar', 'smile')] → 'shape1=80;shape2=100;...' を取得
 4. [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → ExpressionEditor のライブプレビューに即反映
 5. (任意) [ReadExpressionFromWindow()] → ユーザーが手で動かしたスライダーを取り込む
@@ -309,7 +309,7 @@ plus Japanese aliases (笑顔/怒り/驚き/...). If preset confidence is low, f
 
 ### C. Create Expression Manually (preset miss / fine-tuning) (""人差し指で驚いた表情にして"")
 ```
-1. [OpenExpressionSession(newName='Surprised')] → ExpressionEditor を開く
+1. [OpenExpressionSession(newName='Surprised', avatarRootName='Avatar')] → ExpressionEditor を開く (avatarRootName 必須)
 2. [AnalyzeFaceBlendShapes('Avatar')] → SMR / カテゴリ確認
 3. [SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')] → カテゴリ別 shape 候補
 4. [SetExpressionPreviewMulti('Avatar', 'eye_surprised=100;mouth_open=60;brow_up=80')] → ライブ反映
