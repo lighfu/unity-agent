@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - FaceEmo is now REQUIRED for expression editing. Expression tools refuse to run without FaceEmo installed + a configured launcher + TargetAvatar.
 - Expression building now drives FaceEmo's ExpressionEditor live preview (when reflection access is healthy) or falls back to `.anim` write + window refresh (Degraded mode).
+- `FaceEmoAPI.SaveMenu` no longer auto-calls `RefreshWindowIfOpen`. After a domain reload, FaceEmo's stale `MainView` can NRE in `HierarchyView.Dispose` during re-Launch, and that exception fires on the next editor tick — out of any reachable try/catch. AI workflows already call `RefreshFaceEmoMainView` explicitly (BuiltInSkills.cs Workflow B step 7). `RefreshWindowIfOpen` now also force-closes any stale `MainWindow` before re-Launch as a defensive reset; failures are demoted from Warning to Info log.
+- `FaceEmoTools.ListFaceEmoExpressions` / `InspectFaceEmo` now read from the launcher's own `MenuRepositoryComponent` (live scene data) as their highest-priority source. Previously they hit `AssetDatabase.FindAssets` for a backup `FaceEmoProject` first, which often returned an empty backup and misled AI into retrying registrations.
+- `FaceEmoAPI.FindLauncher("")` (auto-find) now prefers `FaceEmo*` roots with a configured `TargetAvatar` over the first arbitrary launcher. Scenes with many launchers no longer surface misleading "no TargetAvatar" gate errors on the wrong one.
+- `SetExpressionPreviewMulti` Live-mode success message now includes a `Note:` explaining that the scene mesh is NOT updated (only FaceEmo's ExpressionEditor preview) and that visual verification needs `CaptureFaceEmoModeThumbnail` AFTER `CommitExpressionSession`.
 ### Added
 - `OpenExpressionSession`, `ReadExpressionFromWindow`, `CommitExpressionSession`, `CloseExpressionSession` AgentTools.
 - `FaceEmoGate`, `FaceEmoExpressionSession`, `ExpressionEditorBridge`, `AssetPathFallback`.
