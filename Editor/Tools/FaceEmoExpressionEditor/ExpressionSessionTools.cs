@@ -85,13 +85,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         [AgentTool("FaceEmo の preview avatar の残骸を破棄する。FaceEmo はセッションを開くたびに HideAndDontSave 付きで " +
             "アバターのクローンを (100,100,100) にインスタンス化する。Plan A の Bridge が適切に Dispose されなかった " +
             "（domain reload 中断、クラッシュ等）場合、これらが累積して Scene/Game view に重なって見える。" +
-            "FaceEmo PreviewWindow に複数アバターが見えるときに呼ぶ。")]
-        public static string CleanupFaceEmoPreviewAvatars()
+            "FaceEmo PreviewWindow に複数アバターが見えるときに呼ぶ。" +
+            "アクティブセッションの preview は preserveActive=true (デフォルト) で残す。" +
+            "preserveActive='false' で全て破棄 (アクティブセッションの編集を壊す)。")]
+        public static string CleanupFaceEmoPreviewAvatars(string preserveActive = "true")
         {
-            int n = ExpressionEditorBridge.CleanupOrphanPreviewAvatars();
+            bool preserve = !string.Equals(preserveActive, "false", System.StringComparison.OrdinalIgnoreCase);
+            int n = ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserve);
             return n == 0
                 ? "No orphan FaceEmo preview avatars found."
-                : $"Destroyed {n} orphan FaceEmo preview avatar(s).";
+                : $"Destroyed {n} orphan FaceEmo preview avatar(s)" + (preserve ? " (active session preserved)." : ".");
         }
     }
 }

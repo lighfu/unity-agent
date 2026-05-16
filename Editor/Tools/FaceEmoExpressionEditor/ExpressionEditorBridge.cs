@@ -257,15 +257,34 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         /// FaceEmo's PreviewClipSampler instantiates the TargetAvatar at world position (100,100,100)
         /// with hideFlags=HideAndDontSave. If a session was abandoned without Dispose (e.g. domain
         /// reload before disposal, or a TryOpen that crashed mid-flight), the cloned avatar lingers.
-        /// This helper sweeps them up. Safe to call any time — no-op if none found.
+        /// This helper sweeps them up.
         /// </summary>
+        /// <param name="preserveActiveSession">
+        /// When true (default), skips the avatar belonging to the currently-active session — its
+        /// PreviewClipSampler is still using it. Set to false to wipe ALL preview avatars even if
+        /// it disrupts an in-progress session.
+        /// </param>
         /// <returns>Count of destroyed preview avatars.</returns>
-        public static int CleanupOrphanPreviewAvatars()
+        public static int CleanupOrphanPreviewAvatars(bool preserveActiveSession = true)
         {
-            // FaceEmo's marker: hideFlags == HideAndDontSave AND positioned at (100,100,100)
-            // AND has a SkinnedMeshRenderer somewhere (typical avatar).
-            // Use FindObjectsOfTypeAll because HideAndDontSave hides from regular FindObjectsOfType.
+            // FaceEmo's preview-avatar marker: hideFlags == HideAndDontSave AND positioned at
+            // (100,100,100) AND has a SkinnedMeshRenderer somewhere (typical avatar). Use
+            // FindObjectsOfTypeAll because HideAndDontSave hides them from regular FindObjectsOfType.
+            //
+            // Each preview avatar's name is "{targetAvatar.gameObject.name}(Clone)" because it's
+            // produced by Object.Instantiate(targetAvatar). If a session is currently active, its
+            // expected clone name is computed here and skipped so we don't yank the running
+            // session's avatar out from under it.
+            string activeCloneName = null;
+            if (preserveActiveSession)
+            {
+                var active = FaceEmoExpressionSession.Active;
+                var target = active?.Launcher?.AV3Setting?.TargetAvatar;
+                if (target != null) activeCloneName = target.gameObject.name + "(Clone)";
+            }
+
             int destroyed = 0;
+            int preserved = 0;
             var all = Resources.FindObjectsOfTypeAll<GameObject>();
             const float epsilon = 0.001f;
             var origin = new Vector3(100f, 100f, 100f);
@@ -276,11 +295,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 if (go.transform.parent != null) continue; // FaceEmo preview avatars are scene roots
                 if ((go.transform.position - origin).sqrMagnitude > epsilon) continue;
                 if (go.GetComponentInChildren<SkinnedMeshRenderer>(includeInactive: true) == null) continue;
+                if (activeCloneName != null && go.name == activeCloneName)
+                {
+                    preserved++;
+                    continue;
+                }
                 UnityEngine.Object.DestroyImmediate(go);
                 destroyed++;
             }
-            if (destroyed > 0)
-                Debug.Log($"[ExpressionEditorBridge] Cleaned up {destroyed} orphan FaceEmo preview avatar(s).");
+            if (destroyed > 0 || preserved > 0)
+                Debug.Log($"[ExpressionEditorBridge] Cleaned up {destroyed} orphan FaceEmo preview avatar(s)" +
+                          (preserved > 0 ? $", preserved {preserved} for active session." : "."));
             return destroyed;
         }
     }
