@@ -17,6 +17,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
     {
         public enum SyncMode { Live, Degraded }
 
+        /// <summary>
+        /// Session の編集モード。Open* で設定、Commit* の分岐ルートを決める。
+        /// </summary>
+        public enum SessionEditMode
+        {
+            NewMode,           // OpenForNewExpression — 新 Mode (Registered) を作る経路 (Plan A 既定)
+            EditExistingClip,  // OpenForBranch — 既存 Branch の clip を Editor で直接編集
+            CreateBranchClip,  // OpenForNewExpression + 後で CommitAsBranchOf で Branch に割当
+        }
+
+        /// <summary>CommitAsBranchOf 時の既存 binding に対する挙動。</summary>
+        public enum OverwriteMode
+        {
+            Ask,            // 呼出側で AskUser、引数で具体的 mode を再指定する想定
+            Overwrite,      // 新 clip 作成 + Branch 参照差替 (旧 clip は asset 残)
+            EditExisting,   // 既存 clip を編集 (= OpenForBranch にフォールバック)
+            Cancel,         // 操作中断
+        }
+
         // Ambient session — set by Open*, consumed by SetExpressionPreviewMulti auto-session check
         private static FaceEmoExpressionSession _active;
         public static FaceEmoExpressionSession Active => _active;
@@ -31,6 +50,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
         public string PendingSavePath { get; private set; }
 
         private ExpressionEditorBridge _bridge;
+
+        /// <summary>Open* 時に設定。Commit* の routing に使用。</summary>
+        public SessionEditMode EditMode { get; private set; } = SessionEditMode.NewMode;
+
+        /// <summary>OpenForBranch / CommitAsBranchOf で使用する Branch 同定情報。</summary>
+        internal string TargetModeName { get; private set; }
+        internal string TargetGesture { get; private set; }
+        internal string TargetHand { get; private set; }
+        internal string TargetSlot { get; private set; }   // "Base"/"Left"/"Right"/"Both"
+
+        /// <summary>Open 時に snapshot した launcher 名 (R2: Mode 同時編集検出用)。</summary>
+        internal string LauncherSnapshot { get; private set; }
 
         /// <summary>
         /// Returns the GameObject FaceEmo currently has as its preview-avatar clone for this
@@ -93,6 +124,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 Debug.LogWarning($"[FaceEmoExpressionSession] Bridge unhealthy ({session._bridge.LastReflectionError}). Falling back to Degraded.");
                 session.Mode = SyncMode.Degraded;
             }
+            session.EditMode = SessionEditMode.NewMode;
+            session.LauncherSnapshot = gate.Launcher?.gameObject?.name;
             _active = session;
             // Same post-open sweep as OpenForNewExpression — see note there.
             ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: true);
@@ -145,6 +178,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 session.Mode = SyncMode.Degraded;
             }
 
+            session.EditMode = SessionEditMode.NewMode;
+            session.LauncherSnapshot = gate.Launcher?.gameObject?.name;
             _active = session;
             // Post-open sweep: FaceEmo's TryOpen path occasionally leaves an extra hidden
             // avatar clone behind (suspected: PropertyEditorWindow's OnOpenClipRequested
