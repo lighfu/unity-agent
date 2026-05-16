@@ -407,11 +407,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         {
             EnsureTypes();
 
-            // Strategy 0 (highest priority): read from the launcher's own MenuRepositoryComponent.
-            // This is the source of truth that Plan A's FaceEmoAPI.LoadMenu uses. Without this,
-            // the older strategies fall back to AssetDatabase backup assets that may not reflect
-            // current scene state — leading the AI to retry endlessly when expressions actually
-            // ARE registered but the listing tool shows them as missing.
+            // Strategy 0 (highest priority): read from the launcher's own MenuRepositoryComponent
+            // via SerializableMenu.Load() — the same path Plan A's FaceEmoAPI.LoadMenu uses.
+            //
+            // We cannot use SerializedObject(serializableMenu) here because FaceEmo's Save()
+            // re-creates the `Registered` / `Unregistered` ScriptableObject child instances on
+            // every save. The runtime field references the new instance, but SerializedObject
+            // reflects the LAST-SERIALIZED state (only updated on scene save). So reading via
+            // SerializedObject shows pre-Save data and misleads AI into thinking the registration
+            // didn't take. Calling SerializableMenu.Load() gives the current runtime state.
             {
                 var launcherGO = (launcherComp as Component)?.gameObject;
                 if (launcherGO != null)
@@ -423,7 +427,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         var menuRepo = launcherGO.GetComponent(menuRepoType);
                         if (menuRepo != null)
                         {
-                            // SerializableMenu may be exposed as field or property — try both.
+                            // SerializableMenu is a public field on MenuRepositoryComponent — try field first, property as fallback.
                             object serMenu = null;
                             var serMenuField = menuRepoType.GetField("SerializableMenu");
                             if (serMenuField != null) serMenu = serMenuField.GetValue(menuRepo);
@@ -432,12 +436,27 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                                 var serMenuProp = menuRepoType.GetProperty("SerializableMenu");
                                 if (serMenuProp != null) serMenu = serMenuProp.GetValue(menuRepo);
                             }
-                            var serMenuObj = serMenu as UnityEngine.Object;
-                            if (serMenuObj != null)
+                            if (serMenu != null)
                             {
-                                sb.AppendLine($"  Source: scene launcher '{launcherGO.name}' MenuRepositoryComponent (live data)");
-                                DumpMenuFromSerializableMenu(serMenuObj, sb);
-                                return;
+                                // Call SerializableMenu.Load() to get the live domain Menu, then dump via DumpDomainMenu.
+                                var loadMethod = serMenu.GetType().GetMethod("Load", Type.EmptyTypes);
+                                if (loadMethod != null)
+                                {
+                                    try
+                                    {
+                                        var domainMenu = loadMethod.Invoke(serMenu, null);
+                                        if (domainMenu != null)
+                                        {
+                                            sb.AppendLine($"  Source: scene launcher '{launcherGO.name}' MenuRepositoryComponent (live data via Load)");
+                                            DumpDomainMenu(domainMenu, sb);
+                                            return;
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        sb.AppendLine($"  (Strategy 0 SerializableMenu.Load() failed: {ex.InnerException?.Message ?? ex.Message} — falling through to AssetDatabase scan)");
+                                    }
+                                }
                             }
                         }
                     }
