@@ -62,6 +62,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             if (clip == null) clip = new AnimationClip { name = $"{modeName}_clip" };
 
             _active?.Dispose();
+            // Belt-and-braces: sweep any FaceEmo preview avatars left over from the prior
+            // session's Bridge.Dispose chain (FaceEmo's internal Dispose has edge cases that
+            // occasionally leave the clone alive). Safe to wipe ALL here because we just
+            // disposed _active, so the next TryOpen will create a fresh avatar regardless.
+            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: false);
             var session = new FaceEmoExpressionSession
             {
                 Launcher = gate.Launcher,
@@ -93,6 +98,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
             // Dispose previous ambient session
             _active?.Dispose();
+            // Belt-and-braces: sweep any FaceEmo preview avatars left over from the prior
+            // session's Bridge.Dispose chain (FaceEmo's internal Dispose has edge cases that
+            // occasionally leave the clone alive). Safe to wipe ALL here because we just
+            // disposed _active, so the next TryOpen will create a fresh avatar regardless.
+            ExpressionEditorBridge.CleanupOrphanPreviewAvatars(preserveActiveSession: false);
 
             bool isAuto = string.IsNullOrEmpty(displayName);
             string tmpName = isAuto ? GenerateTmpName() : null;
