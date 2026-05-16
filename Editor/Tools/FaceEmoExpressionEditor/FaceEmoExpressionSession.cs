@@ -289,6 +289,186 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             return session;
         }
 
+        public sealed class CommitResult
+        {
+            public bool Ok { get; set; }
+            public string ErrorMessage { get; set; }
+            public string FinalClipPath { get; set; }
+            public int BranchIndex { get; set; }
+            public string DestinationDescription { get; set; }  // 例: "表情パターン1 / (Either, HandOpen) / BaseAnimation"
+        }
+
+        /// <summary>
+        /// 現在の Editor 値を新 clip に保存し、指定 Mode の指定 Branch (新規 OR 既存) の指定 slot に割当てる。
+        /// Spec Sec 7.3 の atomic 6 step を実装。失敗時は各 step に応じて rollback。
+        /// </summary>
+        public CommitResult CommitAsBranchOf(
+            string modeName, string gesture, string hand, string slot,
+            OverwriteMode overwriteMode = OverwriteMode.Overwrite)
+        {
+            string clipPath = null;
+            int addedBranchIndex = -1;
+            bool didAddBranch = false;
+            var menu = FaceEmoAPI.LoadMenu(Launcher);
+
+            try
+            {
+                if (menu == null) throw new InvalidOperationException("Failed to load FaceEmo menu.");
+                var (modeId, mode) = FaceEmoAPI.FindExpression(menu, modeName);
+                if (modeId == null) throw new InvalidOperationException($"Mode '{modeName}' not found in FaceEmo menu.");
+
+                var hg = FaceEmoAPI.ParseGesture(gesture);
+                var hd = FaceEmoAPI.ParseHand(hand);
+                var slotType = FaceEmoAPI.ParseBranchSlot(slot) ?? BranchAnimationType.Base;
+
+                Undo.SetCurrentGroupName($"Plan C: expression to ({hand}, {gesture}) on {modeName}");
+                int undoGroup = Undo.GetCurrentGroup();
+
+                // ① 現在 Editor 値 → 新 clip ファイル
+                var values = GetCurrentValuesWithPaths();
+                string ts = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                string baseName = $"expr_{ts}";
+                string dir = "Assets/Generated/UnityAgent/FaceEmoPlanC";
+                if (!AssetDatabase.IsValidFolder(dir))
+                {
+                    string fullDir = System.IO.Path.Combine(Application.dataPath, "..", dir);
+                    if (!System.IO.Directory.Exists(fullDir))
+                        System.IO.Directory.CreateDirectory(fullDir);
+                    AssetDatabase.Refresh();
+                }
+                clipPath = AssetDatabase.GenerateUniqueAssetPath($"{dir}/{baseName}.anim");
+                var newClip = new AnimationClip { name = baseName };
+                ApplyValuesToClip(newClip, values);
+                AssetDatabase.CreateAsset(newClip, clipPath);
+                AssetDatabase.SaveAssetIfDirty(newClip);
+
+                // ② 既存 Branch 検索
+                int branchIdx = FindBranchByCondition(mode, hd, hg);
+                bool isNew = (branchIdx < 0);
+                if (isNew)
+                {
+                    // ③ AddBranch (新規)
+                    var conditions = new List<Condition>
+                    {
+                        new Condition(hd, hg, ComparisonOperator.Equals),
+                    };
+                    branchIdx = FaceEmoAPI.AddBranch(menu, modeId, conditions);
+                    addedBranchIndex = branchIdx;
+                    didAddBranch = true;
+                }
+                else if (overwriteMode == OverwriteMode.Cancel)
+                {
+                    throw new InvalidOperationException("Existing branch present and overwriteMode=Cancel.");
+                }
+
+                // ④ slot 割当
+                var faceEmoAnim = new Suzuryg.FaceEmo.Domain.Animation(AssetDatabase.AssetPathToGUID(clipPath));
+                FaceEmoAPI.SetBranchAnimation(menu, modeId, branchIdx, slotType, faceEmoAnim);
+
+                // ⑤ menu save
+                FaceEmoAPI.SaveMenu(Launcher, menu, $"Plan C: expression to ({hand}, {gesture}) on {modeName}");
+                AssetDatabase.SaveAssets();
+
+                // ⑥ MainView refresh (失敗しても warn のみ)
+                try { FaceEmoAPI.RefreshWindowIfOpen(Launcher); }
+                catch (System.Exception refEx)
+                {
+                    Debug.LogWarning($"[PlanC] MainView refresh non-fatal: {refEx.Message}");
+                }
+
+                Undo.CollapseUndoOperations(undoGroup);
+
+                return new CommitResult
+                {
+                    Ok = true,
+                    FinalClipPath = clipPath,
+                    BranchIndex = branchIdx,
+                    DestinationDescription = $"{modeName} / ({hand}, {gesture}) / {slot}",
+                };
+            }
+            catch (System.Exception ex)
+            {
+                // rollback: ④ で throw なら ③ をロールバック、clip は削除
+                try
+                {
+                    if (didAddBranch && menu != null && addedBranchIndex >= 0)
+                    {
+                        var (modeId2, _) = FaceEmoAPI.FindExpression(menu, modeName);
+                        if (modeId2 != null) FaceEmoAPI.RemoveBranch(menu, modeId2, addedBranchIndex);
+                    }
+                    if (!string.IsNullOrEmpty(clipPath) && AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath) != null)
+                        AssetDatabase.DeleteAsset(clipPath);
+                }
+                catch (System.Exception rex)
+                {
+                    Debug.LogWarning($"[PlanC] Rollback partial failure: {rex.Message}");
+                }
+                return new CommitResult { Ok = false, ErrorMessage = ex.Message };
+            }
+        }
+
+        /// <summary>既存 clip を上書き保存 (EditExistingClip モード時)。Branch 参照は変えない。</summary>
+        public CommitResult CommitInPlace()
+        {
+            if (EditMode != SessionEditMode.EditExistingClip)
+                return new CommitResult { Ok = false, ErrorMessage = "CommitInPlace requires EditExistingClip mode." };
+            if (Clip == null)
+                return new CommitResult { Ok = false, ErrorMessage = "Session has no clip reference." };
+            try
+            {
+                Undo.RegisterCompleteObjectUndo(Clip, "Plan C: in-place clip edit");
+                var values = GetCurrentValuesWithPaths();
+                ApplyValuesToClip(Clip, values);
+                EditorUtility.SetDirty(Clip);
+                AssetDatabase.SaveAssetIfDirty(Clip);
+                return new CommitResult
+                {
+                    Ok = true,
+                    FinalClipPath = AssetDatabase.GetAssetPath(Clip),
+                    DestinationDescription = $"{TargetModeName} / ({TargetHand}, {TargetGesture}) / {TargetSlot} (in-place)",
+                };
+            }
+            catch (System.Exception ex)
+            {
+                return new CommitResult { Ok = false, ErrorMessage = ex.Message };
+            }
+        }
+
+        // ───────── helpers ─────────
+
+        private static int FindBranchByCondition(
+            IMode mode,
+            Hand hand,
+            HandGesture gesture)
+        {
+            if (mode?.Branches == null) return -1;
+            for (int i = 0; i < mode.Branches.Count; i++)
+            {
+                var b = mode.Branches[i];
+                if (b.Conditions == null) continue;
+                if (System.Linq.Enumerable.Any(b.Conditions, c => c.Hand == hand && c.HandGesture == gesture))
+                    return i;
+            }
+            return -1;
+        }
+
+        private static void ApplyValuesToClip(AnimationClip clip,
+            System.Collections.Generic.IReadOnlyDictionary<(string path, string name), float> values)
+        {
+            clip.ClearCurves();
+            foreach (var kv in values)
+            {
+                var binding = new EditorCurveBinding
+                {
+                    path = kv.Key.path,
+                    type = typeof(SkinnedMeshRenderer),
+                    propertyName = $"blendShape.{kv.Key.name}",
+                };
+                var curve = AnimationCurve.Linear(0f, kv.Value, 1f / 60f, kv.Value);
+                AnimationUtility.SetEditorCurve(clip, binding, curve);
+            }
+        }
+
         public void SetBlendShape(string smrRelativePath, string shapeName, float value)
         {
             if (smrRelativePath == null) throw new ArgumentNullException(nameof(smrRelativePath));
@@ -342,6 +522,34 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                     if (curve == null || curve.length == 0) continue;
                     string shape = b.propertyName.Substring("blendShape.".Length);
                     result[shape] = curve[0].value;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Plan C commit 用: blendshape (path, name) → value を返す path-preserving 版。
+        /// 既存 GetCurrentValues は shape 名のみで commit には使えない。
+        /// </summary>
+        internal IReadOnlyDictionary<(string path, string name), float> GetCurrentValuesWithPaths()
+        {
+            var result = new Dictionary<(string, string), float>();
+            if (Mode == SyncMode.Live && _bridge != null
+                && _bridge.TryGetAnimatedBlendShapes(out var live))
+            {
+                foreach (var kv in live)
+                    result[(kv.Key.path, kv.Key.name)] = kv.Value;
+                return result;
+            }
+            if (Clip != null)
+            {
+                foreach (var b in AnimationUtility.GetCurveBindings(Clip))
+                {
+                    if (!b.propertyName.StartsWith("blendShape.")) continue;
+                    var curve = AnimationUtility.GetEditorCurve(Clip, b);
+                    if (curve == null || curve.length == 0) continue;
+                    string shape = b.propertyName.Substring("blendShape.".Length);
+                    result[(b.path, shape)] = curve[0].value;
                 }
             }
             return result;
