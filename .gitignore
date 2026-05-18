@@ -52,3 +52,6 @@ Editor/Bridge/bin/*/UnityAgentBridge
 Editor/Bridge/bin/*/UnityAgentBridge.exe
 Editor/Bridge/bin/*/UnityAgentBridge.meta
 Editor/Bridge/bin/*/UnityAgentBridge.exe.meta
+
+# brainstorming sessions (visual companion)
+.superpowers/

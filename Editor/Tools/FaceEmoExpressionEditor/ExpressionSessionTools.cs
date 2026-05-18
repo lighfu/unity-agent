@@ -13,9 +13,30 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             "両方未指定なら新規 (auto name)。" +
             "avatarRootName を指定すると、そのアバターをターゲットとする launcher を選んでセッションが作られる " +
             "(Workflow B の正規形 — Milfy_Another の表情を作りたいなら avatarRootName='Milfy_Another' を必ず渡す)。" +
-            "未指定だと scene 内の最初の configured launcher が選ばれ、後続の SetExpressionPreviewMulti が別 avatar の launcher の menu に commit してしまう可能性がある。")]
-        public static string OpenExpressionSession(string modeName = "", string newName = "", string avatarRootName = "")
+            "未指定だと scene 内の最初の configured launcher が選ばれ、後続の SetExpressionPreviewMulti が別 avatar の launcher の menu に commit してしまう可能性がある。" +
+            "editMode: 'new-mode' (default) = 新規 Registered Mode を作る (Plan A 経路)。" +
+            "'create-branch-clip' = 後で CommitExpressionSessionToBranch で Branch に割当てる新規 clip を作る (Plan C 経路)。" +
+            "'edit-existing-clip' はこのメソッドでは開けない (OpenExpressionSessionForBranch を使うこと)。")]
+        public static string OpenExpressionSession(string modeName = "", string newName = "", string avatarRootName = "", string editMode = "new-mode")
         {
+            // Validate editMode upfront
+            FaceEmoExpressionSession.SessionEditMode sessionEditMode;
+            switch ((editMode ?? "new-mode").ToLowerInvariant())
+            {
+                case "new-mode":           sessionEditMode = FaceEmoExpressionSession.SessionEditMode.NewMode;          break;
+                case "create-branch-clip": sessionEditMode = FaceEmoExpressionSession.SessionEditMode.CreateBranchClip; break;
+                case "edit-existing-clip":
+                    return "Error: editMode='edit-existing-clip' requires OpenExpressionSessionForBranch (Plan C) — not implemented via OpenExpressionSession.";
+                default:
+                    return $"Error: unknown editMode '{editMode}'. Use 'new-mode' or 'create-branch-clip'.";
+            }
+
+            // Guard: modeName implies editing existing, which requires NewMode
+            if (!string.IsNullOrEmpty(modeName) && sessionEditMode != FaceEmoExpressionSession.SessionEditMode.NewMode)
+            {
+                return $"Error: modeName='{modeName}' implies editing existing Mode (NewMode only). editMode='{editMode}' is incompatible with modeName arg.";
+            }
+
             try
             {
                 FaceEmoExpressionSession session;
@@ -25,10 +46,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
                 {
                     string name = string.IsNullOrEmpty(newName) ? FaceEmoExpressionSession.GenerateTmpName() : newName;
                     string path = $"Assets/UnityAgent/Expressions/{name}.anim";
-                    session = FaceEmoExpressionSession.OpenForNewExpression(name, path, gameObjectName: "", avatarRootName: avatarRootName);
+                    session = FaceEmoExpressionSession.OpenForNewExpression(name, path, gameObjectName: "", avatarRootName: avatarRootName, editMode: sessionEditMode);
                 }
                 return $"Session opened: name='{session.PendingDisplayName ?? session.ModeId}', mode={session.Mode}, " +
-                       $"isNew={session.IsNewExpression}, launcher='{session.Launcher?.gameObject.name}'" +
+                       $"editMode={session.EditMode}, isNew={session.IsNewExpression}, launcher='{session.Launcher?.gameObject.name}'" +
                        $" (TargetAvatar='{session.Launcher?.AV3Setting?.TargetAvatar?.gameObject.name ?? "?"}').";
             }
             catch (System.Exception ex)
@@ -58,11 +79,28 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
 
         [AgentTool("編集中のセッションを保存し、新規なら FaceEmo Menu に Mode として登録する。" +
             "animPath 指定で保存先を上書き。" +
-            "Registered が FaceEmo の 7 個上限に達している場合は Unregistered に fallback し、その旨を Note で返す。")]
+            "Registered が FaceEmo の 7 個上限に達している場合は Unregistered に fallback し、その旨を Note で返す。" +
+            "EditExistingClip セッションは CommitInPlace に自動ルーティング。" +
+            "CreateBranchClip セッションは CommitExpressionSessionToBranch を使うこと (自動ルーティング不可)。")]
         public static string CommitExpressionSession(string animPath = "")
         {
             var s = FaceEmoExpressionSession.Active;
             if (s == null) return "Error: No active expression session. Call OpenExpressionSession first.";
+
+            // Route by EditMode
+            if (s.EditMode == FaceEmoExpressionSession.SessionEditMode.EditExistingClip)
+            {
+                var r = s.CommitInPlace();
+                return r.Ok
+                    ? $"OK in-place: {r.DestinationDescription} → {r.FinalClipPath}"
+                    : $"Error: {r.ErrorMessage}";
+            }
+            if (s.EditMode == FaceEmoExpressionSession.SessionEditMode.CreateBranchClip)
+            {
+                return "Error: CreateBranchClip session requires CommitExpressionSessionToBranch(modeName, gesture, hand, slot) — not auto-routable.";
+            }
+
+            // NewMode → Plan A behavior
             try
             {
                 if (!string.IsNullOrEmpty(animPath))
@@ -75,6 +113,31 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools.FaceEmoExpressionEditor
             {
                 return $"Error: {ex.Message}";
             }
+        }
+
+        [AgentTool("Active session の Editor 値を指定 Mode の (gesture, hand, slot) Branch に新 clip として割当 (CreateBranchClip 経路用)。" +
+            "session の EditMode が CreateBranchClip でないと error。overwriteMode: Overwrite (default) / EditExisting / Cancel / Ask。")]
+        public static string CommitExpressionSessionToBranch(
+            string modeName, string gesture, string hand = "Either", string slot = "Base",
+            string overwriteMode = "Overwrite")
+        {
+            var session = FaceEmoExpressionSession.Active;
+            if (session == null) return "Error: no active session.";
+            if (session.EditMode != FaceEmoExpressionSession.SessionEditMode.CreateBranchClip)
+                return $"Error: requires CreateBranchClip session, got {session.EditMode}.";
+
+            FaceEmoExpressionSession.OverwriteMode om;
+            switch ((overwriteMode ?? "Overwrite").ToLowerInvariant())
+            {
+                case "cancel":       om = FaceEmoExpressionSession.OverwriteMode.Cancel;       break;
+                case "editexisting": om = FaceEmoExpressionSession.OverwriteMode.EditExisting;  break;
+                case "ask":          om = FaceEmoExpressionSession.OverwriteMode.Ask;           break;
+                default:             om = FaceEmoExpressionSession.OverwriteMode.Overwrite;     break;
+            }
+            var r = session.CommitAsBranchOf(modeName, gesture, hand, slot, om);
+            return r.Ok
+                ? $"OK: {r.DestinationDescription} → {r.FinalClipPath}"
+                : $"Error: {r.ErrorMessage}";
         }
 
         [AgentTool("編集中のセッションを破棄する (FaceEmo ウィンドウは閉じない)。" +

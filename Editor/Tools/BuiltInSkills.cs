@@ -420,6 +420,45 @@ Either hand: `'Either=Fist'`.
    (no per-iteration reset needed — next preview overwrites)
 ```
 
+### O. Workflow C: Gesture-Aware Expression Creation (Plan C) (""<avatar> に <表情> つけて"")
+```
+1. [ResolveTargetAvatar('<promptHint>')] → avatar 名 + confidence
+   - 'None' なら user に Hierarchy から選んでもらう
+   - 'Ambiguous' なら AskUser で alternatives から選択
+
+2. [InspectFaceEmoState(avatarRootName)] → state
+   - NoLauncher: [AutoSetupFaceEmoForAvatar(avatarRootName)]
+   - LauncherUnconfigured: 同上
+   - HasModes: 次へ
+
+3. 発話に 'AI 任せ' / '編集する' キーワード無ければ AskUser top-mode
+
+4. Mode 選択 (modes >1 なら AskUser、1 つなら採用宣言)
+
+5. [ListGestureBindings(launcher, mode)] → 現在 bindings 確認
+   AskUser gesture (8-grid + IntentGestureMap の推奨 ★)
+   発話に gesture 名あれば skip
+
+6. Hand qualifier (デフォルト Either、'左手で' 等で override)
+
+7. [FindBranchByCondition(...)] が >=0 なら既存 binding 有
+   → AskUser [上書き / 編集 / Cancel]
+   [DetectGestureConflicts(...)] が空でなければ shadowed branches を user に提示
+
+8. AI 任せ mode: SuggestExpressionShapes (Plan A) → 3 variation サムネ生成 → AskUser
+   編集 mode:    [SuggestCandidateShapes(avatar, intent, 'wide')] → 10-15 候補 + 3 案
+                 [OpenExpressionSession(modeName='', newName='temp', avatar, editMode='create-branch-clip')]
+                 [ApplyExpressionVariation(...)] → SetExpressionPreviewMulti で値を適用
+                 AskUser [編集する / 次の variation / Cancel]
+
+9. user 編集完了 → [CommitExpressionSessionToBranch(modeName, gesture, hand, slot='Base', overwriteMode='Overwrite')]
+
+10. [CaptureFaceEmoGestureTable(avatarRootName, modeName)] → 結果画像
+
+注: Registered 7 枠を消費しないこと。Branch 経路 (CommitExpressionSessionToBranch) がデフォルト。
+注: 既存 clip 編集モード時 (editMode='edit-existing-clip') は別ルート、AI は新 shape 追加のみ。
+```
+
 ## Emotion-to-Preset Guide
 For natural-language expression requests, prefer `SuggestExpressionShapes` with one of the
 canonical intent keywords below (Japanese aliases auto-resolve to the same preset):
