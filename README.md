@@ -1,6 +1,7 @@
 # UnityAgent
 
 AI-powered Unity Editor agent for VRChat avatar creation with 400+ tools.
+共同作業者：Claude Opus 4.7
 
 [日本語](#日本語) | [English](#english)
 
