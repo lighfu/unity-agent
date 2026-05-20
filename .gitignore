@@ -55,3 +55,6 @@ Editor/Bridge/bin/*/UnityAgentBridge.exe.meta
 
 # brainstorming sessions (visual companion)
 .superpowers/
+
+# internal design docs (specs/plans — not part of the published package)
+docs/superpowers/
