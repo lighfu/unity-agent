@@ -1157,9 +1157,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
         }
 
-        private void EditAndResend(int chatIndex)
+        /// <summary>
+        /// 指定したチャットインデックスのユーザーメッセージを編集対象にする。
+        /// 切り詰め対象ターンに Unity 変更があれば確認ダイアログを出す。
+        /// </summary>
+        /// <returns>続行した場合 true、ユーザーがキャンセルした場合 false。</returns>
+        private bool EditAndResend(int chatIndex)
         {
-            if (chatIndex < 0 || chatIndex >= _chatHistory.Count) return;
+            if (chatIndex < 0 || chatIndex >= _chatHistory.Count) return false;
 
             var entry = _chatHistory[chatIndex];
             string originalText = StripPrefix(entry.text, "You: ");
@@ -1171,6 +1176,17 @@ namespace AjisaiFlow.UnityAgent.Editor
                     userMessageCount++;
             }
 
+            // ── 変更ロールバックゲート ──
+            var changes = _agent?.GetChangesAfter(userMessageCount);
+            if (changes != null && changes.Count > 0)
+            {
+                var choice = RollbackConfirmWindow.Show(_theme, changes);
+                if (choice == RollbackChoice.Cancel)
+                    return false;
+                if (choice == RollbackChoice.Rollback)
+                    _agent.UndoToUserMessage(userMessageCount);
+            }
+
             _chatHistory.RemoveRange(chatIndex, _chatHistory.Count - chatIndex);
             UpdateLastAgentEntryIndex();
             _agent?.TruncateHistory(userMessageCount);
@@ -1178,6 +1194,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             _inputBar?.SetText(originalText);
             _chatPanel?.RebuildFromHistory(_chatHistory);
             _shouldScrollToBottom = true;
+            return true;
         }
 
         private void RegenerateLastResponse()
@@ -1194,7 +1211,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (lastUserIdx < 0) return;
 
             string userText = StripPrefix(_chatHistory[lastUserIdx].text, "You: ");
-            EditAndResend(lastUserIdx);
+            if (!EditAndResend(lastUserIdx)) return;
             _userQuery = userText;
             SendMessage();
         }
