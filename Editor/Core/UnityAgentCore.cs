@@ -66,6 +66,10 @@ namespace AjisaiFlow.UnityAgent.Editor
         private int _sessionUndoCount = 0;
         public int SessionUndoCount => _sessionUndoCount;
 
+        private readonly List<ChangeRecord> _changeLog = new List<ChangeRecord>();
+        /// <summary>現在処理中のユーザーターンの 0 始まり番号。</summary>
+        private int _currentTurnIndex = 0;
+
         /// <summary>
         /// 1ターン (= 1 ProcessUserQuery 呼び出し) が完了した際に発火するイベント。
         /// 通常完了・ツールループ上限・コンテキスト上限・エラー path のいずれでも発火する。
@@ -111,6 +115,8 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             _history.Clear();
             _sessionUndoCount = 0;
+            _changeLog.Clear();
+            _currentTurnIndex = 0;
             _sessionTotalTokens = 0;
             _sessionInputTokens = 0;
             _sessionOutputTokens = 0;
@@ -144,6 +150,39 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _history.RemoveRange(cutIndex, _history.Count - cutIndex);
         }
 
+        /// <summary>
+        /// 現在の _history に含まれる実ユーザーメッセージ数を返す。
+        /// 判定は TruncateHistory と同一（"Tool Outputs:" 始まりは除外）。
+        /// </summary>
+        private int CountUserTurns()
+        {
+            int n = 0;
+            for (int i = 0; i < _history.Count; i++)
+            {
+                if (_history[i].role == "user" &&
+                    _history[i].parts != null && _history[i].parts.Length > 0 &&
+                    _history[i].parts[0].text != null &&
+                    !_history[i].parts[0].text.StartsWith("Tool Outputs:"))
+                    n++;
+            }
+            return n;
+        }
+
+        /// <summary>Unity を変更したツール実行を変更ログに記録する。</summary>
+        private void RecordChange(string toolName, string result, int undoGroups)
+        {
+            string summary = result ?? "";
+            summary = summary.Replace("\r", " ").Replace("\n", " ").Trim();
+            if (summary.Length > 80) summary = summary.Substring(0, 80) + "...";
+            _changeLog.Add(new ChangeRecord
+            {
+                turnIndex = _currentTurnIndex,
+                toolName = toolName ?? "",
+                summary = summary,
+                undoGroups = undoGroups
+            });
+        }
+
         public int UndoAll()
         {
             int count = _sessionUndoCount;
@@ -152,7 +191,38 @@ namespace AjisaiFlow.UnityAgent.Editor
             _sessionUndoCount = 0;
             return count;
         }
-        
+
+        /// <summary>
+        /// keepUserMessageCount ターン以降の変更レコード一覧を返す（確認ダイアログ表示用）。
+        /// </summary>
+        public IReadOnlyList<ChangeRecord> GetChangesAfter(int keepUserMessageCount)
+        {
+            var list = new List<ChangeRecord>();
+            foreach (var c in _changeLog)
+                if (c.turnIndex >= keepUserMessageCount)
+                    list.Add(c);
+            return list;
+        }
+
+        /// <summary>
+        /// keepUserMessageCount ターン以降の Unity 変更を Undo で巻き戻す。
+        /// 巻き戻した Undo グループ数を返す。
+        /// </summary>
+        public int UndoToUserMessage(int keepUserMessageCount)
+        {
+            int toUndo = 0;
+            foreach (var c in _changeLog)
+                if (c.turnIndex >= keepUserMessageCount)
+                    toUndo += c.undoGroups;
+
+            for (int i = 0; i < toUndo; i++)
+                Undo.PerformUndo();
+
+            _sessionUndoCount = Mathf.Max(0, _sessionUndoCount - toUndo);
+            _changeLog.RemoveAll(c => c.turnIndex >= keepUserMessageCount);
+            return toUndo;
+        }
+
         public UnityAgentCore(ILLMProvider provider)
         {
             _provider = provider;
@@ -464,8 +534,9 @@ namespace AjisaiFlow.UnityAgent.Editor
                 });
                 Tools.SceneViewTools.ClearPendingImage();
             }
+            _currentTurnIndex = CountUserTurns();
             _history.Add(new Message { role = "user", parts = messageParts.ToArray() });
-            
+
             // Signal new streaming session start
             onPartialResponse?.Invoke(null);
 
@@ -1035,8 +1106,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                                 }
                                 ToolProgress.Clear();
                                 int groupAfter = Undo.GetCurrentGroup();
-                                _sessionUndoCount += Mathf.Max(0, groupAfter - groupBefore);
+                                int delta = Mathf.Max(0, groupAfter - groupBefore);
+                                _sessionUndoCount += delta;
                                 string resStr = asyncResult ?? "Error: Async tool completed without result.";
+                                if (delta > 0) RecordChange(methodName, resStr, delta);
                                 results.Add(resStr);
                                 onStatus?.Invoke($"[Tool Result] {resStr}");
                             }
@@ -1044,8 +1117,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                             {
                                 // Sync tool: use result directly
                                 int groupAfter = Undo.GetCurrentGroup();
-                                _sessionUndoCount += Mathf.Max(0, groupAfter - groupBefore);
+                                int delta = Mathf.Max(0, groupAfter - groupBefore);
+                                _sessionUndoCount += delta;
                                 string resStr = rawResult?.ToString() ?? "Success (No return value)";
+                                if (delta > 0) RecordChange(methodName, resStr, delta);
                                 results.Add(resStr);
                                 onStatus?.Invoke($"[Tool Result] {resStr}");
                             }
@@ -1923,4 +1998,21 @@ namespace AjisaiFlow.UnityAgent.Editor
         public DateTime At;
     }
 #pragma warning restore 649
+
+    /// <summary>
+    /// エージェントが 1 ツール実行で行った Unity 変更の記録。
+    /// 編集・再生成時の部分巻き戻しと、確認ダイアログのリスト表示に使う。
+    /// </summary>
+    [System.Serializable]
+    public class ChangeRecord
+    {
+        /// <summary>この変更を生んだユーザーメッセージ（ターン）の 0 始まり番号。</summary>
+        public int turnIndex;
+        /// <summary>実行したツール名。</summary>
+        public string toolName;
+        /// <summary>変更内容の短い説明（ツール結果を truncate したもの）。</summary>
+        public string summary;
+        /// <summary>このツールが生成した Unity Undo グループ数。</summary>
+        public int undoGroups;
+    }
 }
