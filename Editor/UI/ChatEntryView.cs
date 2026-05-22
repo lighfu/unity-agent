@@ -188,8 +188,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             var view = new ChatEntryView();
             view.style.marginTop = 8;
             view.style.marginBottom = 4;
-            view.style.flexDirection = FlexDirection.Row;
-            view.style.justifyContent = Justify.FlexEnd;
+            // view は既定の Column。バブルは内側の行で右寄せにし、アクション行をその下に置く。
 
             var bubble = new MD3Card(null, null, MD3CardStyle.Filled);
             bubble.style.backgroundColor = theme.PrimaryContainer;
@@ -235,7 +234,11 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 UnityEditor.EditorGUIUtility.systemCopyBuffer = entry.text ?? "";
             });
 
-            view.Add(bubble);
+            var bubbleRow = new VisualElement();
+            bubbleRow.style.flexDirection = FlexDirection.Row;
+            bubbleRow.style.justifyContent = Justify.FlexEnd;
+            bubbleRow.Add(bubble);
+            view.Add(bubbleRow);
             view.BuildActionRow(entry, theme, isUser: true);
 
             return view;

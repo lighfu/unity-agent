@@ -480,9 +480,18 @@ namespace AjisaiFlow.UnityAgent.Editor
             // Chat panel — 編集
             _chatPanel.OnEditEntry = entry =>
             {
-                if (IsProcessing) return;
                 int idx = _chatHistory.IndexOf(entry);
-                if (idx >= 0) EditAndResend(idx);
+                if (idx < 0) return;
+                if (IsProcessing)
+                {
+                    bool ok = EditorUtility.DisplayDialog(
+                        M("処理を中断して編集"),
+                        M("現在処理中です。中断してこのメッセージを編集しますか？"),
+                        M("中断して編集"), M("キャンセル"));
+                    if (!ok) return;
+                    _agent?.Cancel();
+                }
+                EditAndResend(idx);
             };
 
             // Chat panel — 再生成
