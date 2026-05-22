@@ -434,7 +434,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 case LLMProviderType.Claude_CLI:  return "claude-sonnet-4-6";
                 case LLMProviderType.Gemini_CLI:  return "gemini-2.5-flash";
                 case LLMProviderType.Codex_CLI:   return "gpt-4.1";
-                // Gemini / Vertex_AI は descriptor.DefaultModel (gemini-2.5-flash) が正しいため
+                // Gemini / Vertex_AI は descriptor.DefaultModel (gemini-3.5-flash) が正しいため
                 // default 節にフォールバックさせる（旧 gemini-2.0-flash は deprecated）。
                 default:
                     var desc = ProviderRegistry.Get(type);

@@ -224,7 +224,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 || id.Contains("3-5-sonnet") || id.Contains("3.5-sonnet")
                 || id.Contains("3-7") || id.Contains("3.7");
             int output = 64000;
-            if (id.Contains("opus-4-6")) output = 128000;
+            if (id.Contains("opus-4-7") || id.Contains("opus-4-6")) output = 128000;
             return new ModelCapability(id, id, 200000, output,
                 thinking, thinking ? 1024 : 0, thinking ? 128000 : 0, true);
         }
@@ -236,6 +236,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 || id.Contains("gpt-5");
             int output = thinking ? 100000 : 32768;
             int input = id.Contains("gpt-4.1") ? 1048576
+                : id.Contains("gpt-5.5") ? 1000000
                 : id.Contains("gpt-5") ? 400000
                 : 200000;
             return new ModelCapability(id, id, input, output,
@@ -471,20 +472,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Reg(d, "gemini-1.5-pro", "Gemini 1.5 Pro",
                 2097152, 8192, false, 0, 0, true, search: true);
             // Gemini 3 系は thinkingLevel (effort) 推奨 → ThinkingBudgetMax=0 で Effort UI を表示
-            Reg(d, "gemini-3-flash-preview", "Gemini 3 Flash Preview",
+            Reg(d, "gemini-3.5-flash", "Gemini 3.5 Flash",
                 1048576, 65536, true, 0, 0, true, search: true, dropdowns: gemCli);
+            Reg(d, "gemini-3-flash-preview", "Gemini 3 Flash Preview",
+                1048576, 65536, true, 0, 0, true, search: true, deprecated: true);
             Reg(d, "gemini-3-pro-preview", "Gemini 3 Pro Preview",
                 1048576, 65536, true, 0, 0, true, search: true, deprecated: true);
             Reg(d, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview",
                 1048576, 65536, true, 0, 0, true, search: true, dropdowns: gem);
 
             // ── Claude ── (ドロップダウンは最新3モデルのみ。旧モデルは性能照会用に登録)
-            Reg(d, "claude-opus-4-6", "Claude Opus 4.6",
+            Reg(d, "claude-opus-4-7", "Claude Opus 4.7",
                 200000, 128000, true, 1024, 128000, true, dropdowns: claude);
             Reg(d, "claude-sonnet-4-6", "Claude Sonnet 4.6",
                 200000, 64000, true, 1024, 128000, true, dropdowns: claude);
             Reg(d, "claude-haiku-4-5-20251001", "Claude Haiku 4.5",
                 200000, 64000, true, 1024, 128000, true, dropdowns: claude);
+            Reg(d, "claude-opus-4-6", "Claude Opus 4.6",
+                200000, 128000, true, 1024, 128000, true);
             Reg(d, "claude-sonnet-4-5-20250929", "Claude Sonnet 4.5",
                 200000, 64000, true, 1024, 128000, true);
             Reg(d, "claude-opus-4-5-20251101", "Claude Opus 4.5",
@@ -492,9 +497,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Reg(d, "claude-opus-4-1-20250805", "Claude Opus 4.1",
                 200000, 32000, true, 1024, 128000, true);
             Reg(d, "claude-sonnet-4-20250514", "Claude Sonnet 4",
-                200000, 64000, true, 1024, 128000, true);
+                200000, 64000, true, 1024, 128000, true, deprecated: true);
             Reg(d, "claude-opus-4-20250514", "Claude Opus 4",
-                200000, 32000, true, 1024, 128000, true);
+                200000, 32000, true, 1024, 128000, true, deprecated: true);
 
             // ── Codex CLI 専用モデル ── (Codex CLI ドロップダウンの先頭グループ)
             Reg(d, "gpt-5.3-codex", "GPT-5.3 Codex",
@@ -509,8 +514,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 200000, 16384, true, 0, 0, false, dropdowns: cdx);
 
             // ── OpenAI ──
+            Reg(d, "gpt-5.5", "GPT-5.5",
+                1000000, 128000, true, 0, 0, true, dropdowns: oa);
             Reg(d, "gpt-5.4", "GPT-5.4",
-                400000, 128000, true, 0, 0, true, dropdowns: oa);
+                400000, 128000, true, 0, 0, true);
             Reg(d, "gpt-4.1", "GPT-4.1",
                 1048576, 32768, false, 0, 0, true, dropdowns: oaCdx);
             Reg(d, "gpt-4.1-mini", "GPT-4.1 Mini",
@@ -531,6 +538,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 400000, 128000, true, 0, 0, true);
             Reg(d, "gpt-5.2-pro", "GPT-5.2 Pro",
                 400000, 128000, true, 0, 0, true);
+            Reg(d, "gpt-5.5-pro", "GPT-5.5 Pro",
+                1050000, 128000, true, 0, 0, true);
 
             // ── DeepSeek ──
             Reg(d, "deepseek-chat", "DeepSeek V3",

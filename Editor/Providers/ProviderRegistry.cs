@@ -214,7 +214,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 {
                     DisplayName = "Gemini (Google AI)", ShortName = "Gemini",
                     SettingsKind = ProviderSettingsKind.Gemini,
-                    DefaultModel = "gemini-2.5-flash",
+                    DefaultModel = "gemini-3.5-flash",
                     ThinkingMode = ThinkingMode.Budget,
                     ThinkingHintKey = "Gemini 2.5 系モデルで対応",
                     SupportsModelSelection = true,
@@ -400,7 +400,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 {
                     DisplayName = "Vertex AI", ShortName = "Vertex AI",
                     SettingsKind = ProviderSettingsKind.VertexAI,
-                    DefaultModel = "gemini-2.5-flash",
+                    DefaultModel = "gemini-3.5-flash",
                     ThinkingMode = ThinkingMode.Budget,
                     ThinkingHintKey = "Gemini 2.5 系モデルで対応",
                     SupportsModelSelection = true,
