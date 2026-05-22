@@ -354,19 +354,10 @@ namespace AjisaiFlow.UnityAgent.Editor
             {
                 if (_chatHistory.Count > 0)
                     ChatHistoryManager.Save(_chatHistory);
-                if (_agent != null) _agent.Cancel();
-                ToolConfirmState.Clear();
-                ToolConfirmState.SessionSkipAll = false;
-                BatchToolConfirmState.Clear();
-                UserChoiceState.Clear();
-                ClipboardProviderState.Clear();
+                ResetPendingInteractionState();
                 _chatHistory.Clear();
                 _lastAgentEntryIndex = -1;
                 _fullLog.Clear();
-                _currentToolStatus = "";
-                _streamingEntry = null;
-                _activeToolCallId = null;
-                _toolCallSeq = 0;
                 if (_agent != null) _agent.ClearHistory();
                 DiscordWebhookLogger.ResetSession();
 
@@ -458,6 +449,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 {
                     if (_chatHistory.Count > 0)
                         ChatHistoryManager.Save(_chatHistory);
+                    ResetPendingInteractionState();
                     _chatHistory = entries;
                     _chatPanel.RebuildFromHistory(_chatHistory);
                     _chatPanel.ScrollToBottom();
@@ -500,6 +492,26 @@ namespace AjisaiFlow.UnityAgent.Editor
                 if (IsProcessing) return;
                 RegenerateLastResponse();
             };
+        }
+
+        /// <summary>
+        /// 保留中のユーザー対話状態（AskUser / ツール確認 / クリップボード）と進行中の
+        /// 処理・ストリーミングをすべてリセットする。新規チャットや履歴読み込みなど
+        /// セッションを切り替えるときに必ず呼ぶ。これを呼ばないと、保留中の AskUser が
+        /// 残って次の送信が「カスタム回答」として消費されてしまう。
+        /// </summary>
+        private void ResetPendingInteractionState()
+        {
+            if (_agent != null) _agent.Cancel();
+            ToolConfirmState.Clear();
+            ToolConfirmState.SessionSkipAll = false;
+            BatchToolConfirmState.Clear();
+            UserChoiceState.Clear();
+            ClipboardProviderState.Clear();
+            _streamingEntry = null;
+            _activeToolCallId = null;
+            _currentToolStatus = "";
+            _toolCallSeq = 0;
         }
 
         private void OnDisable()
