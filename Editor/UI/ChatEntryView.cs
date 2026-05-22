@@ -15,9 +15,15 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
     /// </summary>
     internal class ChatEntryView : VisualElement
     {
-        public int EntryIndex { get; set; }
-        public Action OnEdit;
-        public Action<string> OnCopy;
+        /// <summary>このビューが表す ChatEntry。アクションのコールバックで渡す。</summary>
+        public ChatEntry Entry { get; private set; }
+        /// <summary>編集要求。引数はこのビューの ChatEntry。</summary>
+        public Action<ChatEntry> OnEdit;
+        /// <summary>再生成要求（最後のエージェント応答のみで使う。Task 5 で配線）。</summary>
+        public Action OnRegenerate;
+
+        VisualElement _actionRow;
+        Button _regenButton;
 
         Label _textLabel;
         string _rawText;
@@ -35,6 +41,13 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
         /// <summary>ChatEntry からビューを生成するファクトリ。</summary>
         public static ChatEntryView Create(ChatEntry entry, MD3Theme theme)
+        {
+            var view = CreateInner(entry, theme);
+            view.Entry = entry;
+            return view;
+        }
+
+        static ChatEntryView CreateInner(ChatEntry entry, MD3Theme theme)
         {
             switch (entry.type)
             {
@@ -216,19 +229,14 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             view._textLabel = label;
             view._rawText = displayText;
 
-            // 右クリックでコピー
+            // 右クリックでもコピー可（補助）
             view.RegisterCallback<ContextClickEvent>(evt =>
             {
-                view.OnCopy?.Invoke(entry.text);
+                UnityEditor.EditorGUIUtility.systemCopyBuffer = entry.text ?? "";
             });
 
             view.Add(bubble);
-
-            // 編集ボタン
-            var editBtn = new MD3IconButton(MD3Icon.Edit, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
-            editBtn.style.alignSelf = Align.FlexEnd;
-            editBtn.clicked += () => view.OnEdit?.Invoke();
-            view.Add(editBtn);
+            view.BuildActionRow(entry, theme, isUser: true);
 
             return view;
         }
@@ -350,60 +358,15 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 bubble.Add(durationLabel);
             }
 
-            // 右クリックでコピー
+            // 右クリックでもコピー可（補助）
             view.RegisterCallback<ContextClickEvent>(evt =>
             {
-                view.OnCopy?.Invoke(entry.text);
+                UnityEditor.EditorGUIUtility.systemCopyBuffer = entry.text ?? "";
             });
-
-            // Hover overlay: copy button + relative timestamp
-            AttachHoverOverlay(view, bubble, entry, theme);
 
             view.Add(bubble);
+            view.BuildActionRow(entry, theme, isUser: false);
             return view;
-        }
-
-        /// <summary>
-        /// Agent バブルに hover 時だけ表示される copy ボタン + 相対時刻ラベルを追加する。
-        /// </summary>
-        static void AttachHoverOverlay(ChatEntryView view, VisualElement bubble, ChatEntry entry, MD3Theme theme)
-        {
-            var overlay = new VisualElement();
-            overlay.style.position = Position.Absolute;
-            overlay.style.top = 4;
-            overlay.style.right = 4;
-            overlay.style.flexDirection = FlexDirection.Row;
-            overlay.style.alignItems = Align.Center;
-            overlay.style.display = DisplayStyle.None;
-            overlay.pickingMode = PickingMode.Position;
-
-            var timestampLabel = new Label(FormatRelativeTime(entry.timestamp));
-            timestampLabel.style.fontSize = 10;
-            timestampLabel.style.color = theme.OnSurfaceVariant;
-            timestampLabel.style.opacity = 0.6f;
-            timestampLabel.style.marginRight = 6;
-            overlay.Add(timestampLabel);
-
-            var copyBtn = new MD3IconButton(MD3Icon.ContentCopy, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
-            copyBtn.tooltip = M("本文をコピー");
-            copyBtn.clicked += () =>
-            {
-                UnityEditor.EditorGUIUtility.systemCopyBuffer = entry.text ?? "";
-            };
-            overlay.Add(copyBtn);
-
-            bubble.Add(overlay);
-
-            // Enter/leave — refresh timestamp on enter so it stays accurate
-            bubble.RegisterCallback<MouseEnterEvent>(_ =>
-            {
-                timestampLabel.text = FormatRelativeTime(entry.timestamp);
-                overlay.style.display = DisplayStyle.Flex;
-            });
-            bubble.RegisterCallback<MouseLeaveEvent>(_ =>
-            {
-                overlay.style.display = DisplayStyle.None;
-            });
         }
 
         static string FormatRelativeTime(System.DateTime ts)
@@ -424,6 +387,92 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             for (int i = 0; i < text.Length; i++)
                 if (text[i] == '\n') count++;
             return count;
+        }
+
+        // ══════════════════════════════════════════════
+        //  Action Row（コピー/編集/再生成）
+        // ══════════════════════════════════════════════
+
+        /// <summary>
+        /// バブルの下に表示するアクション行を構築して view に追加する。
+        /// 既定は不透明度 0.38、ビューにホバーで 1.0。
+        /// </summary>
+        void BuildActionRow(ChatEntry entry, MD3Theme theme, bool isUser)
+        {
+            _actionRow = new VisualElement();
+            _actionRow.style.flexDirection = FlexDirection.Row;
+            _actionRow.style.alignItems = Align.Center;
+            _actionRow.style.marginTop = 2;
+            _actionRow.style.justifyContent = isUser ? Justify.FlexEnd : Justify.FlexStart;
+            _actionRow.style.opacity = 0.38f;
+
+            if (isUser)
+            {
+                var editBtn = new MD3IconButton(
+                    MD3Icon.Edit, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
+                editBtn.tooltip = M("編集して送り直す");
+                editBtn.clicked += () => OnEdit?.Invoke(Entry);
+                _actionRow.Add(editBtn);
+            }
+
+            var copyBtn = new MD3IconButton(
+                MD3Icon.ContentCopy, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
+            copyBtn.tooltip = M("本文をコピー");
+            copyBtn.clicked += () =>
+                UnityEditor.EditorGUIUtility.systemCopyBuffer = Entry?.text ?? "";
+            _actionRow.Add(copyBtn);
+
+            if (!isUser)
+            {
+                var tsLabel = new Label(FormatRelativeTime(entry.timestamp));
+                tsLabel.style.fontSize = 10;
+                tsLabel.style.color = theme.OnSurfaceVariant;
+                tsLabel.style.opacity = 0.7f;
+                tsLabel.style.marginLeft = 6;
+                _actionRow.Add(tsLabel);
+            }
+
+            Add(_actionRow);
+
+            RegisterCallback<MouseEnterEvent>(_ => _actionRow.style.opacity = 1f);
+            RegisterCallback<MouseLeaveEvent>(_ => _actionRow.style.opacity = 0.38f);
+        }
+
+        /// <summary>再生成ボタンをアクション行に追加する（最後のエージェント応答のみ）。</summary>
+        public void SetRegenerateAction(Action onRegenerate)
+        {
+            OnRegenerate = onRegenerate;
+            if (_actionRow == null || _regenButton != null) return;
+            _regenButton = new Button(() => OnRegenerate?.Invoke())
+            {
+                text = "↻ " + M("再生成")
+            };
+            _regenButton.style.fontSize = 11;
+            _regenButton.style.marginLeft = 6;
+            _regenButton.style.paddingLeft = 8;
+            _regenButton.style.paddingRight = 8;
+            _regenButton.style.borderTopLeftRadius = 10;
+            _regenButton.style.borderTopRightRadius = 10;
+            _regenButton.style.borderBottomLeftRadius = 10;
+            _regenButton.style.borderBottomRightRadius = 10;
+            _actionRow.Add(_regenButton);
+        }
+
+        /// <summary>再生成ボタンを取り除く（最後の応答でなくなったとき）。</summary>
+        public void ClearRegenerateAction()
+        {
+            OnRegenerate = null;
+            if (_regenButton != null)
+            {
+                _regenButton.RemoveFromHierarchy();
+                _regenButton = null;
+            }
+        }
+
+        /// <summary>再生成ボタンの有効/無効（処理中は無効）。</summary>
+        public void SetRegenerateEnabled(bool enabled)
+        {
+            _regenButton?.SetEnabled(enabled);
         }
 
         // ══════════════════════════════════════════════

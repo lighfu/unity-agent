@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using AjisaiFlow.MD3SDK.Editor;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 using static AjisaiFlow.UnityAgent.Editor.L10n;
@@ -47,13 +46,10 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         VisualElement _activityToolList;
 
         // Callbacks
-        public Action<int> OnEditAndResend;
-        public Action<string, int> OnChoiceSelected;
-        public Action<int, bool> OnBatchConfirmItem;
-        public Action OnBatchConfirmAll;
-        public Action OnBatchConfirmDeny;
-        public Action<string> OnClipboardSubmit;
-        public Action OnCopyText;
+        /// <summary>ユーザーメッセージの編集要求。引数は対象 ChatEntry。</summary>
+        public Action<ChatEntry> OnEditEntry;
+        /// <summary>最後のエージェント応答の再生成要求。</summary>
+        public Action OnRegenerateRequested;
 
         public ChatPanel(MD3Theme theme)
         {
@@ -398,8 +394,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
         void WireCallbacks(ChatEntryView view, ChatEntry entry)
         {
-            view.OnEdit = () => OnEditAndResend?.Invoke(view.EntryIndex);
-            view.OnCopy = text => EditorGUIUtility.systemCopyBuffer = text;
+            view.OnEdit = e => OnEditEntry?.Invoke(e);
         }
 
         void AddInfoGroup(List<ChatEntry> history, int startIdx, int count, bool expanded)

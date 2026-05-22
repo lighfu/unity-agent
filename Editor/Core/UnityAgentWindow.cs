@@ -476,6 +476,14 @@ namespace AjisaiFlow.UnityAgent.Editor
                 ChatHistoryManager.Delete(filePath);
                 _historyPanel.RemoveSession(filePath);
             };
+
+            // Chat panel — 編集
+            _chatPanel.OnEditEntry = entry =>
+            {
+                if (IsProcessing) return;
+                int idx = _chatHistory.IndexOf(entry);
+                if (idx >= 0) EditAndResend(idx);
+            };
         }
 
         private void OnDisable()
