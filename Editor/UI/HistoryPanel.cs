@@ -47,19 +47,54 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
             foreach (var session in sessions)
             {
+                string filePath = session.filePath;
+
+                // 行コンテナ（リストアイテム + 削除ボタン）
+                var row = new VisualElement();
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignItems = Align.Center;
+                row.name = "session-item";
+
+                string supporting = string.Format(
+                    "{0} · {1} {2}",
+                    session.timestamp ?? "",
+                    session.messageCount,
+                    M("メッセージ"));
+
                 var item = new MD3ListItem(
                     session.title ?? M("(無題)"),
-                    session.timestamp ?? "",
+                    supporting,
                     MD3Icon.Mail);
-
-                string filePath = session.filePath;
+                item.style.flexGrow = 1;
                 item.RegisterCallback<ClickEvent>(evt =>
                 {
                     OnSessionSelected?.Invoke(filePath);
                 });
+                row.Add(item);
 
-                item.name = "session-item";
-                _scrollView.Add(item);
+                // 削除ボタン（普段は薄く、行ホバーで明るく）
+                var deleteBtn = new MD3IconButton(
+                    MD3Icon.Delete, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
+                deleteBtn.tooltip = M("この履歴を削除");
+                deleteBtn.style.opacity = 0.35f;
+                deleteBtn.style.flexShrink = 0;
+                deleteBtn.style.marginRight = 8;
+                deleteBtn.RegisterCallback<ClickEvent>(evt =>
+                {
+                    evt.StopPropagation();
+                    string title = session.title ?? M("(無題)");
+                    bool ok = UnityEditor.EditorUtility.DisplayDialog(
+                        M("履歴を削除"),
+                        string.Format(M("「{0}」を削除しますか？\nこの操作は元に戻せません。"), title),
+                        M("削除"), M("キャンセル"));
+                    if (ok) OnSessionDeleted?.Invoke(filePath);
+                });
+                row.Add(deleteBtn);
+
+                row.RegisterCallback<MouseEnterEvent>(_ => deleteBtn.style.opacity = 0.95f);
+                row.RegisterCallback<MouseLeaveEvent>(_ => deleteBtn.style.opacity = 0.35f);
+
+                _scrollView.Add(row);
             }
         }
 

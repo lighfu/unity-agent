@@ -472,6 +472,13 @@ namespace AjisaiFlow.UnityAgent.Editor
                     InitializeAgent();
                 }
             };
+
+            _historyPanel.OnSessionDeleted = filePath =>
+            {
+                ChatHistoryManager.Delete(filePath);
+                _historyList = ChatHistoryManager.ListSessions();
+                _historyPanel.LoadSessions(_historyList);
+            };
         }
 
         private void OnDisable()
