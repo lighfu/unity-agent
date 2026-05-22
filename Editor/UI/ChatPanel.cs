@@ -22,6 +22,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         IVisualElementScheduledItem _streamingPoll;
         ChatEntryView _streamingView;
         ChatEntry _streamingEntry;
+        ChatEntryView _lastAgentView;
         int _streamingTextLen;
         int _streamingThinkingLen;
 
@@ -90,6 +91,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         {
             StopStreaming();
             _content.Clear();
+            _lastAgentView = null;
             _toolGroupFoldouts.Clear();
 
             if (history == null || history.Count == 0) return;
@@ -207,6 +209,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             var view = ChatEntryView.Create(entry, _theme);
             _content.Add(view);
             _streamingView = view;
+            TrackLastAgentView(view, entry);
 
             _streamingPoll = schedule.Execute(() =>
             {
@@ -370,6 +373,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             StopToolCallTicker();
             StopThinkingLabelRotation();
             _content.Clear();
+            _lastAgentView = null;
             _toolGroupFoldouts.Clear();
             _toolCallViews.Clear();
             _toolCallEntries.Clear();
@@ -390,11 +394,27 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             var view = ChatEntryView.Create(entry, _theme);
             WireCallbacks(view, entry);
             _content.Add(view);
+            TrackLastAgentView(view, entry);
         }
 
         void WireCallbacks(ChatEntryView view, ChatEntry entry)
         {
             view.OnEdit = e => OnEditEntry?.Invoke(e);
+        }
+
+        /// <summary>最後のエージェント応答ビューにだけ再生成ボタンを付ける。</summary>
+        void TrackLastAgentView(ChatEntryView view, ChatEntry entry)
+        {
+            if (entry == null || entry.type != ChatEntry.EntryType.Agent) return;
+            _lastAgentView?.ClearRegenerateAction();
+            _lastAgentView = view;
+            _lastAgentView.SetRegenerateAction(() => OnRegenerateRequested?.Invoke());
+        }
+
+        /// <summary>処理中は再生成ボタンを無効化する（ウィンドウの Update から呼ぶ）。</summary>
+        public void SetRegenerateEnabled(bool enabled)
+        {
+            _lastAgentView?.SetRegenerateEnabled(enabled);
         }
 
         void AddInfoGroup(List<ChatEntry> history, int startIdx, int count, bool expanded)

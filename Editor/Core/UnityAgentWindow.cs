@@ -484,6 +484,13 @@ namespace AjisaiFlow.UnityAgent.Editor
                 int idx = _chatHistory.IndexOf(entry);
                 if (idx >= 0) EditAndResend(idx);
             };
+
+            // Chat panel — 再生成
+            _chatPanel.OnRegenerateRequested = () =>
+            {
+                if (IsProcessing) return;
+                RegenerateLastResponse();
+            };
         }
 
         private void OnDisable()
@@ -685,6 +692,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 _currentToolStatus,
                 ToolProgress.IsActive ? ToolProgress.Progress : 0f);
 
+            _chatPanel?.SetRegenerateEnabled(!IsProcessing);
             UpdateToolbarBadges();
         }
 
