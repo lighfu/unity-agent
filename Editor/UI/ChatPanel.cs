@@ -17,6 +17,9 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         readonly ScrollView _scrollView;
         readonly VisualElement _content;
         readonly MD3Theme _theme;
+        bool _stickToBottom = true;
+        bool _suppressScrollDetect;
+        Button _jumpButton;
         IVisualElementScheduledItem _streamingPoll;
         ChatEntryView _streamingView;
         ChatEntry _streamingEntry;
@@ -65,6 +68,25 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             _content.style.paddingLeft = 16;
             _content.style.paddingRight = 16;
             _content.style.paddingBottom = 4;
+
+            // スクロール位置検知
+            _scrollView.verticalScroller.valueChanged += _ => OnScrollChanged();
+
+            // 「最新へ」ボタン（絶対配置、_scrollView の兄弟）
+            _jumpButton = new Button(ForceScrollToBottom) { text = "↓ " + M("最新へ") };
+            _jumpButton.style.position = Position.Absolute;
+            _jumpButton.style.right = 12;
+            _jumpButton.style.bottom = 12;
+            _jumpButton.style.display = DisplayStyle.None;
+            _jumpButton.style.borderTopLeftRadius = 14;
+            _jumpButton.style.borderTopRightRadius = 14;
+            _jumpButton.style.borderBottomLeftRadius = 14;
+            _jumpButton.style.borderBottomRightRadius = 14;
+            _jumpButton.style.paddingLeft = 12;
+            _jumpButton.style.paddingRight = 12;
+            _jumpButton.style.backgroundColor = _theme.PrimaryContainer;
+            _jumpButton.style.color = _theme.OnPrimaryContainer;
+            Add(_jumpButton);
         }
 
         /// <summary>チャット履歴から全エントリを再構築する。</summary>
@@ -299,12 +321,49 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             }
         }
 
-        /// <summary>スクロールを最下部へ。</summary>
-        public void ScrollToBottom()
+        /// <summary>スクロール位置が変わるたびに張り付き状態を再判定する。</summary>
+        void OnScrollChanged()
         {
+            if (_suppressScrollDetect) return;
+            var scroller = _scrollView.verticalScroller;
+            // コンテンツが収まりきっている（スクロール不要）場合は張り付き扱い
+            bool scrollable = scroller.highValue > scroller.lowValue + 1f;
+            bool atBottom = !scrollable || scroller.value >= scroller.highValue - 24f;
+            _stickToBottom = atBottom;
+            UpdateJumpButton();
+        }
+
+        void UpdateJumpButton()
+        {
+            if (_jumpButton == null) return;
+            _jumpButton.style.display = _stickToBottom ? DisplayStyle.None : DisplayStyle.Flex;
+        }
+
+        /// <summary>張り付き中のときだけ最下部へスクロールする（コンテンツ到着系）。</summary>
+        public void AutoScrollToBottom()
+        {
+            if (_stickToBottom) DoScrollToBottom();
+        }
+
+        /// <summary>無条件で最下部へスクロールし、張り付き状態に戻す（ユーザー送信系）。</summary>
+        public void ForceScrollToBottom()
+        {
+            _stickToBottom = true;
+            UpdateJumpButton();
+            DoScrollToBottom();
+        }
+
+        /// <summary>後方互換: 既存呼び出し向け。強制スクロールと同義。</summary>
+        public void ScrollToBottom() => ForceScrollToBottom();
+
+        void DoScrollToBottom()
+        {
+            _suppressScrollDetect = true;
             schedule.Execute(() =>
             {
                 _scrollView.scrollOffset = new Vector2(0, _scrollView.contentContainer.layout.height);
+                // 次フレームで検知を再開（スクロール反映後）
+                schedule.Execute(() => _suppressScrollDetect = false);
             });
         }
 

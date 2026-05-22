@@ -652,7 +652,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (_shouldScrollToBottom)
             {
                 _shouldScrollToBottom = false;
-                _chatPanel?.ScrollToBottom();
+                _chatPanel?.AutoScrollToBottom();
             }
 
             // Update processing state (AskUser 中はユーザー入力を許可)
@@ -1495,6 +1495,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             _chatHistory.Add(userEntry);
             _chatPanel?.AppendEntry(userEntry);
+            _chatPanel?.ForceScrollToBottom();
             _welcomePanel.style.display = DisplayStyle.None;
             _chatPanel.style.display = DisplayStyle.Flex;
             _fullLog.AppendLine($"[USER] {query}");
