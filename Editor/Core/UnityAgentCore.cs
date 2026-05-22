@@ -223,6 +223,16 @@ namespace AjisaiFlow.UnityAgent.Editor
             return toUndo;
         }
 
+        /// <summary>変更ログを返す（スナップショット保存用）。</summary>
+        public IReadOnlyList<ChangeRecord> GetChangeLog() => _changeLog;
+
+        /// <summary>変更ログを復元する（スナップショット復元時のみ使う）。</summary>
+        public void RestoreChangeLog(IEnumerable<ChangeRecord> records)
+        {
+            _changeLog.Clear();
+            if (records != null) _changeLog.AddRange(records);
+        }
+
         public UnityAgentCore(ILLMProvider provider)
         {
             _provider = provider;

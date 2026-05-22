@@ -1,4 +1,5 @@
 using System;
+using AjisaiFlow.UnityAgent.Editor;
 
 namespace AjisaiFlow.UnityAgent.Editor.Persistence
 {
@@ -46,6 +47,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Persistence
         public int sessionOutputTokens;
         public int lastPromptTokens;
         public int sessionUndoCount;
+
+        /// <summary>編集・再生成の部分巻き戻し用の変更ログ。</summary>
+        public ChangeRecord[] changeLog = Array.Empty<ChangeRecord>();
     }
 
     [Serializable]

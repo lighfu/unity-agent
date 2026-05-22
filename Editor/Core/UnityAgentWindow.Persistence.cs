@@ -96,6 +96,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 snap.sessionOutputTokens = _agent.SessionOutputTokens;
                 snap.lastPromptTokens = _agent.LastPromptTokens;
                 snap.sessionUndoCount = _agent.SessionUndoCount;
+                snap.changeLog = new List<ChangeRecord>(_agent.GetChangeLog()).ToArray();
             }
 
             // 添付ファイル
@@ -277,6 +278,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                         snap.sessionOutputTokens,
                         snap.lastPromptTokens,
                         snap.sessionUndoCount);
+                    _agent.RestoreChangeLog(snap.changeLog);
                 }
 
                 // 添付ファイル
