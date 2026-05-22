@@ -28,6 +28,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Spec: `docs/superpowers/specs/2026-05-17-faceemo-plan-c-gesture-assignment-design.md`
 - Plan: `docs/superpowers/plans/2026-05-17-faceemo-plan-c-gesture-assignment.md`
 
+### Fixed
+
+- Quest conversion tools no longer break compilation on VRCQuestTools versions older than 2.7.0. The `MaterialSwap` component was added in VRCQuestTools 2.7.0, but `QuestConversionTools.cs` referenced it whenever *any* VRCQuestTools version was installed, causing `CS0246: MaterialSwap could not be found`. The `AddMaterialSwap` tool and the Material Swap section of `InspectQuestSettings` are now gated behind a new `VRC_QUEST_TOOLS_MATERIAL_SWAP` define (`[2.7.0,)`). All other Quest tools stay available on older VRCQuestTools.
+
 ## [Unreleased]
 ### Changed
 - FaceEmo is now REQUIRED for expression editing. Expression tools refuse to run without FaceEmo installed + a configured launcher + TargetAvatar.

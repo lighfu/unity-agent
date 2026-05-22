@@ -54,6 +54,11 @@
             "define": "VRC_QUEST_TOOLS"
         },
         {
+            "name": "com.github.kurotu.vrc-quest-tools",
+            "expression": "[2.7.0,)",
+            "define": "VRC_QUEST_TOOLS_MATERIAL_SWAP"
+        },
+        {
             "name": "net.nekobako.blend-shape-modifier",
             "expression": "",
             "define": "BLEND_SHAPE_MODIFIER"

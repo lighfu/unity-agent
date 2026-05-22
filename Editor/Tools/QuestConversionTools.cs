@@ -199,7 +199,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         // ========== 3. AddMaterialSwap ==========
+        // The MaterialSwap component was added in VRCQuestTools 2.7.0 (2025-02-25),
+        // so this tool is gated behind VRC_QUEST_TOOLS_MATERIAL_SWAP. Older VRCQuestTools
+        // versions still compile and keep every other Quest tool in this file.
 
+#if VRC_QUEST_TOOLS_MATERIAL_SWAP
         [AgentTool("Add a material swap entry for Quest conversion. Replaces originalMaterial with replacementMaterial on Quest.")]
         public static string AddMaterialSwap(string avatarRootName,
             string originalMaterialPath, string replacementMaterialPath)
@@ -251,6 +255,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             return $"Success: Added material swap '{originalMat.name}' → '{replacementMat.name}' on '{avatarRootName}'.";
         }
+#endif // VRC_QUEST_TOOLS_MATERIAL_SWAP
 
         // ========== 4. KeepPhysBone ==========
 
@@ -393,7 +398,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 }
             }
 
-            // Material swaps
+#if VRC_QUEST_TOOLS_MATERIAL_SWAP
+            // Material swaps (MaterialSwap component requires VRCQuestTools 2.7.0+)
             var materialSwap = avatarRoot.GetComponent<MaterialSwap>();
             if (materialSwap != null)
             {
@@ -411,6 +417,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
                 }
             }
+#endif // VRC_QUEST_TOOLS_MATERIAL_SWAP
 
             return sb.ToString().TrimEnd();
         }
