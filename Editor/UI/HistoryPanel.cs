@@ -10,12 +10,13 @@ using static AjisaiFlow.UnityAgent.Editor.L10n;
 namespace AjisaiFlow.UnityAgent.Editor.UI
 {
     /// <summary>
-    /// チャット履歴一覧パネル。ListView による仮想化で、件数が多くても
-    /// 表示中の行しか生成しないためフリーズしない。ヘッダー（タイトル・件数）は
-    /// バックグラウンドで分割解析してキャッシュする。
+    /// チャット履歴一覧パネル。ListView 仮想化＋再利用可能な行で、件数が多くても
+    /// 開く操作もスクロールも軽い。ヘッダー（タイトル・件数）はバックグラウンドで分割解析。
     /// </summary>
     internal class HistoryPanel : VisualElement
     {
+        const float RowHeight = 56f;
+
         readonly MD3Theme _theme;
         readonly ListView _listView;
         readonly TextField _searchField;
@@ -51,7 +52,8 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
             _listView = new ListView();
             _listView.style.flexGrow = 1;
-            _listView.virtualizationMethod = CollectionVirtualizationMethod.DynamicHeight;
+            _listView.virtualizationMethod = CollectionVirtualizationMethod.FixedHeight;
+            _listView.fixedItemHeight = RowHeight;
             _listView.selectionType = SelectionType.None;
             _listView.makeItem = MakeRow;
             _listView.bindItem = BindRow;
@@ -60,8 +62,8 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         }
 
         /// <summary>
-        /// 履歴一覧の読み込みを開始する。ファイルパス一覧の取得は高速で、
-        /// ListView 仮想化により行生成は表示中ぶんだけ。ヘッダーはポンプで分割解析。
+        /// 履歴一覧の読み込みを開始する。ファイルパス一覧の取得は高速、ListView 仮想化＋
+        /// 行再利用により行生成は表示中ぶんだけ。ヘッダーはポンプで分割解析。
         /// </summary>
         public void BeginLoad()
         {
@@ -145,55 +147,38 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             _listView.Rebuild();
         }
 
-        VisualElement MakeRow()
-        {
-            var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.alignItems = Align.Center;
-            return row;
-        }
+        VisualElement MakeRow() => new HistoryRow(_theme, this);
 
         void BindRow(VisualElement element, int index)
         {
-            element.Clear();
-            if (index < 0 || index >= _visibleFiles.Count) return;
+            if (!(element is HistoryRow row)) return;
+            if (index < 0 || index >= _visibleFiles.Count)
+            {
+                row.BindEmpty();
+                return;
+            }
             string filePath = _visibleFiles[index];
             _headerCache.TryGetValue(filePath, out var header);
+            row.Bind(filePath, header);
+        }
 
-            string title = header != null && !string.IsNullOrEmpty(header.title)
-                ? header.title
-                : M("(読み込み中…)");
-            string timestamp = header != null && !string.IsNullOrEmpty(header.timestamp)
-                ? header.timestamp
-                : ChatHistoryManager.TimestampFromFileName(filePath);
-            string supporting = header != null
-                ? string.Format("{0} · {1} {2}", timestamp, header.messageCount, M("メッセージ"))
-                : timestamp;
+        // 行から呼ばれる内部ハンドラ。
+        internal void HandleRowSelected(string filePath)
+        {
+            OnSessionSelected?.Invoke(filePath);
+        }
 
-            var item = new MD3ListItem(title, supporting, MD3Icon.Mail);
-            item.style.flexGrow = 1;
-            item.RegisterCallback<ClickEvent>(evt => OnSessionSelected?.Invoke(filePath));
-            element.Add(item);
-
-            var deleteBtn = new MD3IconButton(
-                MD3Icon.Delete, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
-            deleteBtn.tooltip = M("この履歴を削除");
-            deleteBtn.style.flexShrink = 0;
-            deleteBtn.style.marginRight = 8;
-            deleteBtn.RegisterCallback<ClickEvent>(evt =>
-            {
-                evt.StopPropagation();
-                string dlgTitle =
-                    _headerCache.TryGetValue(filePath, out var ch) && !string.IsNullOrEmpty(ch.title)
-                        ? ch.title
-                        : ChatHistoryManager.TimestampFromFileName(filePath);
-                bool ok = UnityEditor.EditorUtility.DisplayDialog(
-                    M("履歴を削除"),
-                    string.Format(M("「{0}」を削除しますか？\nこの操作は元に戻せません。"), dlgTitle),
-                    M("削除"), M("キャンセル"));
-                if (ok) OnSessionDeleted?.Invoke(filePath);
-            });
-            element.Add(deleteBtn);
+        internal void HandleRowDeleteClicked(string filePath)
+        {
+            string dlgTitle =
+                _headerCache.TryGetValue(filePath, out var ch) && !string.IsNullOrEmpty(ch.title)
+                    ? ch.title
+                    : ChatHistoryManager.TimestampFromFileName(filePath);
+            bool ok = UnityEditor.EditorUtility.DisplayDialog(
+                M("履歴を削除"),
+                string.Format(M("「{0}」を削除しますか？\nこの操作は元に戻せません。"), dlgTitle),
+                M("削除"), M("キャンセル"));
+            if (ok) OnSessionDeleted?.Invoke(filePath);
         }
 
         public void Show() => style.display = DisplayStyle.Flex;
@@ -206,5 +191,103 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         }
 
         public bool IsVisible => resolvedStyle.display == DisplayStyle.Flex;
+
+        // ───────────────────────────────────────────────
+        //  再利用される 1 行。構造はコンストラクタで一度だけ作り、
+        //  Bind で文字列と対象パスだけ更新する（スクロールを軽く保つ）。
+        // ───────────────────────────────────────────────
+        sealed class HistoryRow : VisualElement
+        {
+            readonly HistoryPanel _panel;
+            readonly Label _title;
+            readonly Label _supporting;
+            string _filePath;
+
+            public HistoryRow(MD3Theme theme, HistoryPanel panel)
+            {
+                _panel = panel;
+                style.flexDirection = FlexDirection.Row;
+                style.alignItems = Align.Center;
+                style.height = RowHeight;
+                style.paddingLeft = 10;
+                style.paddingRight = 4;
+
+                var icon = new Label(MD3Icon.Mail);
+                MD3Icon.Apply(icon, 20);
+                icon.style.color = theme.OnSurfaceVariant;
+                icon.style.marginRight = 10;
+                icon.style.flexShrink = 0;
+                Add(icon);
+
+                var col = new VisualElement();
+                col.style.flexGrow = 1;
+                col.style.flexDirection = FlexDirection.Column;
+                col.style.justifyContent = Justify.Center;
+                col.style.overflow = Overflow.Hidden;
+
+                _title = new Label();
+                _title.style.fontSize = 13;
+                _title.style.color = theme.OnSurface;
+                _title.style.whiteSpace = WhiteSpace.NoWrap;
+                _title.style.overflow = Overflow.Hidden;
+                _title.style.textOverflow = TextOverflow.Ellipsis;
+                col.Add(_title);
+
+                _supporting = new Label();
+                _supporting.style.fontSize = 11;
+                _supporting.style.color = theme.OnSurfaceVariant;
+                _supporting.style.marginTop = 1;
+                _supporting.style.whiteSpace = WhiteSpace.NoWrap;
+                _supporting.style.overflow = Overflow.Hidden;
+                _supporting.style.textOverflow = TextOverflow.Ellipsis;
+                col.Add(_supporting);
+
+                Add(col);
+
+                var deleteBtn = new MD3IconButton(
+                    MD3Icon.Delete, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
+                deleteBtn.tooltip = M("この履歴を削除");
+                deleteBtn.style.flexShrink = 0;
+                deleteBtn.RegisterCallback<ClickEvent>(evt =>
+                {
+                    evt.StopPropagation();
+                    if (_filePath != null) _panel.HandleRowDeleteClicked(_filePath);
+                });
+                Add(deleteBtn);
+
+                RegisterCallback<ClickEvent>(evt =>
+                {
+                    if (_filePath != null) _panel.HandleRowSelected(_filePath);
+                });
+                RegisterCallback<MouseEnterEvent>(_ =>
+                    style.backgroundColor = theme.SurfaceContainerHigh);
+                RegisterCallback<MouseLeaveEvent>(_ =>
+                    style.backgroundColor = Color.clear);
+            }
+
+            /// <summary>行に 1 セッションのデータを割り当てる（文字列更新のみ、軽量）。</summary>
+            public void Bind(string filePath, ChatSessionHeader header)
+            {
+                _filePath = filePath;
+                string title = header != null && !string.IsNullOrEmpty(header.title)
+                    ? header.title
+                    : M("(読み込み中…)");
+                string timestamp = header != null && !string.IsNullOrEmpty(header.timestamp)
+                    ? header.timestamp
+                    : ChatHistoryManager.TimestampFromFileName(filePath);
+                _title.text = title;
+                _supporting.text = header != null
+                    ? string.Format("{0} · {1} {2}", timestamp, header.messageCount, M("メッセージ"))
+                    : timestamp;
+            }
+
+            /// <summary>範囲外バインド時の空表示。</summary>
+            public void BindEmpty()
+            {
+                _filePath = null;
+                _title.text = "";
+                _supporting.text = "";
+            }
+        }
     }
 }
