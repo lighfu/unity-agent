@@ -552,7 +552,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return $"Success: Created {width}x{height} mask texture ({color}). Output: {savedPath}";
         }
 
-        [AgentTool("Configure a decal slot on a Poiyomi or lilToon material. Sets the decal texture, enables required keywords, and adjusts slot properties. materialPath: asset path to material. slotIndex: decal slot number (0-3 for Poiyomi, 0-1 for lilToon). texturePath: asset path to decal texture. position/scale: 'x,y' format. angle: rotation degrees.")]
+        [AgentTool("Configure a decal slot on a Poiyomi or lilToon material. Sets the decal texture and adjusts slot properties (Poiyomi: enables the _DECAL_n shader keyword; lilToon: enables the 2nd/3rd main-color layer and turns on its decal mode). materialPath: asset path to material. slotIndex: decal slot number (0-3 for Poiyomi, 0-1 for lilToon). texturePath: asset path to decal texture. position/scale: 'x,y' format. angle: rotation degrees.")]
         public static string ConfigureDecalSlot(
             string materialPath,
             int slotIndex,
@@ -825,11 +825,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             string texProp = slotIndex == 0 ? "_Main2ndTex" : "_Main3rdTex";
             string enableProp = slotIndex == 0 ? "_UseMain2ndTex" : "_UseMain3rdTex";
+            string isDecalProp = slotIndex == 0 ? "_Main2ndTexIsDecal" : "_Main3rdTexIsDecal";
 
             if (mat.HasFloat(enableProp))
             {
                 mat.SetFloat(enableProp, 1f);
                 sb.AppendLine($"Set {enableProp} = 1");
+            }
+
+            // Mark the layer as an actual decal. lilToon only applies the bounded,
+            // edge-clamped decal stamp when this flag is on (lil_common_functions.hlsl:
+            // `if(isDecal) outCol.a *= lilIsIn0to1(...)`). Without it the 2nd/3rd
+            // main-color layer just tiles/wraps like a normal overlay, so a "decal slot"
+            // would not actually behave like a decal.
+            if (mat.HasProperty(isDecalProp))
+            {
+                mat.SetFloat(isDecalProp, 1f);
+                sb.AppendLine($"Set {isDecalProp} = 1 (decal mode)");
             }
 
             if (mat.HasTexture(texProp))

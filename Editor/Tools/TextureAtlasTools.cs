@@ -167,7 +167,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Pre-process textures for atlas optimization. " +
-            "Bakes lilToon _Color into textures and optionally resizes to uniform size. " +
+            "Bakes the lilToon _Color (color-picker) multiply into textures and optionally resizes to uniform size. " +
+            "Note: only the _Color RGB multiply is baked; lilToon's hue/saturation/value/gamma and gradation-map adjustments are NOT reproduced — bake those with lilToon's own tooling first. " +
             "Run before setting up AAO MergeSkinnedMesh for best atlas results.",
             Risk = ToolRisk.Caution)]
         public static string PreprocessForAtlas(

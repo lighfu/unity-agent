@@ -58,6 +58,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 case "Outline": return "_OutlineTex";
                 case "Shadow": return "_ShadowColorTex";
                 case "Shadow2nd": return "_Shadow2ndColorTex";
+                case "Shadow3rd": return "_Shadow3rdColorTex";
                 case "MatCap": return "_MatCapTex";
                 case "MatCap2nd": return "_MatCap2ndTex";
                 case "Rim": return "_RimColorTex";
@@ -193,7 +194,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== 2. SetLilToonColors ==========
 
-        [AgentTool("Set lilToon color properties. property: 'Main', 'Outline', 'Emission', 'Emission2nd', 'Shadow', 'Shadow2nd', 'Shadow3rd', 'Rim', 'MatCap', 'MatCap2nd'. color: 'r,g,b,a' (0-1).")]
+        [AgentTool("Set lilToon color properties. property: 'Main', 'Outline', 'Emission', 'Emission2nd', 'Shadow', 'Shadow2nd', 'Shadow3rd', 'Rim', 'MatCap', 'MatCap2nd'. color: 'r,g,b,a' (0-1; Emission and MatCap are HDR and may exceed 1).")]
         public static string SetLilToonColors(string materialPath, string property, string color)
         {
             var mat = LoadMaterial(materialPath);
@@ -231,7 +232,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== 3. SetLilToonFloat ==========
 
-        [AgentTool("Set a lilToon float property. property: 'Cutoff' (0-1), 'OutlineWidth' (0+), 'BumpScale' (-10 to 10), 'Smoothness' (0-1), 'Metallic' (0-1), 'AsUnlit' (0-1), 'ShadowStrength' (0-1), 'ShadowBorder', 'ShadowBlur', 'RimBorder', 'RimBlur'. Or use raw property name like '_PropertyName'.")]
+        [AgentTool("Set a lilToon float property. property: 'Cutoff' (0-1), 'OutlineWidth' (0-1), 'BumpScale' (-10 to 10), 'Smoothness' (0-1), 'Metallic' (0-1), 'AsUnlit' (0-1), 'ShadowStrength' (0-1), 'ShadowBorder' (0-1), 'ShadowBlur' (0-1), 'RimBorder' (0-1), 'RimBlur' (0-1). Or use raw property name like '_PropertyName'.")]
         public static string SetLilToonFloat(string materialPath, string property, float value)
         {
             var mat = LoadMaterial(materialPath);
@@ -263,7 +264,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== 4. SetLilToonTexture ==========
 
-        [AgentTool("Set a lilToon texture property. property: 'Main', 'Bump'/'Normal', 'Emission', 'Emission2nd', 'Outline', 'Shadow', 'Shadow2nd', 'MatCap', 'MatCap2nd', 'Rim'. texturePath: asset path to texture file.")]
+        [AgentTool("Set a lilToon texture property. property: 'Main', 'Bump'/'Normal', 'Emission', 'Emission2nd', 'Outline', 'Shadow', 'Shadow2nd', 'Shadow3rd', 'MatCap', 'MatCap2nd', 'Rim'. texturePath: asset path to texture file.")]
         public static string SetLilToonTexture(string materialPath, string property, string texturePath)
         {
             var mat = LoadMaterial(materialPath);
@@ -278,7 +279,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (property.StartsWith("_"))
                     propName = property;
                 else
-                    return $"Error: Unknown texture property '{property}'. Use: Main, Bump/Normal, Emission, Emission2nd, Outline, Shadow, Shadow2nd, MatCap, MatCap2nd, Rim, or raw '_PropertyName'.";
+                    return $"Error: Unknown texture property '{property}'. Use: Main, Bump/Normal, Emission, Emission2nd, Outline, Shadow, Shadow2nd, Shadow3rd, MatCap, MatCap2nd, Rim, or raw '_PropertyName'.";
             }
 
             if (!mat.HasProperty(propName))
@@ -395,6 +396,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         private static string BuildShaderName(string mode, bool outline, bool lite)
         {
+            // Fur / Gem / Refraction have no Lite or Outline variants in lilToon.
+            // lilToon's own SetupMaterialWithRenderingMode ignores the outline/lite flags
+            // for these modes, so resolve them to their dedicated shader directly. Falling
+            // through to the lite/outline switches below would silently downgrade them to
+            // Hidden/lilToonLite or Hidden/lilToonOutline and drop the requested mode.
+            switch (mode)
+            {
+                case "Fur": return "Hidden/lilToonFur";
+                case "FurCutout": return "Hidden/lilToonFurCutout";
+                case "FurTwoPass": return "Hidden/lilToonFurTwoPass";
+                case "Gem": return "Hidden/lilToonGem";
+                case "Refraction": return "Hidden/lilToonRefraction";
+                case "RefractionBlur": return "Hidden/lilToonRefractionBlur";
+            }
+
             if (lite)
             {
                 if (outline)
@@ -432,12 +448,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 case "Opaque": return "lilToon";
                 case "Cutout": return "Hidden/lilToonCutout";
                 case "Transparent": return "Hidden/lilToonTransparent";
-                case "Fur": return "Hidden/lilToonFur";
-                case "FurCutout": return "Hidden/lilToonFurCutout";
-                case "FurTwoPass": return "Hidden/lilToonFurTwoPass";
-                case "Gem": return "Hidden/lilToonGem";
-                case "Refraction": return "Hidden/lilToonRefraction";
-                case "RefractionBlur": return "Hidden/lilToonRefractionBlur";
                 default: return "lilToon";
             }
         }
