@@ -1,6 +1,6 @@
 /* UnityAgent — i18n
  * Lightweight key-based translator. data-i18n="key" on any element.
- * Switches between ja and en. Persists choice in localStorage.
+ * Switches between ja, en, zh-TW and zh. Persists choice in localStorage.
  */
 (function () {
   "use strict";
@@ -247,6 +247,248 @@
       "footer.credits.body": "UnityAgent is built and maintained by AjisaiFlow.<br />Logo and brand assets are bundled with the repository under MIT.",
       "footer.copyright": "© 2026 AjisaiFlow. MIT License.",
     },
+
+    "zh-TW": {
+      "meta.title": "UnityAgent — 面向 VRChat Avatar 的 AI Unity Editor",
+      "meta.description": "用自然語言控制 Unity Editor。UnityAgent 是專為 VRChat Avatar 製作準備的 AI Agent，內建 500+ 專用工具。",
+      "a11y.skip": "跳到正文",
+
+      "nav.features": "特色",
+      "nav.standalone": "獨立工具",
+      "nav.tools": "工具",
+      "nav.providers": "提供者",
+      "nav.install": "安裝",
+      "nav.changelog": "更新紀錄",
+      "nav.community": "社群",
+
+      "hero.badge": "v0.10 已發布 · MIT 開源",
+      "hero.title.line1": "和 Unity Editor 對話，",
+      "hero.title.line2": "讓它替你製作。",
+      "hero.lede": "UnityAgent 既是面向 VRChat Avatar 製作的 AI Agent，也是一套獨立的 Editor 工具集。你可以用自然語言呼叫 500+ 專用工具，也可以不設定 AI，直接使用 GUI 工具。",
+      "hero.cta.install": "安裝",
+      "hero.cta.github": "在 GitHub 查看",
+      "hero.stat.tools": "專用工具",
+      "hero.stat.providers": "LLM 提供者",
+      "hero.stat.license": "開源",
+
+      "features.eyebrow": "FEATURES",
+      "features.title": "涵蓋 Avatar 製作的各個環節。",
+      "features.lede": "在統一的自然語言介面背後，UnityAgent 讓 500+ 專用工具協同工作。",
+      "features.f1.title": "Avatar 分析與最佳化",
+      "features.f1.body": "一次檢查 PhysBone、BlendShape 和骨骼結構，自動化 Quest 轉換、網格簡化與貼圖圖集處理。",
+      "features.f2.title": "Modular Avatar / NDMF 整合",
+      "features.f2.body": "原生支援 MA 選單、參數、MergeArmature 與 FaceEmo，也可以用自然語言驅動 NDMF 流程。",
+      "features.f3.title": "貼圖與材質編輯",
+      "features.f3.body": "批次設定 lilToon / Poiyomi，支援 AO 烘焙、UV 檢查與 TexTransTool 整合，用於細緻收尾。",
+      "features.f4.title": "動畫與表情",
+      "features.f4.body": "透過對話編輯 Animator 狀態機、建立 FaceEmo 表情組合與手勢連動。",
+      "features.f5.title": "多提供者支援",
+      "features.f5.body": "Claude / GPT / Gemini / DeepSeek 以及本機 LLM（Ollama / LM Studio）都可依工作流程選擇。",
+      "features.f6.title": "完全開源",
+      "features.f6.body": "MIT 授權。以未混淆原始碼發布，方便 fork、發布與客製化。",
+
+      "standalone.eyebrow": "STANDALONE",
+      "standalone.title": "不使用 AI，也能直接使用。",
+      "standalone.lede": "UnityAgent 同時是一套完整的 GUI 工具集合。不需設定任何 LLM 提供者，也能使用多個內建 Editor 工具。",
+      "standalone.t1.title": "Bone Pose Editor",
+      "standalone.t1.badge": "實驗性",
+      "standalone.t1.body": "將姿勢編輯、IK、圖層系統與關鍵影格簡化整合在同一個視窗中。適用於任意骨架。此功能仍為實驗性，部分操作可能出現不一致行為。",
+      "standalone.t2.title": "Mesh Painter",
+      "standalone.t2.body": "按 UV 島選擇並繪製，貼圖編輯、遮罩建立與局部修正都可以在 GUI 中完成。",
+      "standalone.t3.title": "Outfit Fitting Wizard",
+      "standalone.t3.badge": "實驗性",
+      "standalone.t3.body": "基於 ARAP / XPBD / Body SDF 的自動服裝適配，並提供無需調參的預設。此功能仍為實驗性，複雜服裝可能需要手動收尾。",
+      "standalone.t4.title": "BlendShape Shrinker",
+      "standalone.t4.body": "批次偵測並移除未使用的 BlendShape，減少體積與建置時間。",
+      "standalone.t5.title": "Texture Atlas",
+      "standalone.t5.badge": "實驗性",
+      "standalone.t5.body": "使用 MaxRects 打包器進行高密度圖集化，在 GUI 中完成材質合併與 Draw Call 最佳化。複雜 Shader 設定可能需要重新微調。",
+      "standalone.t6.title": "Pose Estimation",
+      "standalone.t6.badge": "實驗性",
+      "standalone.t6.body": "透過 MediaPipe / ROMP / WHAM 從影片中擷取動作，並產生 AnimationClip。此實驗功能需要設定 Python 環境。",
+      "standalone.note": "* 每個工具都可以直接從 UnityAgent 視窗啟動，無需設定 LLM 提供者。",
+
+      "tools.eyebrow": "TOOLS",
+      "tools.title": "500+ 專用工具。",
+      "tools.lede": "全部都可以透過自然語言呼叫。下面列出的是主要類別摘錄。",
+      "tools.footnote": "* 每個類別下都有多個細分工具，本版本合計提供 549+ 個工具。",
+
+      "providers.eyebrow": "PROVIDERS",
+      "providers.title": "使用你熟悉的 LLM。",
+      "providers.lede": "雲端 API、CLI 整合與本機推論都可以統一切換。",
+      "providers.col.name": "提供者",
+      "providers.col.kind": "類型",
+      "providers.col.auth": "驗證",
+      "providers.col.notes": "說明",
+      "providers.kind.cloud": "雲端",
+      "providers.kind.local": "本機",
+      "providers.kind.cli": "CLI",
+      "providers.kind.bridge": "橋接",
+
+      "install.eyebrow": "INSTALL",
+      "install.title": "幾次點擊即可開始。",
+      "install.tab.alcom": "ALCOM / VCC",
+      "install.tab.manual": "手動安裝",
+      "install.alcom.s1.title": "新增 VPM 倉庫",
+      "install.alcom.s1.body": "使用下方按鈕，將 VPM 倉庫新增到 ALCOM / VCC。",
+      "install.alcom.s1.cta": "開啟 VPM 倉庫",
+      "install.alcom.s2.title": "新增到專案",
+      "install.alcom.s2.body": "開啟你的 Unity 專案，在 Packages 清單中新增「UnityAgent」。",
+      "install.alcom.s3.title": "啟動",
+      "install.alcom.s3.body": "從 Unity 選單開啟 <code>AjisaiFlow → UnityAgent</code>，設定你想使用的提供者即可。",
+      "install.manual.s1.title": "下載最新版本",
+      "install.manual.s1.body": "從 GitHub Releases 取得最新 zip。",
+      "install.manual.s1.cta": "開啟 Releases",
+      "install.manual.s2.title": "解壓到 Packages",
+      "install.manual.s2.body": "將壓縮檔解壓到專案的 <code>Packages/</code> 資料夾。",
+      "install.manual.s3.title": "依賴套件",
+      "install.manual.s3.body": '請同時安裝 <a href="https://github.com/lighfu/unity-md3sdk" target="_blank" rel="noopener">MD3 SDK</a> 與 VRChat SDK (com.vrchat.avatars)。',
+
+      "changelog.eyebrow": "CHANGELOG",
+      "changelog.title": "發布紀錄。",
+      "changelog.lede": "這裡摘錄最新重點變更。完整歷史請查看 GitHub。",
+      "changelog.cta": "查看完整 CHANGELOG",
+      "changelog.unreleased": "未發布",
+      "changelog.added": "新增",
+      "changelog.changed": "變更",
+      "changelog.fixed": "修復",
+
+      "community.eyebrow": "COMMUNITY",
+      "community.title": "一起建構。",
+      "community.lede": "問題、功能建議與錯誤回報都可以在社群提出。",
+      "community.discord": "邀請連結將發布在 GitHub README 中。",
+      "community.gh.title": "GitHub Issues",
+      "community.gh.body": "在這裡提交錯誤回報與功能建議。",
+      "community.x": "關注發布公告。",
+
+      "footer.tag": "面向 VRChat Avatar 的 AI Unity Editor",
+      "footer.product": "產品",
+      "footer.resources": "資源",
+      "footer.credits": "致謝",
+      "footer.credits.body": "UnityAgent 由 AjisaiFlow 開發與維護。<br />Logo 與品牌素材隨倉庫一起按 MIT 授權發布。",
+      "footer.copyright": "© 2026 AjisaiFlow. MIT License.",
+    },
+
+    zh: {
+      "meta.title": "UnityAgent — 面向 VRChat 头像的 AI Unity Editor",
+      "meta.description": "用自然语言控制 Unity Editor。UnityAgent 是专为 VRChat 头像制作准备的 AI Agent，内置 500+ 专用工具。",
+      "a11y.skip": "跳到正文",
+
+      "nav.features": "特性",
+      "nav.standalone": "独立工具",
+      "nav.tools": "工具",
+      "nav.providers": "提供商",
+      "nav.install": "安装",
+      "nav.changelog": "更新记录",
+      "nav.community": "社区",
+
+      "hero.badge": "v0.10 已发布 · MIT 开源",
+      "hero.title.line1": "和 Unity Editor 对话，",
+      "hero.title.line2": "让它替你搭建。",
+      "hero.lede": "UnityAgent 既是面向 VRChat 头像制作的 AI Agent，也是一套独立的 Editor 工具集。你可以用自然语言调用 500+ 专用工具，也可以不配置 AI，直接使用 GUI 工具。",
+      "hero.cta.install": "安装",
+      "hero.cta.github": "在 GitHub 查看",
+      "hero.stat.tools": "专用工具",
+      "hero.stat.providers": "LLM 提供商",
+      "hero.stat.license": "开源",
+
+      "features.eyebrow": "FEATURES",
+      "features.title": "覆盖头像制作的各个环节。",
+      "features.lede": "在统一的自然语言界面背后，UnityAgent 让 500+ 专用工具协同工作。",
+      "features.f1.title": "头像分析与优化",
+      "features.f1.body": "一次性检查 PhysBone、BlendShape 和骨骼结构，自动化 Quest 转换、网格简化和纹理图集处理。",
+      "features.f2.title": "Modular Avatar / NDMF 集成",
+      "features.f2.body": "原生支持 MA 菜单、参数、MergeArmature 和 FaceEmo，也可以用自然语言驱动 NDMF 流程。",
+      "features.f3.title": "纹理与材质编辑",
+      "features.f3.body": "批量配置 lilToon / Poiyomi，支持 AO 烘焙、UV 校验和 TexTransTool 集成，用于细致收尾。",
+      "features.f4.title": "动画与表情",
+      "features.f4.body": "通过对话编辑 Animator 状态机、构建 FaceEmo 表情组合和手势联动。",
+      "features.f5.title": "多提供商支持",
+      "features.f5.body": "Claude / GPT / Gemini / DeepSeek 以及本地 LLM（Ollama / LM Studio）均可按工作流选择。",
+      "features.f6.title": "完全开源",
+      "features.f6.body": "MIT 许可。以未混淆源码发布，便于 fork、发布和定制。",
+
+      "standalone.eyebrow": "STANDALONE",
+      "standalone.title": "不使用 AI，也能直接使用。",
+      "standalone.lede": "UnityAgent 同时是一套完整的 GUI 工具集合。无需配置任何 LLM 提供商，也能使用多个内置 Editor 工具。",
+      "standalone.t1.title": "Bone Pose Editor",
+      "standalone.t1.badge": "实验性",
+      "standalone.t1.body": "将姿势编辑、IK、图层系统和关键帧简化整合在同一个窗口中。适用于任意骨架。当前仍为实验功能，部分操作可能存在不一致行为。",
+      "standalone.t2.title": "Mesh Painter",
+      "standalone.t2.body": "按 UV 岛选择并绘制，纹理编辑、遮罩创建和局部修正都可以在 GUI 中完成。",
+      "standalone.t3.title": "Outfit Fitting Wizard",
+      "standalone.t3.badge": "实验性",
+      "standalone.t3.body": "基于 ARAP / XPBD / Body SDF 的自动服装适配，并提供无需调参的预设。当前仍为实验功能，复杂服装可能需要手动收尾。",
+      "standalone.t4.title": "BlendShape Shrinker",
+      "standalone.t4.body": "批量检测并移除未使用的 BlendShape，减少体积和构建时间。",
+      "standalone.t5.title": "Texture Atlas",
+      "standalone.t5.badge": "实验性",
+      "standalone.t5.body": "使用 MaxRects 打包器进行高密度图集化，在 GUI 中完成材质合并和 Draw Call 优化。复杂 Shader 设置可能需要重新微调。",
+      "standalone.t6.title": "Pose Estimation",
+      "standalone.t6.badge": "实验性",
+      "standalone.t6.body": "通过 MediaPipe / ROMP / WHAM 从视频中提取动作，并生成 AnimationClip。该实验功能需要配置 Python 环境。",
+      "standalone.note": "* 每个工具都可以直接从 UnityAgent 窗口启动，无需配置 LLM 提供商。",
+
+      "tools.eyebrow": "TOOLS",
+      "tools.title": "500+ 专用工具。",
+      "tools.lede": "全部都可以通过自然语言调用。下面列出的是主要类别摘录。",
+      "tools.footnote": "* 每个类别下都有多个细分工具，本版本合计提供 549+ 个工具。",
+
+      "providers.eyebrow": "PROVIDERS",
+      "providers.title": "使用你熟悉的 LLM。",
+      "providers.lede": "云端 API、CLI 集成和本地推理都可以统一切换。",
+      "providers.col.name": "提供商",
+      "providers.col.kind": "类型",
+      "providers.col.auth": "认证",
+      "providers.col.notes": "说明",
+      "providers.kind.cloud": "云端",
+      "providers.kind.local": "本地",
+      "providers.kind.cli": "CLI",
+      "providers.kind.bridge": "桥接",
+
+      "install.eyebrow": "INSTALL",
+      "install.title": "几次点击即可开始。",
+      "install.tab.alcom": "ALCOM / VCC",
+      "install.tab.manual": "手动安装",
+      "install.alcom.s1.title": "添加 VPM 仓库",
+      "install.alcom.s1.body": "使用下面的按钮，将 VPM 仓库添加到 ALCOM / VCC。",
+      "install.alcom.s1.cta": "打开 VPM 仓库",
+      "install.alcom.s2.title": "添加到项目",
+      "install.alcom.s2.body": "打开你的 Unity 项目，在 Packages 列表中添加“UnityAgent”。",
+      "install.alcom.s3.title": "启动",
+      "install.alcom.s3.body": "从 Unity 菜单打开 <code>AjisaiFlow → UnityAgent</code>，配置你想用的提供商即可。",
+      "install.manual.s1.title": "下载最新版本",
+      "install.manual.s1.body": "从 GitHub Releases 获取最新 zip。",
+      "install.manual.s1.cta": "打开 Releases",
+      "install.manual.s2.title": "解压到 Packages",
+      "install.manual.s2.body": "将压缩包解压到项目的 <code>Packages/</code> 文件夹。",
+      "install.manual.s3.title": "依赖包",
+      "install.manual.s3.body": '请同时安装 <a href="https://github.com/lighfu/unity-md3sdk" target="_blank" rel="noopener">MD3 SDK</a> 和 VRChat SDK (com.vrchat.avatars)。',
+
+      "changelog.eyebrow": "CHANGELOG",
+      "changelog.title": "发布记录。",
+      "changelog.lede": "这里摘录最新重点变更。完整历史请查看 GitHub。",
+      "changelog.cta": "查看完整 CHANGELOG",
+      "changelog.unreleased": "未发布",
+      "changelog.added": "新增",
+      "changelog.changed": "变更",
+      "changelog.fixed": "修复",
+
+      "community.eyebrow": "COMMUNITY",
+      "community.title": "一起构建。",
+      "community.lede": "问题、功能建议和缺陷报告都可以在社区提出。",
+      "community.discord": "邀请链接将发布在 GitHub README 中。",
+      "community.gh.title": "GitHub Issues",
+      "community.gh.body": "在这里提交缺陷报告和功能建议。",
+      "community.x": "关注发布公告。",
+
+      "footer.tag": "面向 VRChat 头像的 AI Unity Editor",
+      "footer.product": "产品",
+      "footer.resources": "资源",
+      "footer.credits": "致谢",
+      "footer.credits.body": "UnityAgent 由 AjisaiFlow 开发和维护。<br />Logo 与品牌素材随仓库一起按 MIT 许可发布。",
+      "footer.copyright": "© 2026 AjisaiFlow. MIT License.",
+    },
   };
 
   const STORAGE_KEY = "ua-lang";
@@ -256,6 +498,8 @@
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && STRINGS[saved]) return saved;
     const browser = (navigator.language || "").toLowerCase();
+    if (browser.startsWith("zh-tw") || browser.startsWith("zh-hant") || browser.startsWith("zh-hk") || browser.startsWith("zh-mo")) return "zh-TW";
+    if (browser.startsWith("zh")) return "zh";
     if (browser.startsWith("ja")) return "ja";
     if (browser.startsWith("en")) return "en";
     return DEFAULT_LANG;
@@ -388,9 +632,14 @@
     // Title
     if (dict["meta.title"]) document.title = dict["meta.title"];
 
-    // Toggle label (always show the OPPOSITE language code)
+    // Toggle label (show the next language in the cycle)
     const label = document.querySelector("#lang-toggle .lang-label");
-    if (label) label.textContent = lang === "ja" ? "EN" : "日本語";
+    if (label) {
+      if (lang === "ja") label.textContent = "EN";
+      else if (lang === "en") label.textContent = "繁中";
+      else if (lang === "zh-TW") label.textContent = "简中";
+      else label.textContent = "日本語";
+    }
 
     // Notify listeners (data tables rebuild headers etc.)
     document.dispatchEvent(new CustomEvent("ua:langchange", { detail: { lang } }));
@@ -402,7 +651,10 @@
   }
 
   function toggle() {
-    const next = (document.documentElement.lang === "ja") ? "en" : "ja";
+    const order = ["ja", "en", "zh-TW", "zh"];
+    const current = document.documentElement.lang || DEFAULT_LANG;
+    const idx = order.indexOf(current);
+    const next = order[(idx + 1) % order.length] || DEFAULT_LANG;
     setLang(next);
   }
 

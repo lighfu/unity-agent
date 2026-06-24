@@ -3,7 +3,7 @@
 AI-powered Unity Editor agent for VRChat avatar creation with 400+ tools.
 共同作業者：Claude Opus 4.7
 
-[日本語](#日本語) | [English](#english)
+[日本語](#日本語) | [English](#english) | [繁體中文](#繁體中文) | [简体中文](#简体中文)
 
 ---
 
@@ -78,3 +78,77 @@ Download the latest zip from [Releases](https://github.com/lighfu/unity-agent/re
 ### License
 
 MIT License - See [LICENSE](LICENSE) for details.
+
+---
+
+## 繁體中文
+
+### 概要
+
+UnityAgent 是一款由 LLM（大型語言模型）驅動的 Unity Editor 工具，可透過自然語言操作 Unity，內建 400+ 個面向 VRChat Avatar 製作的專用工具。
+
+### 功能
+
+- 透過自然語言操作 Unity Editor
+- 面向 VRChat Avatar 製作的專用工具集
+- 支援多個 LLM 提供者（OpenAI、Anthropic、Google、本機模型等）
+- 整合 Modular Avatar / FaceEmo / Avatar Optimizer
+- 支援 MCP（Model Context Protocol）伺服器
+- 多語言 UI 在地化
+
+### 安裝
+
+#### 透過 ALCOM / VCC 安裝（推薦）
+
+1. 將 [VPM 倉庫](https://lighfu.github.io/vpm/) 新增到 ALCOM / VCC
+2. 在專案中新增「UnityAgent」
+
+#### 手動安裝
+
+從 [Releases](https://github.com/lighfu/unity-agent/releases) 下載最新 zip，並解壓到專案的 `Packages/` 資料夾。
+
+### 依賴套件
+
+- [MD3 SDK](https://github.com/lighfu/unity-md3sdk)（UI 元件）
+- VRChat SDK（com.vrchat.avatars）
+
+### 授權
+
+MIT License - 詳見 [LICENSE](LICENSE)。
+
+---
+
+## 简体中文
+
+### 概要
+
+UnityAgent 是一款由 LLM（大语言模型）驱动的 Unity Editor 工具，可通过自然语言操作 Unity，内置 400+ 个面向 VRChat 头像制作的专用工具。
+
+### 功能
+
+- 通过自然语言操作 Unity Editor
+- 面向 VRChat 头像制作的专用工具集
+- 支持多个 LLM 提供商（OpenAI、Anthropic、Google、本地模型等）
+- 集成 Modular Avatar / FaceEmo / Avatar Optimizer
+- 支持 MCP（Model Context Protocol）服务器
+- 多语言 UI 本地化
+
+### 安装
+
+#### 通过 ALCOM / VCC 安装（推荐）
+
+1. 将 [VPM 仓库](https://lighfu.github.io/vpm/) 添加到 ALCOM / VCC
+2. 在项目中添加“UnityAgent”
+
+#### 手动安装
+
+从 [Releases](https://github.com/lighfu/unity-agent/releases) 下载最新 zip，并解压到项目的 `Packages/` 文件夹。
+
+### 依赖包
+
+- [MD3 SDK](https://github.com/lighfu/unity-md3sdk)（UI 组件）
+- VRChat SDK（com.vrchat.avatars）
+
+### 许可证
+
+MIT License - 详见 [LICENSE](LICENSE)。

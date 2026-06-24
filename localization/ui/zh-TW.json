@@ -507,5 +507,12 @@
   "腕（右）": "手臂（右）",
   "腕（左）": "手臂（左）",
   "腕（両側）": "手臂（兩側）",
+  "ROMP: SMPL ベースの高精度姿勢推定（pip install simple-romp）\n初回セットアップ:\n  1. pip install simple-romp\n  2. https://smpl.is.tue.mpg.de/ で無料登録\n  3. SMPL_NEUTRAL.pkl をダウンロード\n  4. romp.prepare_smpl -source_dir=<ダウンロード先>": "ROMP：基於 SMPL 的高精度姿態估計（pip install simple-romp）\n首次設定：\n  1. pip install simple-romp\n  2. 在 https://smpl.is.tue.mpg.de/ 免費註冊\n  3. 下載 SMPL_NEUTRAL.pkl\n  4. romp.prepare_smpl -source_dir=<下載目錄>",
+  "クリック+ドラッグ: 頂点移動  Shift+ドラッグ: 法線方向": "點擊+拖曳：移動頂點  Shift+拖曳：沿法線方向",
+  "コンテキスト: {0} / {1}  合計: {2}{3}": "上下文：{0} / {1}  合計：{2}{3}",
+  "ボーン: {0}  {1}": "骨骼：{0}  {1}",
+  "半径: {0:F3}m  スクロール: サイズ変更  Esc: 解除": "半徑：{0:F3}m  滾輪：調整大小  Esc：取消",
+  "ドキュメント": "文件",
+  "使い方や設定方法、トラブルシューティングなど、UnityAgent の詳しいドキュメントはこちら。": "在這裡查看 UnityAgent 的詳細文件，包括使用指南、設定方法與故障排除等內容。",
   "閾値 (貫通率)": "閾值 (穿透率)"
 }

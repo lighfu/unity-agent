@@ -10,10 +10,10 @@ Static HTML / CSS / JS. No build step.
 
 ```
 docs/
-├── index.html        ランディング (single page, ja/en bilingual)
+├── index.html        ランディング (single page, ja/en/zh-TW/zh)
 ├── css/style.css
 ├── js/
-│   ├── i18n.js       data-i18n based ja/en switcher
+│   ├── i18n.js       data-i18n based ja/en/zh-TW/zh switcher
 │   ├── data.js       tool categories / providers / changelog
 │   └── main.js       theme, tabs, dynamic rendering
 ├── assets/           ロゴ・スクリーンショット
@@ -41,7 +41,7 @@ The `.nojekyll` file ensures static files load as-is.
 | What | Where |
 | --- | --- |
 | Hero / sections | `index.html` (HTML structure) |
-| Translation strings | `js/i18n.js` (`STRINGS.ja` / `STRINGS.en`) |
+| Translation strings | `js/i18n.js` (`STRINGS.ja` / `STRINGS.en` / `STRINGS["zh-TW"]` / `STRINGS.zh`) |
 | Tool categories | `js/data.js` (`TOOL_CATEGORIES`) |
 | Provider list | `js/data.js` (`PROVIDERS`) |
 | Changelog excerpt | `js/data.js` (`CHANGELOG`) |

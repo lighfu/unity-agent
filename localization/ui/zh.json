@@ -504,5 +504,15 @@
   "腕（右）": "手臂（右）",
   "腕（左）": "手臂（左）",
   "腕（両側）": "手臂（双侧）",
+  "アセットに保存しました ({0}件)": "已保存到资源 ({0} 条)",
+  "非同期 (IEnumerator)": "异步 (IEnumerator)",
+  "ROMP: SMPL ベースの高精度姿勢推定（pip install simple-romp）\n初回セットアップ:\n  1. pip install simple-romp\n  2. https://smpl.is.tue.mpg.de/ で無料登録\n  3. SMPL_NEUTRAL.pkl をダウンロード\n  4. romp.prepare_smpl -source_dir=<ダウンロード先>": "ROMP：基于 SMPL 的高精度姿态估计（pip install simple-romp）\n首次设置：\n 1. pip install simple-romp\n 2. 在 https://smpl.is.tue.mpg.de/ 免费注册\n 3. 下载 SMPL_NEUTRAL.pkl\n 4. romp.prepare_smpl -source_dir=<下载目录>",
+  "UnityAgent  v{0}": "UnityAgent v{0}",
+  "クリック+ドラッグ: 頂点移動  Shift+ドラッグ: 法線方向": "单击并拖动：移动顶点  Shift+拖动：沿法线方向移动",
+  "コンテキスト: {0} / {1}   合計: {2}{3}": "上下文：{0} / {1}  合计：{2}{3}",
+  "ボーン: {0}  {1}": "骨骼：{0} {1}",
+  "半径: {0:F3}m  スクロール: サイズ変更  Esc: 解除": "半径：{0:F3}m  滚轮：调整大小  Esc：取消",
+  "ドキュメント": "文档",
+  "使い方や設定方法、トラブルシューティングなど、UnityAgent の詳しいドキュメントはこちら。": "在这里查看 UnityAgent 的详细文档，包括使用指南、配置方法和故障排查等内容。",
   "閾値 (貫通率)": "阈值 (穿透率)"
 }
