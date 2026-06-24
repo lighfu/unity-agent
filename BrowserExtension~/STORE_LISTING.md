@@ -40,7 +40,7 @@ Unity Agent - Web Browser Bridge connects your locally running Unity Editor AI a
 This extension communicates only with localhost (127.0.0.1). It does not collect, store, or transmit any personal information. See the full privacy policy for details.
 
 **Requirements:**
-- Unity Editor with the Unity Agent package (com.ajisaiflow.vrchat.avater)
+- Unity Editor with the UnityAgent package (com.ajisaiflow.unityagent)
 - Chrome or Chromium-based browser
 
 ---
