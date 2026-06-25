@@ -457,33 +457,27 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             // ── Gemini ──
             // 思考バジェット範囲は公式ドキュメント準拠: ai.google.dev/gemini-api/docs/thinking
             // search=true: Google Search Grounding 対応 / dropdowns: 設定 UI のどのドロップダウンに出すか
+            // gemini-2.5 系は 2026-10-16 シャットダウン予定 (移行先: gemini-3.5-flash / gemini-3.1-pro-preview / gemini-3.1-flash-lite)
             Reg(d, "gemini-2.5-flash", "Gemini 2.5 Flash",
                 1048576, 65536, true, 0, 24576, true, search: true, dropdowns: gemCli);
             Reg(d, "gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite",
                 1048576, 65536, true, 512, 24576, true, search: true, dropdowns: gem);
             Reg(d, "gemini-2.5-pro", "Gemini 2.5 Pro",
                 1048576, 65536, true, 128, 32768, true, search: true, dropdowns: gemCli);
-            Reg(d, "gemini-2.0-flash", "Gemini 2.0 Flash",
-                1048576, 8192, false, 0, 0, true, search: true, deprecated: true);
-            Reg(d, "gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite",
-                1048576, 8192, false, 0, 0, true, deprecated: true);
-            Reg(d, "gemini-1.5-flash", "Gemini 1.5 Flash",
-                1048576, 8192, false, 0, 0, true, search: true);
-            Reg(d, "gemini-1.5-pro", "Gemini 1.5 Pro",
-                2097152, 8192, false, 0, 0, true, search: true);
+            // gemini-1.5 系 / gemini-2.0 系 / gemini-3-pro-preview は公式に全廃止 (404) のため登録から除去済み
             // Gemini 3 系は thinkingLevel (effort) 推奨 → ThinkingBudgetMax=0 で Effort UI を表示
             Reg(d, "gemini-3.5-flash", "Gemini 3.5 Flash",
                 1048576, 65536, true, 0, 0, true, search: true, dropdowns: gemCli);
             Reg(d, "gemini-3-flash-preview", "Gemini 3 Flash Preview",
-                1048576, 65536, true, 0, 0, true, search: true, deprecated: true);
-            Reg(d, "gemini-3-pro-preview", "Gemini 3 Pro Preview",
-                1048576, 65536, true, 0, 0, true, search: true, deprecated: true);
+                1048576, 65536, true, 0, 0, true, search: true);
             Reg(d, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview",
                 1048576, 65536, true, 0, 0, true, search: true, dropdowns: gem);
 
             // ── Claude ── (ドロップダウンは最新3モデルのみ。旧モデルは性能照会用に登録)
-            Reg(d, "claude-opus-4-7", "Claude Opus 4.7",
+            Reg(d, "claude-opus-4-8", "Claude Opus 4.8",
                 200000, 128000, true, 1024, 128000, true, dropdowns: claude);
+            Reg(d, "claude-opus-4-7", "Claude Opus 4.7",
+                200000, 128000, true, 1024, 128000, true);
             Reg(d, "claude-sonnet-4-6", "Claude Sonnet 4.6",
                 200000, 64000, true, 1024, 128000, true, dropdowns: claude);
             Reg(d, "claude-haiku-4-5-20251001", "Claude Haiku 4.5",
@@ -494,8 +488,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 200000, 64000, true, 1024, 128000, true);
             Reg(d, "claude-opus-4-5-20251101", "Claude Opus 4.5",
                 200000, 64000, true, 1024, 128000, true);
+            // claude-opus-4-1 は 2026-08-05 廃止予定 (Anthropic 公式 Deprecated → 移行先: claude-opus-4-8)
             Reg(d, "claude-opus-4-1-20250805", "Claude Opus 4.1",
-                200000, 32000, true, 1024, 128000, true);
+                200000, 32000, true, 1024, 128000, true, deprecated: true);
             Reg(d, "claude-sonnet-4-20250514", "Claude Sonnet 4",
                 200000, 64000, true, 1024, 128000, true, deprecated: true);
             Reg(d, "claude-opus-4-20250514", "Claude Opus 4",
@@ -504,12 +499,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             // ── Codex CLI 専用モデル ── (Codex CLI ドロップダウンの先頭グループ)
             Reg(d, "gpt-5.3-codex", "GPT-5.3 Codex",
                 200000, 16384, true, 0, 0, false, dropdowns: cdx);
+            // gpt-5.2-codex は API で廃止予定 (2026-10-23)。Codex CLI 経由のため当面現役。
             Reg(d, "gpt-5.2-codex", "GPT-5.2 Codex",
                 200000, 16384, true, 0, 0, false, dropdowns: cdx);
             Reg(d, "gpt-5.1-codex-max", "GPT-5.1 Codex Max",
                 200000, 32768, true, 0, 0, false, dropdowns: cdx);
             Reg(d, "gpt-5.1-codex-mini", "GPT-5.1 Codex Mini",
                 200000, 16384, true, 0, 0, false, dropdowns: cdx);
+            // codex-mini: 旧 ID codex-mini-latest は 2026-02-12 廃止済み。現行 codex-mini の有効性は Codex CLI 側に依存。
             Reg(d, "codex-mini", "Codex Mini",
                 200000, 16384, true, 0, 0, false, dropdowns: cdx);
 

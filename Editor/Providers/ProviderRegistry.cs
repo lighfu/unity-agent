@@ -143,7 +143,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public static readonly string[] GeminiImageModelPresets =
         {
             "gemini-2.5-flash-image",
-            "gemini-3.1-flash-image-preview",
+            "gemini-3.1-flash-image",
         };
 
         public static readonly string[] ImageProviderDisplayNames = { "Gemini", "OpenAI" };

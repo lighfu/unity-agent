@@ -75,7 +75,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             // 出力: 翻訳結果 ≈ 入力の説明部分と同程度 + JSONオーバーヘッド
             int outputTokens = (int)(totalDescChars / 3.0);
 
-            string modelName = SettingsStore.GetString("UnityAgent_ModelName", "gemini-2.0-flash");
+            string modelName = SettingsStore.GetString("UnityAgent_ModelName", ProviderRegistry.Get(LLMProviderType.Gemini).DefaultModel);
             var (inPrice, outPrice) = GetModelPricing(modelName);
 
             double costUsd = -1;
@@ -109,24 +109,35 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             string m = modelName.ToLower();
 
-            // Gemini
-            if (m.Contains("gemini-2.0-flash")) return (0.10, 0.40);
-            if (m.Contains("gemini-2.5-flash")) return (0.15, 0.60);
+            // 公式 paid tier 価格 (2026-06 時点)。バージョン付き ID を先にチェック (Contains の取りこぼし防止)。
+            // Gemini: ai.google.dev/gemini-api/docs/pricing
+            if (m.Contains("gemini-2.5-flash-lite")) return (0.10, 0.40);
+            if (m.Contains("gemini-2.5-flash")) return (0.30, 2.50);
             if (m.Contains("gemini-2.5-pro")) return (1.25, 10.00);
-            if (m.Contains("gemini-1.5-flash")) return (0.075, 0.30);
-            if (m.Contains("gemini-1.5-pro")) return (1.25, 5.00);
+            if (m.Contains("gemini-3.5-flash")) return (1.50, 9.00);
+            if (m.Contains("gemini-3.1-flash-lite")) return (0.25, 1.50);
+            if (m.Contains("gemini-3.1-pro")) return (2.00, 12.00);
+            if (m.Contains("gemini-3-flash-preview")) return (0.50, 3.00);
 
-            // OpenAI
+            // OpenAI: gpt-4 系は安定既知価格。o3 / o4-mini は公式 pricing 未掲載のため未登録 (不明扱い)。
+            if (m.Contains("gpt-5.5")) return (5.00, 30.00);
+            if (m.Contains("gpt-5.4")) return (2.50, 15.00);
             if (m.Contains("gpt-4o-mini")) return (0.15, 0.60);
             if (m.Contains("gpt-4.1-mini")) return (0.40, 1.60);
             if (m.Contains("gpt-4.1-nano")) return (0.10, 0.40);
             if (m.Contains("gpt-4o")) return (2.50, 10.00);
             if (m.Contains("gpt-4.1")) return (2.00, 8.00);
 
-            // Claude
+            // Claude: platform.claude.com (現行 Opus 4.5+=5/25, 旧 Opus 4/4.1=15/75, Sonnet 4.x=3/15, Haiku 4.x=1/5, Fable 5=10/50)
+            if (m.Contains("claude-fable")) return (10.00, 50.00);
+            // Opus 4.0 / 4.1 は値下げ前 ($15/$75)。Opus 4.5 で $5/$25 に改定されたため先に判定する。
+            if (m.Contains("claude-opus-4-1") || m.Contains("claude-opus-4-20250514")) return (15.00, 75.00);
+            if (m.Contains("claude-opus-4")) return (5.00, 25.00);
+            if (m.Contains("claude-sonnet-4")) return (3.00, 15.00);
+            if (m.Contains("claude-haiku-4")) return (1.00, 5.00);
+            if (m.Contains("claude-3-opus")) return (15.00, 75.00);
+            if (m.Contains("claude-3.5-sonnet")) return (3.00, 15.00);
             if (m.Contains("claude-3-haiku") || m.Contains("claude-3.5-haiku")) return (0.80, 4.00);
-            if (m.Contains("claude-3.5-sonnet") || m.Contains("claude-sonnet-4")) return (3.00, 15.00);
-            if (m.Contains("claude-3-opus") || m.Contains("claude-opus")) return (15.00, 75.00);
 
             return (-1, -1); // 不明
         }
@@ -541,7 +552,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (providerType == 0) // Gemini
             {
                 var mode = (GeminiConnectionMode)SettingsStore.GetInt("UnityAgent_GeminiMode", 0);
-                string model = SettingsStore.GetString("UnityAgent_ModelName", "gemini-2.0-flash");
+                string model = SettingsStore.GetString("UnityAgent_ModelName", ProviderRegistry.Get(LLMProviderType.Gemini).DefaultModel);
                 string apiVersion = SettingsStore.GetString("UnityAgent_ApiVersion", "v1");
                 string customEndpoint = SettingsStore.GetString("UnityAgent_CustomEndpoint", "");
                 string projectId = SettingsStore.GetString("UnityAgent_ProjectId", "");

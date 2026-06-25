@@ -416,7 +416,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     "textureProperty: shader texture property name (default '_MainTex', use '_EmissionMap' for emission, '_BumpMap' for normal map, etc.). " +
                     "imageModelName: (deprecated, model is configured in settings).")]
         public static IEnumerator GenerateTextureWithAI(string gameObjectName, string prompt, string islandIndices = "",
-            int materialIndex = 0, string textureProperty = "_MainTex", string imageModelName = "gemini-2.0-flash-exp")
+            int materialIndex = 0, string textureProperty = "_MainTex", string imageModelName = "gemini-3.1-flash-image")
         {
             // 1. Extract island texture (strict, validates mesh/material/UV)
             string extractResult = ExtractIslandTexture(gameObjectName, islandIndices, materialIndex, textureProperty);
