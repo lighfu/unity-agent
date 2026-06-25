@@ -11,15 +11,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     /// </summary>
     internal static class Handlers
     {
-        // hindsight 等の動作実績ある MCP サーバーが使っている安定 version に固定する。
-        const string ProtocolVersion = "2024-11-05";
         const string ServerName = "UnityAgent";
 
         public static JNode HandleInitialize(JNode paramsNode)
         {
             string version = GetPackageVersion();
+            string protocolVersion = MCPHttpProtocol.NegotiateProtocolVersion(paramsNode);
             return JNode.Obj(
-                ("protocolVersion", JNode.Str(ProtocolVersion)),
+                ("protocolVersion", JNode.Str(protocolVersion)),
                 ("capabilities", JNode.Obj(
                     ("experimental", JNode.Obj()),
                     ("prompts", JNode.Obj(("listChanged", JNode.Bool(false)))),

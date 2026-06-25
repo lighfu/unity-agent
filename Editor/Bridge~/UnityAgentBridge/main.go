@@ -1,16 +1,16 @@
-// UnityAgentBridge — Out-of-process MCP HTTP/SSE endpoint that survives Unity domain reloads.
+// UnityAgentBridge — Out-of-process MCP HTTP endpoint that survives Unity domain reloads.
 //
 // Architecture:
 //
-//   ┌─────────────┐    HTTP+SSE    ┌──────────────┐    TCP+JSONL    ┌──────────────┐
+//   ┌─────────────┐    HTTP POST   ┌──────────────┐    TCP+JSONL    ┌──────────────┐
 //   │ MCP client  │ ─────────────→ │   Bridge     │ ←─────────────→ │ Unity Editor │
 //   │ (Claude/etc)│                │   (this)     │                 │              │
 //   └─────────────┘                └──────────────┘                 └──────────────┘
 //                                   long-lived                       reloads, reconnects
 //
-// The bridge owns the public MCP HTTP endpoint and the persistent SSE channel for one MCP
-// client. It accepts a single Unity TCP connection. When Unity disconnects (domain reload),
-// pending tool-call requests are held in a queue and re-dispatched when Unity reconnects.
+// The bridge owns the public MCP HTTP endpoint for one MCP client. It accepts a single Unity
+// TCP connection. When Unity disconnects (domain reload), pending tool-call requests are held
+// in a queue and re-dispatched when Unity reconnects.
 //
 // P1 SCOPE: skeleton only. Just enough to:
 //   1. Accept Unity over TCP (with shared-secret token auth)
@@ -35,6 +35,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,11 +46,14 @@ import (
 // ─────────────────────────────────────────────────────────────────────────
 
 const (
-	defaultPublicPort   = 17800 // MCP HTTP endpoint exposed to Claude Code et al.
-	defaultInternalPort = 17801 // TCP endpoint where Unity connects in.
-	mcpEndpointPath     = "/mcp"
-	idleQuitGrace       = 5 * time.Minute  // Quit after both sides are gone for this long.
-	callTimeout         = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
+	defaultPublicPort                       = 17800 // MCP HTTP endpoint exposed to Claude Code et al.
+	defaultInternalPort                     = 17801 // TCP endpoint where Unity connects in.
+	mcpEndpointPath                         = "/mcp"
+	latestProtocolVersion                   = "2025-06-18"
+	defaultProtocolVersionWhenHeaderMissing = "2025-03-26"
+	headerProtocolVersion                   = "MCP-Protocol-Version"
+	idleQuitGrace                           = 5 * time.Minute  // Quit after both sides are gone for this long.
+	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 )
 
 var (
@@ -330,6 +334,8 @@ type rpcRequest struct {
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
 }
 
 type rpcResponse struct {
@@ -376,16 +382,35 @@ func (b *Bridge) handleRoot(w http.ResponseWriter, r *http.Request) {
 func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	// CORS for local tools
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
+	w.Header().Set("Access-Control-Expose-Headers", "MCP-Protocol-Version, Mcp-Session-Id")
+	w.Header().Set(headerProtocolVersion, latestProtocolVersion)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if !validProtocolVersionHeader(r.Header.Get(headerProtocolVersion)) {
+		http.Error(w, "unsupported MCP protocol version", http.StatusBadRequest)
+		return
+	}
+	if r.Method == http.MethodGet {
+		// Bridge P1 does not provide a standalone server-to-client SSE channel.
+		// Streamable HTTP allows servers to signal that by returning 405.
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+	if warnPostAcceptHeader(r.Header.Get("Accept")) {
+		log.Printf("[bridge] non-compliant POST Accept header; continuing for compatibility: %q", r.Header.Get("Accept"))
 	}
 
 	// Bearer auth — must match shared token.
@@ -411,6 +436,15 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[bridge] mcp ← %s id=%s", req.Method, string(req.ID))
 	}
 
+	if req.Method == "" && (len(req.ID) > 0 || len(req.Result) > 0 || req.Error != nil) {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if req.Method == "" {
+		writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "Missing method.")
+		return
+	}
+
 	// Notifications (no response expected).
 	if len(req.ID) == 0 || string(req.ID) == "null" {
 		w.WriteHeader(http.StatusAccepted)
@@ -419,7 +453,7 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		writeJSONRPCResult(w, req.ID, b.handleInitialize())
+		writeJSONRPCResult(w, req.ID, b.handleInitialize(req.Params))
 	case "ping":
 		writeJSONRPCResult(w, req.ID, map[string]any{})
 	case "tools/list":
@@ -435,6 +469,49 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSONRPCError(w, req.ID, -32601, "Method not found", req.Method)
 	}
+}
+
+func negotiateProtocolVersion(requested string) string {
+	if supportedProtocolVersion(requested) {
+		return requested
+	}
+	return latestProtocolVersion
+}
+
+func supportedProtocolVersion(version string) bool {
+	switch strings.TrimSpace(version) {
+	case latestProtocolVersion, defaultProtocolVersionWhenHeaderMissing, "2024-11-05":
+		return true
+	default:
+		return false
+	}
+}
+
+func validProtocolVersionHeader(header string) bool {
+	header = strings.TrimSpace(header)
+	return header == "" || supportedProtocolVersion(header)
+}
+
+func acceptsJSONAndEventStream(header string) bool {
+	return headerContainsMediaType(header, "application/json") &&
+		headerContainsMediaType(header, "text/event-stream")
+}
+
+func warnPostAcceptHeader(header string) bool {
+	return strings.TrimSpace(header) != "" && !acceptsJSONAndEventStream(header)
+}
+
+func headerContainsMediaType(header, mediaType string) bool {
+	for _, part := range strings.Split(header, ",") {
+		item := strings.TrimSpace(part)
+		if idx := strings.IndexByte(item, ';'); idx >= 0 {
+			item = strings.TrimSpace(item[:idx])
+		}
+		if strings.EqualFold(item, mediaType) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bridge) checkBearer(header string) bool {
@@ -458,9 +535,18 @@ func constantTimeEq(a, b string) bool {
 
 // handleInitialize returns the same shape as AgentMCPServer.Handlers.HandleInitialize so existing
 // MCP clients (Claude Code) treat the bridge as a drop-in replacement.
-func (b *Bridge) handleInitialize() map[string]any {
+func (b *Bridge) handleInitialize(rawParams json.RawMessage) map[string]any {
+	protocolVersion := latestProtocolVersion
+	if len(rawParams) > 0 {
+		var params struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		if err := json.Unmarshal(rawParams, &params); err == nil {
+			protocolVersion = negotiateProtocolVersion(params.ProtocolVersion)
+		}
+	}
 	return map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": protocolVersion,
 		"capabilities": map[string]any{
 			"experimental": map[string]any{},
 			"prompts":      map[string]any{"listChanged": false},
