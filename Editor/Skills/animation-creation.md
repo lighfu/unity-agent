@@ -167,5 +167,7 @@ User: "Create a smile animation"
 - Bone names differ per avatar, so always verify with `ListBones` before setting curves
 - Rotation values are local Euler angles. Dependent on parent bone orientation
 - Gimbal lock is a singularity of Euler-angle representation (it occurs near a ±90° middle-axis rotation where two axes align) and is unrelated to how large the rotation is. Animation curves interpolate x/y/z as independent scalars, so values beyond 360° are valid; the only caveat for >360° is the interpolation path (angle wrapping), not gimbal lock
-- When using in VRChat's FX layer, pay attention to Write Defaults settings
+- Keep Write Defaults (WD) consistent across the ENTIRE avatar — all states ON or all OFF (VRChat treats every Playable Layer controller as one controller, not just FX; mixing makes WD-On states behave as WD-Off, so properties stick and expressions don't reset — the SDK only warns). The official baseline is OFF, but consistent ON is equally valid; the rule is consistency, not a specific value.
+- Exception (non-negotiable): additive layers and Direct Blend Tree single-state layers must always be WD ON regardless of the rest, or their values multiply toward infinity.
+- If you choose all-OFF: put a clip or blend tree in every state (empty WD-Off states overwrite to default), and when animating Transforms apply an Avatar Mask (a 0-transform mask means "allow all").
 - Assign created clips to AnimatorController States using: `SetAnimatorStateMotion`

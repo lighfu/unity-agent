@@ -125,7 +125,10 @@ VRChat avatar's 5 layers:
 
 - FX (index=4, type=5) is the primary layer for object toggles and gimmicks
 - FX layer Weight must be 1.0
-- Write Defaults must be consistent across the entire avatar
+- Write Defaults (WD) must be consistent across the entire avatar — all states ON or all OFF (all Playable Layer controllers count as ONE controller). Mixed WD behaves like WD-Off: properties stick and facial expressions fail to reset; the SDK only warns, it does not auto-fix.
+- Exception (non-negotiable): additive-blending layers and Direct Blend Tree single-state layers must always be WD ON regardless of the rest, since WD OFF makes their values multiply toward infinity.
+- The official baseline is WD OFF (built-in/sample animators are OFF); consistent ON is also valid — the rule is consistency, not a specific value.
+- If you go all-OFF: give every state a clip/blend tree, and apply an Avatar Mask to any layer that animates Transforms.
 
 ## Tool Usage
 

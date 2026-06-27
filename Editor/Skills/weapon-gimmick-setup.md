@@ -88,6 +88,8 @@ For dynamically following weapons to the hand:
 ## Notes
 - **Do not guess coordinates with SetTransform** → Use AlignAccessoryToBone
 - **Do not use ArmatureLink/SetupOutfit for weapons** → Those are for outfits
-- Pay attention to Write Defaults settings (keep consistent with avatar)
+- Match the avatar's Write Defaults: keep the WHOLE avatar (all Playable Layers count as one controller) either all-ON or all-OFF — never mixed (mixing makes properties "stick" and breaks expressions; the SDK only warns).
+- Exception: additive layers and Direct Blend Tree single-state layers must always be WD ON regardless of the avatar's setting (WD OFF makes their values blow up).
+- If the avatar is all-OFF: every state of your weapon layers needs a clip/blend tree, and animating Transforms requires an Avatar Mask.
 - Watch Expression Parameter budget (256 bits)
 - VRC Constraint recommended: Lighter than Unity Constraint, optimized for VRChat runtime

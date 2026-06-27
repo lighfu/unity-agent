@@ -181,7 +181,9 @@ AI: [InspectVRCExpressionsMenu('Avatar')]
 - Layer Weight must be set to 1.0
 - Transition ExitTime must be disabled
 - Transition Duration must be 0
-- Write Defaults must be consistent across the entire avatar
+- Write Defaults (WD) must be consistent across the entire avatar — all states ON or all OFF (VRChat treats every Playable Layer controller as one controller; mixing makes everything behave as WD-Off, so properties stick and expressions don't reset — the SDK only warns). Official baseline is WD OFF.
+- Exception (non-negotiable): single-state layers, Direct Blend Tree states, and additive-blending layers must always be WD ON regardless of the rest of the avatar — WD OFF on a DBT makes blendshape values multiply toward infinity.
+- If using all-OFF: put a clip/blend tree in every state (empty WD-Off states overwrite to default), and apply an Avatar Mask when animating Transforms.
 
 ## Notes
 - Expression Parameter total sync cost limit is 256 bits

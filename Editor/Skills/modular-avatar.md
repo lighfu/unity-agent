@@ -61,6 +61,9 @@ Used for making weapons or accessories follow the hand or Head.
    - Adjust texture colors as needed
 
 ## Notes
-- Write Defaults: Keep consistent across the entire avatar (all ON or all OFF)
+- Write Defaults: keep consistent across the entire avatar — all states ON or all OFF (VRChat treats all Playable Layer controllers as one controller, so don't mix across FX/Gesture/Action; mixed WD behaves like all-OFF and makes properties stick / expressions fail to reset; the SDK only warns).
+- Exception (non-negotiable): Direct Blend Tree single-state layers and additive-blending layers must ALWAYS be WD ON, even on an all-OFF avatar (WD OFF makes their values blow up toward infinity); the SDK excludes these from mixed-WD warnings.
+- MA note: Merge Animator's "Match Avatar Write Defaults" (default ON since 1.16.1) only matches the avatar's existing WD — it will NOT fix an already-mixed avatar. Only VRCFury enforces a single WD value avatar-wide.
+- If you choose all-OFF: every state needs a clip/blend tree, and any layer animating Transforms needs an Avatar Mask.
 - Bones won't merge if names don't match → Use MA Merge Armature settings to resolve
 - For Quest builds, watch parameter count from MA-generated animator layers

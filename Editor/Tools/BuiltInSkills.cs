@@ -137,7 +137,10 @@ Used for making weapons or accessories follow the hand or Head.
    - Adjust texture colors as needed
 
 ## Notes
-- Write Defaults: Keep consistent across the entire avatar (all ON or all OFF)
+- Write Defaults: keep consistent across the entire avatar — all states ON or all OFF (VRChat treats all Playable Layer controllers as one controller, so don't mix across FX/Gesture/Action; mixed WD behaves like all-OFF and makes properties stick / expressions fail to reset; the SDK only warns).
+- Exception (non-negotiable): Direct Blend Tree single-state layers and additive-blending layers must ALWAYS be WD ON, even on an all-OFF avatar (WD OFF makes their values blow up toward infinity); the SDK excludes these from mixed-WD warnings.
+- MA note: Merge Animator's ""Match Avatar Write Defaults"" (default ON since 1.16.1) only matches the avatar's existing WD — it will NOT fix an already-mixed avatar. Only VRCFury enforces a single WD value avatar-wide.
+- If you choose all-OFF: every state needs a clip/blend tree, and any layer animating Transforms needs an Avatar Mask.
 - Bones won't merge if names don't match → Use MA Merge Armature settings to resolve
 - For Quest builds, watch parameter count from MA-generated animator layers" },
 
@@ -762,7 +765,10 @@ VRChat avatar's 5 layers:
 
 - FX (index=4, type=5) is the primary layer for object toggles and gimmicks
 - FX layer Weight must be 1.0
-- Write Defaults must be consistent across the entire avatar
+- Write Defaults (WD) must be consistent across the entire avatar — all states ON or all OFF (all Playable Layer controllers count as ONE controller). Mixed WD behaves like WD-Off: properties stick and facial expressions fail to reset; the SDK only warns, it does not auto-fix.
+- Exception (non-negotiable): additive-blending layers and Direct Blend Tree single-state layers must always be WD ON regardless of the rest, since WD OFF makes their values multiply toward infinity.
+- The official baseline is WD OFF (built-in/sample animators are OFF); consistent ON is also valid — the rule is consistency, not a specific value.
+- If you go all-OFF: give every state a clip/blend tree, and apply an Avatar Mask to any layer that animates Transforms.
 
 ## Tool Usage
 
@@ -981,7 +987,9 @@ AI: [InspectVRCExpressionsMenu('Avatar')]
 - Layer Weight must be set to 1.0
 - Transition ExitTime must be disabled
 - Transition Duration must be 0
-- Write Defaults must be consistent across the entire avatar
+- Write Defaults (WD) must be consistent across the entire avatar — all states ON or all OFF (VRChat treats every Playable Layer controller as one controller; mixing makes everything behave as WD-Off, so properties stick and expressions don't reset — the SDK only warns). Official baseline is WD OFF.
+- Exception (non-negotiable): single-state layers, Direct Blend Tree states, and additive-blending layers must always be WD ON regardless of the rest of the avatar — WD OFF on a DBT makes blendshape values multiply toward infinity.
+- If using all-OFF: put a clip/blend tree in every state (empty WD-Off states overwrite to default), and apply an Avatar Mask when animating Transforms.
 
 ## Notes
 - Expression Parameter total sync cost limit is 256 bits
@@ -1087,7 +1095,9 @@ For dynamically following weapons to the hand:
 ## Notes
 - **Do not guess coordinates with SetTransform** → Use AlignAccessoryToBone
 - **Do not use ArmatureLink/SetupOutfit for weapons** → Those are for outfits
-- Pay attention to Write Defaults settings (keep consistent with avatar)
+- Match the avatar's Write Defaults: keep the WHOLE avatar (all Playable Layers count as one controller) either all-ON or all-OFF — never mixed (mixing makes properties ""stick"" and breaks expressions; the SDK only warns).
+- Exception: additive layers and Direct Blend Tree single-state layers must always be WD ON regardless of the avatar's setting (WD OFF makes their values blow up).
+- If the avatar is all-OFF: every state of your weapon layers needs a clip/blend tree, and animating Transforms requires an Avatar Mask.
 - Watch Expression Parameter budget (256 bits)
 - VRC Constraint recommended: Lighter than Unity Constraint, optimized for VRChat runtime" },
 
@@ -1260,7 +1270,9 @@ User: ""Create a smile animation""
 - Bone names differ per avatar, so always verify with `ListBones` before setting curves
 - Rotation values are local Euler angles. Dependent on parent bone orientation
 - Gimbal lock is a singularity of Euler-angle representation (near a ±90° middle-axis rotation where two axes align) and is unrelated to how large the rotation is. Curves interpolate x/y/z independently, so values beyond 360° are valid; the only caveat for >360° is the interpolation path (angle wrapping), not gimbal lock
-- When using in VRChat's FX layer, pay attention to Write Defaults settings
+- Keep Write Defaults (WD) consistent across the ENTIRE avatar — all states ON or all OFF (VRChat treats every Playable Layer controller as one controller, not just FX; mixing makes WD-On states behave as WD-Off, so properties stick and expressions don't reset — the SDK only warns). The official baseline is OFF, but consistent ON is equally valid; the rule is consistency, not a specific value.
+- Exception (non-negotiable): additive layers and Direct Blend Tree single-state layers must always be WD ON regardless of the rest, or their values multiply toward infinity.
+- If you choose all-OFF: put a clip or blend tree in every state (empty WD-Off states overwrite to default), and when animating Transforms apply an Avatar Mask (a 0-transform mask means ""allow all"").
 - Assign created clips to AnimatorController States using: `SetAnimatorStateMotion`" },
 
             { "outfit-setup", @"---
