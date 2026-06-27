@@ -96,8 +96,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== 2. AddMenuItem ==========
 
-        [AgentTool("Add a Modular Avatar Menu Item to a GameObject. Creates a non-destructive menu entry. type: Toggle, Button, SubMenu, RadialPuppet. If no paramName specified, uses the GameObject name.")]
-        public static string AddMenuItem(string goName, string type = "Toggle", string paramName = "", float value = 1f, bool synced = true, bool saved = true, bool isDefault = false)
+        [AgentTool("Add a Modular Avatar Menu Item to a GameObject. Creates a non-destructive menu entry. type: Toggle, Button, SubMenu, RadialPuppet. If no paramName specified, uses the GameObject name. iconPath (optional) is a Texture2D asset path for the menu icon.")]
+        public static string AddMenuItem(string goName, string type = "Toggle", string paramName = "", float value = 1f, bool synced = true, bool saved = true, bool isDefault = false, string iconPath = "")
         {
             var err = MAAvailability.CheckOrError();
             if (err != null) return err;
@@ -109,15 +109,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (MAComponentFactory.HasMenuItem(go))
                 return $"Error: '{goName}' already has a ModularAvatarMenuItem. Remove it first if you want to reconfigure.";
 
+            Texture2D icon = string.IsNullOrEmpty(iconPath) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath);
+            if (!string.IsNullOrEmpty(iconPath) && icon == null)
+                return $"Error: Icon texture not found at '{iconPath}'.";
+
             var comp = MAComponentFactory.AddMenuItem(go, type,
                 string.IsNullOrEmpty(paramName) ? null : paramName,
-                value, synced, saved, isDefault);
+                value, synced, saved, isDefault, icon);
 
             if (comp == null)
                 return $"Error: Invalid type '{type}'. Valid types: Toggle, Button, SubMenu, RadialPuppet.";
 
             var effectiveParam = string.IsNullOrEmpty(paramName) ? go.name : paramName;
-            return $"Success: Added ModularAvatarMenuItem to '{goName}' (type={type}, param='{effectiveParam}', value={value}, default={isDefault}, synced={synced}, saved={saved}).";
+            return $"Success: Added ModularAvatarMenuItem to '{goName}' (type={type}, param='{effectiveParam}', value={value}, default={isDefault}, synced={synced}, saved={saved}{(icon != null ? $", icon='{iconPath}'" : "")}).";
         }
 
         // ========== 3. AddMAParameters ==========
@@ -150,8 +154,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== MA Merge Animator ==========
 
-        [AgentTool("Add a Modular Avatar Merge Animator to merge an AnimatorController into the avatar non-destructively (no manual edit of the avatar's playable layers). Merges into the avatar's FX layer (MA default) — use for toggles, gimmicks, and custom FX. controllerPath is the .controller asset path. pathMode: 0=Absolute, 1=Relative. matchWriteDefaults aligns Write Defaults with the avatar (recommended). deleteAttachedAnimator removes the temporary Animator after merge.")]
-        public static string AddMAMergeAnimator(string goName, string controllerPath, int pathMode = 0, bool matchWriteDefaults = true, bool deleteAttachedAnimator = true)
+        [AgentTool("Add a Modular Avatar Merge Animator to merge an AnimatorController into the avatar non-destructively (no manual edit of the avatar's playable layers). controllerPath is the .controller asset path. layerType: FX (default), Gesture, Action, Base, Additive, Sitting, TPose, IKPose. pathMode: 0=Relative (MA default), 1=Absolute. matchWriteDefaults aligns Write Defaults with the avatar (recommended). deleteAttachedAnimator removes the temporary Animator after merge.")]
+        public static string AddMAMergeAnimator(string goName, string controllerPath, string layerType = "FX", int pathMode = 0, bool matchWriteDefaults = true, bool deleteAttachedAnimator = true)
         {
             var err = MAAvailability.CheckOrError();
             if (err != null) return err;
@@ -164,11 +168,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (controller == null)
                 return $"Error: AnimatorController not found at '{controllerPath}'.";
 
-            var comp = MAComponentFactory.AddMergeAnimator(go, controller, pathMode, matchWriteDefaults, deleteAttachedAnimator);
+            var comp = MAComponentFactory.AddMergeAnimator(go, controller, pathMode, matchWriteDefaults, deleteAttachedAnimator, layerType);
             if (comp == null)
                 return "Error: Failed to add ModularAvatarMergeAnimator.";
 
-            return $"Success: Added ModularAvatarMergeAnimator to '{goName}' (controller='{controllerPath}', layer=FX, pathMode={(pathMode == 1 ? "Relative" : "Absolute")}, matchWriteDefaults={matchWriteDefaults}). The controller merges into the avatar's FX layer at build time.";
+            return $"Success: Added ModularAvatarMergeAnimator to '{goName}' (controller='{controllerPath}', layer={layerType}, pathMode={(pathMode == 1 ? "Absolute" : "Relative")}, matchWriteDefaults={matchWriteDefaults}). The controller merges into the avatar's {layerType} layer at build time.";
         }
 
         // ========== MA Merge Armature ==========
@@ -196,8 +200,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== MA Bone Proxy ==========
 
-        [AgentTool("Add a Modular Avatar Bone Proxy to non-destructively attach a GameObject (weapon/accessory/prop) to a specific avatar bone so it follows that bone. goName is the object to attach; targetBoneName is the avatar bone to follow (e.g. 'Head', 'RightHand'). mode: 0=AsChildAtRoot (recommended; snaps to the bone origin). Run AlignAccessoryToBone first if you need to preserve the object's current world placement.")]
-        public static string AddMABoneProxy(string goName, string targetBoneName, int mode = 0)
+        [AgentTool("Add a Modular Avatar Bone Proxy to non-destructively attach a GameObject (weapon/accessory/prop) to a specific avatar bone so it follows that bone. goName is the object to attach; targetBoneName is the avatar bone to follow (e.g. 'Head', 'RightHand'). mode: 1=AsChildAtRoot (recommended; snaps to the bone origin), 0=Unset/auto, 2=KeepWorldPose, 3=KeepRotation, 4=KeepPosition. To preserve the object's current world placement, set mode=2 (or run AlignAccessoryToBone first).")]
+        public static string AddMABoneProxy(string goName, string targetBoneName, int mode = 1)
         {
             var err = MAAvailability.CheckOrError();
             if (err != null) return err;
@@ -215,6 +219,78 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return "Error: Failed to add ModularAvatarBoneProxy.";
 
             return $"Success: Added ModularAvatarBoneProxy to '{goName}' -> follows bone '{targetBoneName}' (mode={mode}). The object becomes a runtime child of that bone at build time.";
+        }
+
+        // ========== MA Menu Container (nested submenu) ==========
+
+        [AgentTool("Create a Modular Avatar menu container under the avatar (MenuInstaller + SubMenu MenuItem). Use this as the top of a nested menu, then add children with AddMAMenuItemUnder. iconPath (optional) sets the submenu icon. The container name (menuName) is used as parentMenuName for children.")]
+        public static string CreateMAMenu(string avatarRootName, string menuName, string iconPath = "")
+        {
+            var err = MAAvailability.CheckOrError();
+            if (err != null) return err;
+
+            var avatarRoot = FindGO(avatarRootName);
+            if (avatarRoot == null)
+                return $"Error: GameObject '{avatarRootName}' not found.";
+
+            Texture2D icon = string.IsNullOrEmpty(iconPath) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath);
+            if (!string.IsNullOrEmpty(iconPath) && icon == null)
+                return $"Error: Icon texture not found at '{iconPath}'.";
+
+            var builder = MAMenuBuilder.Create(avatarRoot, menuName, icon);
+            if (builder == null)
+                return "Error: Failed to create MA menu (MA not installed?).";
+
+            return $"Success: Created MA menu container '{menuName}' under '{avatarRootName}' (MenuInstaller + SubMenu). Add entries with AddMAMenuItemUnder('{menuName}', displayName, type, ...).";
+        }
+
+        [AgentTool("Add a child menu entry under an existing MA menu container (created by CreateMAMenu, or any SubMenu entry). Creates a child GameObject named displayName under parentMenuName with a MenuItem. type: Toggle, Button, RadialPuppet, SubMenu. For type=SubMenu the new entry can itself be used as parentMenuName to nest deeper. iconPath (optional) sets the entry icon.")]
+        public static string AddMAMenuItemUnder(string parentMenuName, string displayName, string type = "Toggle", string paramName = "", float value = 1f, string iconPath = "")
+        {
+            var err = MAAvailability.CheckOrError();
+            if (err != null) return err;
+
+            var parent = FindGO(parentMenuName);
+            if (parent == null)
+                return $"Error: Parent menu '{parentMenuName}' not found.";
+
+            Texture2D icon = string.IsNullOrEmpty(iconPath) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath);
+            if (!string.IsNullOrEmpty(iconPath) && icon == null)
+                return $"Error: Icon texture not found at '{iconPath}'.";
+
+            var child = new GameObject(displayName);
+            Undo.RegisterCreatedObjectUndo(child, "Create MA Menu Item");
+            child.transform.SetParent(parent.transform, false);
+
+            string effectiveParam = string.IsNullOrEmpty(paramName) ? displayName : paramName;
+            Component comp;
+            switch (type.ToLowerInvariant())
+            {
+                case "toggle":
+                    comp = MAComponentFactory.AddMenuItemToggle(child, effectiveParam, value, true, true, false, icon);
+                    break;
+                case "button":
+                    comp = MAComponentFactory.AddMenuItemButton(child, effectiveParam, value, icon);
+                    break;
+                case "radialpuppet":
+                case "radial":
+                    if (string.IsNullOrEmpty(paramName))
+                    { Undo.DestroyObjectImmediate(child); return "Error: RadialPuppet requires paramName."; }
+                    comp = MAComponentFactory.AddMenuItemRadial(child, paramName, icon);
+                    break;
+                case "submenu":
+                    comp = MAComponentFactory.AddMenuItemSubMenu(child, icon);
+                    break;
+                default:
+                    Undo.DestroyObjectImmediate(child);
+                    return $"Error: Invalid type '{type}'. Valid: Toggle, Button, RadialPuppet, SubMenu.";
+            }
+
+            if (comp == null)
+            { Undo.DestroyObjectImmediate(child); return "Error: Failed to add MenuItem (MA not installed?)."; }
+
+            string nestNote = type.ToLowerInvariant() == "submenu" ? $" Use '{displayName}' as parentMenuName to nest further." : "";
+            return $"Success: Added '{displayName}' ({type}) under '{parentMenuName}'.{nestNote}";
         }
 
         // ========== 4. AddBlendshapeSync ==========

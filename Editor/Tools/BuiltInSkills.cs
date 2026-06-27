@@ -101,23 +101,34 @@ Non-destructively merges the outfit's Armature (bone structure) into the avatar'
 - Bones merge automatically at build time.
 
 ### MA Merge Animator
-Integrates an Animator Controller into the avatar's FX layer (non-destructive).
+Integrates an Animator Controller into a playable layer (non-destructive).
 ```
-[AddMAMergeAnimator('gimmickHolder', 'Assets/Anim/gimmick.controller', 0, true)]
+[AddMAMergeAnimator('gimmickHolder', 'Assets/Anim/gimmick.controller', 'FX', 0, true)]
 ```
-- Merges into the avatar's FX layer (MA default). pathMode 0=Absolute / 1=Relative.
-- matchWriteDefaults=true aligns Write Defaults with the avatar (keep WD consistent — see Notes).
+- layerType: FX (default), Gesture, Action, Base, Additive, Sitting, TPose, IKPose.
+- pathMode: 0=Relative (MA default) / 1=Absolute. matchWriteDefaults=true keeps WD consistent (see Notes).
 
 ### MA Menu Item / MA Parameters
 Non-destructively adds Expression Menu and Parameters.
+- Single entry on an existing object (iconPath optional):
+  ```
+  [AddMenuItem('Toggle_Hat', 'Toggle', 'Hat', 1, true, true, false, 'Assets/Icons/hat.png')]
+  ```
+- Nested submenu (container + children; nest deeper via a SubMenu entry):
+  ```
+  [CreateMAMenu('avatarRootName', 'Outfits')]
+  [AddMAMenuItemUnder('Outfits', 'Dress', 'Toggle', 'Dress')]
+  [AddMAMenuItemUnder('Outfits', 'Colors', 'SubMenu')]
+  [AddMAMenuItemUnder('Colors', 'Red', 'Toggle', 'ColorRed')]
+  ```
 
 ### MA Bone Proxy
 Non-destructively places objects as children of specific bones.
 Used for making weapons or accessories follow the hand or Head.
 ```
-[AddMABoneProxy('weaponName', 'RightHand', 0)]
+[AddMABoneProxy('weaponName', 'RightHand', 1)]
 ```
-- To preserve the object's current world placement, run AlignAccessoryToBone first.
+- mode 1=AsChildAtRoot (snaps to the bone). To preserve the object's current world placement, use mode 2 (or run AlignAccessoryToBone first).
 - For ring/finger accessories, AttachRingWithBoneProxy is a convenience wrapper.
 
 ## General Outfit Setup Procedure

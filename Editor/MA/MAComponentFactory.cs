@@ -33,8 +33,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
 
         // ========== BoneProxy ==========
 
+        // BoneProxyAttachmentMode: 0=Unset(auto), 1=AsChildAtRoot, 2=AsChildKeepWorldPose, 3=AsChildKeepRotation, 4=AsChildKeepPosition
         public static Component AddBoneProxy(GameObject target, Transform bone,
-            int mode = 0)
+            int mode = 1)
         {
             var comp = target.GetComponent<ModularAvatarBoneProxy>();
             if (comp == null)
@@ -113,16 +114,19 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
 
         // ========== MergeAnimator ==========
 
+        // MergeAnimatorPathMode: Relative=0, Absolute=1. layerType: FX/Gesture/Action/Base/Additive/Sitting/TPose/IKPose.
         public static Component AddMergeAnimator(GameObject target,
             RuntimeAnimatorController controller,
             int pathMode = 0, bool matchAvatarWriteDefaults = true,
-            bool deleteAttachedAnimator = true)
+            bool deleteAttachedAnimator = true, string layerType = "FX")
         {
             var comp = Undo.AddComponent<ModularAvatarMergeAnimator>(target);
             comp.animator = controller;
             comp.pathMode = (MergeAnimatorPathMode)pathMode;
             comp.matchAvatarWriteDefaults = matchAvatarWriteDefaults;
             comp.deleteAttachedAnimator = deleteAttachedAnimator;
+            if (System.Enum.TryParse<VRC.SDK3.Avatars.Components.VRCAvatarDescriptor.AnimLayerType>(layerType, true, out var lt))
+                comp.layerType = lt;
             EditorUtility.SetDirty(comp);
             return comp;
         }
@@ -198,7 +202,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
         /// </summary>
         public static Component AddMenuItem(GameObject target, string type,
             string paramName = null, float value = 1f,
-            bool synced = true, bool saved = true, bool isDefault = false)
+            bool synced = true, bool saved = true, bool isDefault = false,
+            Texture2D icon = null)
         {
             if (!TryParseControlType(type, out var controlType))
                 return null;
@@ -216,6 +221,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
             comp.isSaved = saved;
             comp.isDefault = isDefault;
             comp.automaticValue = false;
+            if (icon != null)
+                comp.PortableControl.Icon = icon;
             EditorUtility.SetDirty(comp);
             return comp;
         }
@@ -557,17 +564,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
 #else
         // Stubs for when MA is not installed — all return null/false/empty
         public static Component AddMergeArmature(GameObject t, Transform m, string p = "", string s = "") => null;
-        public static Component AddBoneProxy(GameObject t, Transform b, int m = 0) => null;
+        public static Component AddBoneProxy(GameObject t, Transform b, int m = 1) => null;
         public static Transform GetBoneProxyTarget(GameObject go) => null;
         public static bool HasBoneProxy(GameObject go) => false;
         public static (string targetName, string targetPath, string mode)? GetBoneProxyInfo(GameObject go) => null;
-        public static Component AddMergeAnimator(GameObject t, RuntimeAnimatorController c, int p = 0, bool m = true, bool d = true) => null;
+        public static Component AddMergeAnimator(GameObject t, RuntimeAnimatorController c, int p = 0, bool m = true, bool d = true, string l = "FX") => null;
         public static Component AddMenuInstaller(GameObject t) => null;
         public static Component AddMenuItemToggle(GameObject t, string paramName = null, float value = 1f, bool synced = true, bool saved = true, bool isDefault = false, Texture2D icon = null) => null;
         public static Component AddMenuItemSubMenu(GameObject t, Texture2D i = null) => null;
         public static Component AddMenuItemRadial(GameObject t, string p, Texture2D i = null) => null;
         public static Component AddMenuItemButton(GameObject t, string p = null, float v = 1f, Texture2D i = null) => null;
-        public static Component AddMenuItem(GameObject t, string ty, string p = null, float v = 1f, bool sy = true, bool sa = true, bool d = false) => null;
+        public static Component AddMenuItem(GameObject t, string ty, string p = null, float v = 1f, bool sy = true, bool sa = true, bool d = false, Texture2D icon = null) => null;
         public static bool HasMenuItem(GameObject t) => false;
         public static (string type, string param, float value, bool isDefault, bool synced, bool saved)? GetMenuItemInfo(GameObject go) => null;
         public static Component AddOrGetParameters(GameObject t) => null;
