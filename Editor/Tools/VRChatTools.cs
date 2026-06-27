@@ -385,6 +385,114 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
+        [AgentTool("Set the VRChat first-person Viewpoint (ViewPosition) — a REQUIRED avatar setting (the first-person camera position, in avatar-local space). If x, y, z are all omitted (NaN), auto-calculates from the humanoid eye bones (midpoint of LeftEye+RightEye), or from the Head bone + a small offset if eye bones are missing. Pass explicit x/y/z to set manually.")]
+        public static string SetVRCViewpoint(string avatarRootName, float x = float.NaN, float y = float.NaN, float z = float.NaN)
+        {
+            var descriptorType = FindVrcType(VrcDescriptorTypeName);
+            if (descriptorType == null) return "Error: VRChat SDK not found.";
+
+            var go = FindGO(avatarRootName);
+            if (go == null) return $"Error: GameObject '{avatarRootName}' not found.";
+
+            var descriptor = go.GetComponent(descriptorType);
+            if (descriptor == null) return $"Error: No VRCAvatarDescriptor found on '{avatarRootName}'.";
+
+            var so = new SerializedObject(descriptor);
+            var vpProp = so.FindProperty("ViewPosition");
+            if (vpProp == null) return "Error: ViewPosition property not found (incompatible VRC SDK?).";
+
+            Vector3 vp;
+            string how;
+            bool auto = float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(z);
+            if (!auto)
+            {
+                vp = new Vector3(x, y, z);
+                how = "manual";
+            }
+            else
+            {
+                var anim = go.GetComponent<Animator>();
+                if (anim == null || !anim.isHuman)
+                    return "Error: avatar has no humanoid Animator; cannot auto-calculate. Specify x, y, z explicitly.";
+                var le = anim.GetBoneTransform(HumanBodyBones.LeftEye);
+                var re = anim.GetBoneTransform(HumanBodyBones.RightEye);
+                var head = anim.GetBoneTransform(HumanBodyBones.Head);
+                Vector3 world;
+                if (le != null && re != null) { world = (le.position + re.position) * 0.5f; how = "eye midpoint"; }
+                else if (head != null) { world = head.position + go.transform.up * 0.10f + go.transform.forward * 0.07f; how = "head bone + offset (no eye bones)"; }
+                else return "Error: no eye or head bones found on the humanoid rig. Specify x, y, z explicitly.";
+                vp = go.transform.InverseTransformPoint(world);
+            }
+
+            var prev = vpProp.vector3Value;
+            Undo.RecordObject(descriptor, "Set VRC Viewpoint");
+            vpProp.vector3Value = vp;
+            so.ApplyModifiedProperties();
+            EditorUtility.SetDirty(descriptor);
+
+            return $"Success: ViewPosition set ({how}): ({prev.x:F4}, {prev.y:F4}, {prev.z:F4}) -> ({vp.x:F4}, {vp.y:F4}, {vp.z:F4}).";
+        }
+
+        [AgentTool("Enable VRChat Eye Look and auto-assign the eye bones so the eyes track gaze (and so ConfigureVRCEyeMovement works — it errors until Eye Look is enabled). Sets enableEyeLook=true, assigns leftEye/rightEye from the humanoid LeftEye/RightEye bones, and writes default look rotations (straight + up/down/left/right) relative to the eyes' rest pose. lookUpDeg/lookDownDeg/lookHorizontalDeg set the gaze range in degrees. Does NOT configure blinking/eyelids. Requires the avatar to have rigged & humanoid-mapped eye bones.")]
+        public static string SetupVRCEyeLook(string avatarRootName, float lookUpDeg = 15f, float lookDownDeg = 12f, float lookHorizontalDeg = 16f)
+        {
+            var descriptorType = FindVrcType(VrcDescriptorTypeName);
+            if (descriptorType == null) return "Error: VRChat SDK not found.";
+
+            var go = FindGO(avatarRootName);
+            if (go == null) return $"Error: GameObject '{avatarRootName}' not found.";
+
+            var descriptor = go.GetComponent(descriptorType);
+            if (descriptor == null) return $"Error: No VRCAvatarDescriptor found on '{avatarRootName}'.";
+
+            var anim = go.GetComponent<Animator>();
+            if (anim == null || !anim.isHuman)
+                return "Error: avatar has no humanoid Animator; eye bones cannot be auto-assigned.";
+            var le = anim.GetBoneTransform(HumanBodyBones.LeftEye);
+            var re = anim.GetBoneTransform(HumanBodyBones.RightEye);
+            if (le == null || re == null)
+                return $"Error: humanoid eye bones are not mapped (LeftEye={(le != null)}, RightEye={(re != null)}). Map LeftEye/RightEye in the avatar's Rig > Humanoid configuration, then retry.";
+
+            var so = new SerializedObject(descriptor);
+            var enableProp = so.FindProperty("enableEyeLook");
+            var eyeSettings = so.FindProperty("customEyeLookSettings");
+            if (enableProp == null || eyeSettings == null) return "Error: eye look properties not found (incompatible VRC SDK?).";
+
+            Undo.RecordObject(descriptor, "Setup VRC Eye Look");
+            enableProp.boolValue = true;
+
+            var leftEyeProp = eyeSettings.FindPropertyRelative("leftEye");
+            var rightEyeProp = eyeSettings.FindPropertyRelative("rightEye");
+            if (leftEyeProp != null) leftEyeProp.objectReferenceValue = le;
+            if (rightEyeProp != null) rightEyeProp.objectReferenceValue = re;
+
+            // Default look rotations relative to each eye's rest pose (local-space Euler offsets, matching the SDK's convention).
+            Quaternion sL = le.localRotation, sR = re.localRotation;
+            SetEyeState(eyeSettings, "eyesLookingStraight", sL, sR);
+            SetEyeState(eyeSettings, "eyesLookingUp", sL * Quaternion.Euler(-lookUpDeg, 0f, 0f), sR * Quaternion.Euler(-lookUpDeg, 0f, 0f));
+            SetEyeState(eyeSettings, "eyesLookingDown", sL * Quaternion.Euler(lookDownDeg, 0f, 0f), sR * Quaternion.Euler(lookDownDeg, 0f, 0f));
+            SetEyeState(eyeSettings, "eyesLookingLeft", sL * Quaternion.Euler(0f, -lookHorizontalDeg, 0f), sR * Quaternion.Euler(0f, -lookHorizontalDeg, 0f));
+            SetEyeState(eyeSettings, "eyesLookingRight", sL * Quaternion.Euler(0f, lookHorizontalDeg, 0f), sR * Quaternion.Euler(0f, lookHorizontalDeg, 0f));
+
+            so.ApplyModifiedProperties();
+            EditorUtility.SetDirty(descriptor);
+
+            return $"Success: Eye Look enabled on '{avatarRootName}'. Assigned LeftEye='{le.name}', RightEye='{re.name}'. Gaze range: up {lookUpDeg}°, down {lookDownDeg}°, horizontal ±{lookHorizontalDeg}°. ConfigureVRCEyeMovement now works. Note: eye-bone axes vary per avatar — verify gaze directions in the Inspector and tune the degrees if the eyes look the wrong way. Use ConfigureVRCEyelids for blinking.";
+        }
+
+        // Set an eye-look rotation state (linked/left/right) on customEyeLookSettings.
+        private static void SetEyeState(SerializedProperty eyeSettings, string stateName, Quaternion left, Quaternion right)
+        {
+            var state = eyeSettings.FindPropertyRelative(stateName);
+            if (state == null) return;
+            var linked = state.FindPropertyRelative("linked");
+            if (linked != null) linked.boolValue = false;
+            var l = state.FindPropertyRelative("left");
+            var r = state.FindPropertyRelative("right");
+            if (l != null) l.quaternionValue = left;
+            if (r != null) r.quaternionValue = right;
+        }
+
         // VRCPhysBone List/Inspect/Configure/Template tools moved to PhysBoneTools.cs.
 
         [AgentTool("List expression parameters from the VRCExpressionParameters asset assigned to the avatar. RAW VRC SDK ONLY — does NOT include parameters added by NDMF/Modular Avatar/VRCFury at build time. Related: ListNDMFParameters returns the full post-build view (recommended companion call when NDMF is installed).")]
