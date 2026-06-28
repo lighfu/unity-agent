@@ -403,7 +403,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             Vector3 vp;
             string how;
-            bool auto = float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(z);
+            bool allNaN = float.IsNaN(x) && float.IsNaN(y) && float.IsNaN(z);
+            bool anyNaN = float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(z);
+            if (anyNaN && !allNaN)
+                return "Error: specify all of x, y, z (manual) or none (auto). Partial coordinates are not allowed.";
+            bool auto = allNaN;
             if (!auto)
             {
                 vp = new Vector3(x, y, z);
@@ -477,7 +481,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             so.ApplyModifiedProperties();
             EditorUtility.SetDirty(descriptor);
 
-            return $"Success: Eye Look enabled on '{avatarRootName}'. Assigned LeftEye='{le.name}', RightEye='{re.name}'. Gaze range: up {lookUpDeg}°, down {lookDownDeg}°, horizontal ±{lookHorizontalDeg}°. ConfigureVRCEyeMovement now works. Note: eye-bone axes vary per avatar — verify gaze directions in the Inspector and tune the degrees if the eyes look the wrong way. Use ConfigureVRCEyelids for blinking.";
+            return $"Success: Eye Look enabled on '{avatarRootName}'. Assigned LeftEye='{le.name}', RightEye='{re.name}'. Gaze range: up {lookUpDeg}°, down {lookDownDeg}°, horizontal ±{lookHorizontalDeg}°. ConfigureVRCEyeMovement now works. Note: eye-bone axes vary per avatar — verify gaze directions in the Inspector and tune the degrees if the eyes look the wrong way. Eyelid/blink blendshapes are set separately in the descriptor's Eye Look inspector.";
         }
 
         // Set an eye-look rotation state (linked/left/right) on customEyeLookSettings.
@@ -528,21 +532,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 if (smr == null || smr.sharedMesh == null || smr.sharedMesh.blendShapeCount == 0) continue;
                 var mesh = smr.sharedMesh;
-                var names = new string[mesh.blendShapeCount];
-                for (int i = 0; i < names.Length; i++) names[i] = mesh.GetBlendShapeName(i);
+                var origNames = new string[mesh.blendShapeCount];
+                var lowNames = new string[mesh.blendShapeCount];
+                for (int i = 0; i < origNames.Length; i++) { origNames[i] = mesh.GetBlendShapeName(i); lowNames[i] = origNames[i].ToLowerInvariant(); }
                 var map = new string[visemes.Length];
                 int matched = 0;
                 for (int v = 0; v < visemes.Length; v++)
                 {
                     string s = visemes[v];
-                    foreach (var n in names)
+                    for (int b = 0; b < lowNames.Length; b++)
                     {
-                        string low = n.ToLowerInvariant();
+                        string low = lowNames[b];
                         if (low == "vrc.v_" + s || low == "v_" + s || low == "viseme_" + s || low == s)
-                        { map[v] = n; matched++; break; }
+                        { map[v] = origNames[b]; matched++; break; }
                     }
                 }
                 if (matched > bestMatched) { bestMatched = matched; bestMap = map; bestSmr = smr; }
+                if (matched == visemes.Length) break; // perfect match, stop scanning
             }
 
             mode = (mode ?? "auto").ToLowerInvariant();
@@ -552,6 +558,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (wantViseme)
             {
                 if (bestSmr == null) return "Error: no SkinnedMeshRenderer with blendshapes found for visemes. Provide meshPath or use a jaw mode.";
+                if (bestMatched < 1)
+                    return "Error: no standard viseme blendshapes (vrc.v_*/v_*/Viseme_*) found. The mesh uses non-standard names; provide meshPath and set them manually in the LipSync inspector, or use mode='jawbone'/'jawblendshape'.";
                 if (!SetEnumByName(lipSyncProp, "VisemeBlendShape")) return "Error: could not set lipSync=VisemeBlendShape (incompatible VRC SDK enum?).";
                 var meshProp = so.FindProperty("VisemeSkinnedMesh");
                 if (meshProp != null) meshProp.objectReferenceValue = bestSmr;
@@ -599,6 +607,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (mode == "jawblendshape" || mode == "auto")
             {
                 if (bestSmr == null) return "Error: no face mesh with blendshapes and no Jaw bone found; cannot configure lip sync. Provide meshPath or map a Jaw bone.";
+                if (string.IsNullOrEmpty(meshPath) && bestMatched < 1)
+                    return "Error: could not reliably identify the face mesh (no viseme-named blendshapes matched any mesh). Specify meshPath to the face SkinnedMeshRenderer, or map a Jaw bone for mode='jawbone'.";
                 if (!SetEnumByName(lipSyncProp, "JawFlapBlendShape")) return "Error: could not set lipSync=JawFlapBlendShape.";
                 var meshProp = so.FindProperty("VisemeSkinnedMesh");
                 if (meshProp != null) meshProp.objectReferenceValue = bestSmr;
@@ -610,7 +620,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     for (int i = 0; i < m.blendShapeCount; i++) if (m.GetBlendShapeName(i) == jawOpenBlendshape) { exists = true; break; }
                     if (!exists) return $"Error: blendshape '{jawOpenBlendshape}' not found on mesh '{bestSmr.name}'.";
                     var nameProp = so.FindProperty("MouthOpenBlendShapeName");
-                    if (nameProp != null) nameProp.stringValue = jawOpenBlendshape;
+                    if (nameProp == null) return "Error: MouthOpenBlendShapeName property not found (incompatible VRC SDK?).";
+                    nameProp.stringValue = jawOpenBlendshape;
                     applied = $", open blendshape='{jawOpenBlendshape}'";
                 }
                 Undo.RecordObject(descriptor, "Configure VRC Viseme");

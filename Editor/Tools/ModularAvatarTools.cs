@@ -154,11 +154,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== MA Merge Animator ==========
 
+        private static readonly string[] ValidMergeAnimatorLayers = { "FX", "Gesture", "Action", "Base", "Additive", "Sitting", "TPose", "IKPose" };
+
         [AgentTool("Add a Modular Avatar Merge Animator to merge an AnimatorController into the avatar non-destructively (no manual edit of the avatar's playable layers). controllerPath is the .controller asset path. layerType: FX (default), Gesture, Action, Base, Additive, Sitting, TPose, IKPose. pathMode: 0=Relative (MA default), 1=Absolute. matchWriteDefaults aligns Write Defaults with the avatar (recommended). deleteAttachedAnimator removes the temporary Animator after merge.")]
         public static string AddMAMergeAnimator(string goName, string controllerPath, string layerType = "FX", int pathMode = 0, bool matchWriteDefaults = true, bool deleteAttachedAnimator = true)
         {
             var err = MAAvailability.CheckOrError();
             if (err != null) return err;
+
+            string layerNorm = (layerType ?? "").ToLowerInvariant();
+            if (!ValidMergeAnimatorLayers.Any(l => l.ToLowerInvariant() == layerNorm))
+                return $"Error: invalid layerType '{layerType}'. Valid: {string.Join(", ", ValidMergeAnimatorLayers)}.";
+            if (pathMode < 0 || pathMode > 1)
+                return $"Error: invalid pathMode {pathMode}. Valid: 0=Relative, 1=Absolute.";
 
             var go = FindGO(goName);
             if (go == null)
@@ -210,15 +218,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (go == null)
                 return $"Error: GameObject '{goName}' not found.";
 
+            if (mode < 0 || mode > 4)
+                return $"Error: invalid mode {mode}. Valid: 0=Unset, 1=AsChildAtRoot, 2=KeepWorldPose, 3=KeepRotation, 4=KeepPosition.";
+
             var bone = FindGO(targetBoneName);
             if (bone == null)
                 return $"Error: Target bone '{targetBoneName}' not found.";
 
+            bool existed = MAComponentFactory.HasBoneProxy(go);
             var comp = MAComponentFactory.AddBoneProxy(go, bone.transform, mode);
             if (comp == null)
                 return "Error: Failed to add ModularAvatarBoneProxy.";
 
-            return $"Success: Added ModularAvatarBoneProxy to '{goName}' -> follows bone '{targetBoneName}' (mode={mode}). The object becomes a runtime child of that bone at build time.";
+            return $"Success: {(existed ? "Updated" : "Added")} ModularAvatarBoneProxy on '{goName}' -> follows bone '{targetBoneName}' (mode={mode}). The object becomes a runtime child of that bone at build time.";
         }
 
         // ========== MA Menu Container (nested submenu) ==========
@@ -253,6 +265,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var parent = FindGO(parentMenuName);
             if (parent == null)
                 return $"Error: Parent menu '{parentMenuName}' not found.";
+
+            var parentInfo = MAComponentFactory.GetMenuItemInfo(parent);
+            if (parentInfo == null || parentInfo.Value.type != "SubMenu")
+                return $"Error: '{parentMenuName}' is not an MA menu container (needs a SubMenu MenuItem). Create one with CreateMAMenu, or pass a SubMenu entry created by AddMAMenuItemUnder.";
 
             Texture2D icon = string.IsNullOrEmpty(iconPath) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath);
             if (!string.IsNullOrEmpty(iconPath) && icon == null)
