@@ -20,6 +20,11 @@ Thumbs.db
 .claude/
 CLAUDE.md
 
+# Code intelligence / IDE tooling (local only, not part of the package)
+.codegraph/
+.cursor/
+.serena/
+
 # Font files (too large for git)
 Fonts/*.ttf
 Fonts/*.otf
