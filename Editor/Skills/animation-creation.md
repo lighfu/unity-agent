@@ -100,16 +100,34 @@ time:value, time:value, time:value
 User: "Create a right-hand waving animation"
 
 1. Check bone structure:
-[ListBones('MyAvatar', 'Arm')]
+<tool name="ListBones">
+<arg name="avatarRootName">MyAvatar</arg>
+<arg name="filter">Arm</arg>
+</tool>
 
 2. Create clip:
-[CreateAnimationClip('wave', 'Assets/Animations', 2.0, true)]
+<tool name="CreateAnimationClip">
+<arg name="clipName">wave</arg>
+<arg name="savePath">Assets/Animations</arg>
+<arg name="length">2.0</arg>
+<arg name="isLooping">true</arg>
+</tool>
 
 3. Raise right upper arm (Z-axis rotation to raise arm sideways):
-[SetAnimationCurve('Assets/Animations/wave.anim', 'Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R', 'rotation.z', '0:-60, 0.3:-60, 1.7:-60, 2.0:-60')]
+<tool name="SetAnimationCurve">
+<arg name="clipPath">Assets/Animations/wave.anim</arg>
+<arg name="bonePath">Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R</arg>
+<arg name="property">rotation.z</arg>
+<arg name="keyframes">0:-60, 0.3:-60, 1.7:-60, 2.0:-60</arg>
+</tool>
 
 4. Wave with forearm (Z-axis oscillation):
-[SetAnimationCurve('Assets/Animations/wave.anim', 'Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R/Lower_Arm_R', 'rotation.z', '0:0, 0.3:-30, 0.6:30, 0.9:-30, 1.2:30, 1.5:-30, 1.8:30, 2.0:0')]
+<tool name="SetAnimationCurve">
+<arg name="clipPath">Assets/Animations/wave.anim</arg>
+<arg name="bonePath">Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R/Lower_Arm_R</arg>
+<arg name="property">rotation.z</arg>
+<arg name="keyframes">0:0, 0.3:-30, 0.6:30, 0.9:-30, 1.2:30, 1.5:-30, 1.8:30, 2.0:0</arg>
+</tool>
 ```
 
 ### Nodding Animation
@@ -118,10 +136,20 @@ User: "Create a nodding animation"
 
 1. Check bones → Get Head bone path
 2. Create clip:
-[CreateAnimationClip('nod', 'Assets/Animations', 0.8, false)]
+<tool name="CreateAnimationClip">
+<arg name="clipName">nod</arg>
+<arg name="savePath">Assets/Animations</arg>
+<arg name="length">0.8</arg>
+<arg name="isLooping">false</arg>
+</tool>
 
 3. Tilt head forward (X-axis rotation):
-[SetAnimationCurve('Assets/Animations/nod.anim', 'Armature/Hips/Spine/Chest/Neck/Head', 'rotation.x', '0:0, 0.2:15, 0.4:0, 0.6:10, 0.8:0')]
+<tool name="SetAnimationCurve">
+<arg name="clipPath">Assets/Animations/nod.anim</arg>
+<arg name="bonePath">Armature/Hips/Spine/Chest/Neck/Head</arg>
+<arg name="property">rotation.x</arg>
+<arg name="keyframes">0:0, 0.2:15, 0.4:0, 0.6:10, 0.8:0</arg>
+</tool>
 ```
 
 ### Facial Expression Animation (BlendShape)
@@ -129,22 +157,54 @@ User: "Create a nodding animation"
 User: "Create a smile animation"
 
 1. Check BlendShape names:
-[ListBlendShapes('Body')]
+<tool name="ListBlendShapes">
+<arg name="goName">Body</arg>
+</tool>
 
 2. Create clip:
-[CreateAnimationClip('smile', 'Assets/Animations', 0.5, false)]
+<tool name="CreateAnimationClip">
+<arg name="clipName">smile</arg>
+<arg name="savePath">Assets/Animations</arg>
+<arg name="length">0.5</arg>
+<arg name="isLooping">false</arg>
+</tool>
 
 3. Set smile BlendShape:
-[SetAnimationCurve('Assets/Animations/smile.anim', 'Body', 'blendShape.face_smile', '0:0, 0.3:100, 0.5:100')]
+<tool name="SetAnimationCurve">
+<arg name="clipPath">Assets/Animations/smile.anim</arg>
+<arg name="bonePath">Body</arg>
+<arg name="property">blendShape.face_smile</arg>
+<arg name="keyframes">0:0, 0.3:100, 0.5:100</arg>
+</tool>
 ```
 
 ### Object Toggle (Show/Hide)
 ```
-[CreateAnimationClip('hat_on', 'Assets/Animations', 0.0, false)]
-[SetAnimationCurve('Assets/Animations/hat_on.anim', 'Hat', 'active', '0:1')]
+<tool name="CreateAnimationClip">
+<arg name="clipName">hat_on</arg>
+<arg name="savePath">Assets/Animations</arg>
+<arg name="length">0.0</arg>
+<arg name="isLooping">false</arg>
+</tool>
+<tool name="SetAnimationCurve">
+<arg name="clipPath">Assets/Animations/hat_on.anim</arg>
+<arg name="bonePath">Hat</arg>
+<arg name="property">active</arg>
+<arg name="keyframes">0:1</arg>
+</tool>
 
-[CreateAnimationClip('hat_off', 'Assets/Animations', 0.0, false)]
-[SetAnimationCurve('Assets/Animations/hat_off.anim', 'Hat', 'active', '0:0')]
+<tool name="CreateAnimationClip">
+<arg name="clipName">hat_off</arg>
+<arg name="savePath">Assets/Animations</arg>
+<arg name="length">0.0</arg>
+<arg name="isLooping">false</arg>
+</tool>
+<tool name="SetAnimationCurve">
+<arg name="clipPath">Assets/Animations/hat_off.anim</arg>
+<arg name="bonePath">Hat</arg>
+<arg name="property">active</arg>
+<arg name="keyframes">0:0</arg>
+</tool>
 ```
 
 ## Tips for Natural Motion

@@ -25,25 +25,38 @@ on avatar bones.
 ### Step 1: Structure Analysis (For Gimmick-Equipped Items)
 For Prefabs containing MA/VRCFury components, analyze the structure first:
 ```
-[AnalyzeGimmickStructure('prefabName')]
+<tool name="AnalyzeGimmickStructure">
+<arg name="gameObjectName">prefabName</arg>
+</tool>
 ```
 → If child objects with BoneProxy are found, just place as child of avatar.
 
 ### Step 2: Measure Avatar
 Get the target avatar's dimensions (used for auto scale calculation):
 ```
-[MeasureAvatarBody('avatarRootName')]
+<tool name="MeasureAvatarBody">
+<arg name="avatarRootName">avatarRootName</arg>
+</tool>
 ```
 
 ### Step 3: Place Prefab in Scene
 Instantiate **as a child of the avatar**:
 ```
-[InstantiatePrefab('Assets/.../Item.prefab', 'avatarRootName')]
+<tool name="InstantiatePrefab">
+<arg name="assetPath">Assets/.../Item.prefab</arg>
+<arg name="parentName">avatarRootName</arg>
+</tool>
 ```
 
 ### Step 4: Ask User About Attachment Location
 ```
-[AskUser('Where should it be attached?', 'Hold in right hand', 'Hold in left hand', 'Attach to hip', 'Attach to thigh')]
+<tool name="AskUser">
+<arg name="question">Where should it be attached?</arg>
+<arg name="option1">Hold in right hand</arg>
+<arg name="option2">Hold in left hand</arg>
+<arg name="option3">Attach to hip</arg>
+<arg name="option4">Attach to thigh</arg>
+</tool>
 ```
 
 ### Step 5: Auto-Alignment (Most Important)
@@ -52,12 +65,23 @@ Attach with the appropriate style based on user selection:
 
 #### Holding in Hand (grip)
 ```
-[AlignAccessoryToBone('itemName', 'avatarRootName', 'RightHand', 'grip')]
+<tool name="AlignAccessoryToBone">
+<arg name="accessoryName">itemName</arg>
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="boneName">RightHand</arg>
+<arg name="attachmentStyle">grip</arg>
+</tool>
 ```
 
 #### Attached to Body (surface) — Hip, Thigh, Back, etc.
 ```
-[AlignAccessoryToBone('itemName', 'avatarRootName', 'RightUpperLeg', 'surface', 'right')]
+<tool name="AlignAccessoryToBone">
+<arg name="accessoryName">itemName</arg>
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="boneName">RightUpperLeg</arg>
+<arg name="attachmentStyle">surface</arg>
+<arg name="direction">right</arg>
+</tool>
 ```
 direction parameter specifies attachment direction:
 - Outer thigh: direction='right' (right leg) / 'left' (left leg)
@@ -67,13 +91,21 @@ direction parameter specifies attachment direction:
 
 #### Wrapping Around (wrap) — Bracelets, Cuffs, etc.
 ```
-[AlignAccessoryToBone('itemName', 'avatarRootName', 'LeftLowerArm', 'wrap')]
+<tool name="AlignAccessoryToBone">
+<arg name="accessoryName">itemName</arg>
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="boneName">LeftLowerArm</arg>
+<arg name="attachmentStyle">wrap</arg>
+</tool>
 ```
 
 ### Step 6: Verify Result
 Capture from SceneView to verify:
 ```
-[CaptureMultiAngle('itemName', 'front,left,right,back')]
+<tool name="CaptureMultiAngle">
+<arg name="targetName">itemName</arg>
+<arg name="angles">front,left,right,back</arg>
+</tool>
 ```
 
 ### Step 7: Leave Fine Adjustment to User
@@ -103,8 +135,13 @@ Key bone names:
 ## Ring Special Workflow
 Rings have dedicated tools:
 ```
-[AttachRingWithBoneProxy('ringName', 'RightRingProximal')]
-[AlignRingToBone('ringName')]
+<tool name="AttachRingWithBoneProxy">
+<arg name="ringName">ringName</arg>
+<arg name="boneName">RightRingProximal</arg>
+</tool>
+<tool name="AlignRingToBone">
+<arg name="ringName">ringName</arg>
+</tool>
 ```
 Fine adjustment: NudgeRing, AdjustRingScale, RotateRing
 

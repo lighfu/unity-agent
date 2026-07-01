@@ -134,27 +134,47 @@ VRChat avatar's 5 layers:
 
 ### Check Parameters
 ```
-[ListVRCExpressionParameters('avatarRootName')]
+<tool name="ListVRCExpressionParameters">
+<arg name="avatarRootName">avatarRootName</arg>
+</tool>
 ```
 
 ### Add Parameter
 ```
-[AddVRCExpressionParameter('avatarRootName', 'ParamName', 'Bool', 1.0, saved=true, synced=true)]
+<tool name="AddVRCExpressionParameter">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="paramName">ParamName</arg>
+<arg name="type">Bool</arg>
+<arg name="defaultValue">1.0</arg>
+<arg name="saved">true</arg>
+<arg name="synced">true</arg>
+</tool>
 ```
 
 ### Remove Parameter
 ```
-[RemoveVRCExpressionParameter('avatarRootName', 'ParamName')]
+<tool name="RemoveVRCExpressionParameter">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="paramName">ParamName</arg>
+</tool>
 ```
 
 ### Add Parameter to FX Controller
 ```
-[AddAnimatorParameter('fxControllerPath', 'ParamName', 'bool', 'true')]
+<tool name="AddAnimatorParameter">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="name">ParamName</arg>
+<arg name="type">bool</arg>
+<arg name="defaultValue">true</arg>
+</tool>
 ```
 
 ### Object Toggle (One-Step Setup)
 ```
-[SetupObjectToggle('avatarRootName', 'objectPath')]
+<tool name="SetupObjectToggle">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="targetPath">objectPath</arg>
+</tool>
 ```
 
 ## Notes

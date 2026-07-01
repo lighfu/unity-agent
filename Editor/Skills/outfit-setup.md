@@ -23,7 +23,9 @@ Procedure for dressing a VRChat avatar in outfits.
 
 ### Step 1: Check Current Outfit
 ```
-[ListChildren('avatarRootName')]
+<tool name="ListChildren">
+<arg name="name">avatarRootName</arg>
+</tool>
 ```
 Check the avatar's direct children to identify outfit-related objects.
 Outfit objects are typically mesh objects or outfit prefabs other than the Armature.
@@ -33,8 +35,14 @@ Hide each existing outfit object and set its tag to EditorOnly.
 **Hiding alone is not enough**. Data remains when uploading, so the EditorOnly tag is also needed.
 
 ```
-[SetActive('avatarRootName/outfitObjectName', false)]
-[SetTag('avatarRootName/outfitObjectName', 'EditorOnly')]
+<tool name="SetActive">
+<arg name="gameObjectName">avatarRootName/outfitObjectName</arg>
+<arg name="active">false</arg>
+</tool>
+<tool name="SetTag">
+<arg name="gameObjectName">avatarRootName/outfitObjectName</arg>
+<arg name="tag">EditorOnly</arg>
+</tool>
 ```
 
 Execute for all outfit parts if there are multiple.
@@ -46,31 +54,46 @@ If shrinks remain, the base body will appear thin.
 
 1. Check shrink-related BlendShapes on the Body mesh:
 ```
-[ListBlendShapesEx('avatarRootName/Body', 'shrink')]
+<tool name="ListBlendShapesEx">
+<arg name="gameObjectName">avatarRootName/Body</arg>
+<arg name="filter">shrink</arg>
+</tool>
 ```
 
 2. Reset all non-zero shrinks to 0:
 ```
-[SetMultipleBlendShapes('avatarRootName/Body', 'Shrink_XXX=0;Shrink_YYY=0')]
+<tool name="SetMultipleBlendShapes">
+<arg name="gameObjectName">avatarRootName/Body</arg>
+<arg name="blendShapeData">Shrink_XXX=0;Shrink_YYY=0</arg>
+</tool>
 ```
 
 ### Step 3: Search for Compatible Outfit Prefab
 ```
-[SearchAssets('outfitName', 'Prefab')]
+<tool name="SearchAssets">
+<arg name="query">outfitName</arg>
+<arg name="typeFilter">Prefab</arg>
+</tool>
 ```
 Select a prefab that contains the avatar name (e.g., `Chiffon_RetroKimono.prefab`).
 Compatible outfits typically include the avatar name in the prefab name.
 
 ### Step 4: Place Outfit Prefab as Child of Avatar
 ```
-[InstantiatePrefab('Assets/path/to/outfit.prefab', 'avatarRootName')]
+<tool name="InstantiatePrefab">
+<arg name="assetPath">Assets/path/to/outfit.prefab</arg>
+<arg name="parentName">avatarRootName</arg>
+</tool>
 ```
 **Important**: Always specify the avatar root name as the 2nd argument `parentName`.
 Placing at scene root instead of as avatar child will prevent Setup Outfit from working.
 
 ### Step 5: Run Modular Avatar Setup Outfit
 ```
-[SetupOutfit('avatarRootName', 'outfitObjectName')]
+<tool name="SetupOutfit">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="outfitName">outfitObjectName</arg>
+</tool>
 ```
 This automatically configures:
 - ModularAvatarMergeArmature component addition
@@ -83,12 +106,18 @@ Set body shrink BlendShapes for the new outfit to prevent skin clipping.
 
 1. Check shrink-related BlendShapes on the Body mesh:
 ```
-[ListBlendShapesEx('avatarRootName/Body', 'shrink')]
+<tool name="ListBlendShapesEx">
+<arg name="gameObjectName">avatarRootName/Body</arg>
+<arg name="filter">shrink</arg>
+</tool>
 ```
 
 2. Set shrinks for body parts covered by the outfit to 100:
 ```
-[SetMultipleBlendShapes('avatarRootName/Body', 'Shrink_XXX=100;Shrink_YYY=100')]
+<tool name="SetMultipleBlendShapes">
+<arg name="gameObjectName">avatarRootName/Body</arg>
+<arg name="blendShapeData">Shrink_XXX=100;Shrink_YYY=100</arg>
+</tool>
 ```
 
 Note: Shrink names correspond to body parts or outfit areas.
@@ -97,14 +126,19 @@ It's preferable to ask the user which shrinks to apply.
 
 ### Step 6: Verify
 ```
-[InspectGameObject('avatarRootName/outfitObjectName')]
+<tool name="InspectGameObject">
+<arg name="gameObjectName">avatarRootName/outfitObjectName</arg>
+</tool>
 ```
 Verify that ModularAvatarMergeArmature and other components have been added.
 
 ## Adding Outfit Toggles
 To add Expression Menu toggles for outfit parts:
 ```
-[SetupObjectToggle('avatarRootName', 'outfitPartPath')]
+<tool name="SetupObjectToggle">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="targetPath">outfitPartPath</arg>
+</tool>
 ```
 See the `object-toggle` skill for details.
 
@@ -120,20 +154,30 @@ Even incompatible outfits (different bone structure) can be auto-fitted using Ou
 
 ### Step 1: Compatibility Analysis
 ```
-[AnalyzeOutfitCompatibility('outfitObjectName', 'avatarRootName')]
+<tool name="AnalyzeOutfitCompatibility">
+<arg name="outfitName">outfitObjectName</arg>
+<arg name="avatarName">avatarRootName</arg>
+</tool>
 ```
 Check bone structure comparison, proportion differences, and compatibility score.
 
 ### Step 2: Bone Mapping Verification
 ```
-[MapOutfitBones('outfitObjectName', 'avatarRootName')]
+<tool name="MapOutfitBones">
+<arg name="outfitName">outfitObjectName</arg>
+<arg name="avatarName">avatarRootName</arg>
+</tool>
 ```
 Review the auto-generated bone mapping table.
 Report any low-confidence mappings to the user.
 
 ### Step 3: Execute Retarget
 ```
-[RetargetOutfit('outfitObjectName', 'avatarRootName', 1.0)]
+<tool name="RetargetOutfit">
+<arg name="outfitName">outfitObjectName</arg>
+<arg name="avatarName">avatarRootName</arg>
+<arg name="adaptStrength">1.0</arg>
+</tool>
 ```
 - Remaps bones to avatar side
 - Recalculates bind poses
@@ -144,13 +188,20 @@ Report any low-confidence mappings to the user.
 
 ### Step 4: Penetration Check
 ```
-[DetectMeshPenetration('outfitMeshName', 'Body')]
+<tool name="DetectMeshPenetration">
+<arg name="outfitMeshName">outfitMeshName</arg>
+<arg name="bodyMeshName">Body</arg>
+</tool>
 ```
 Detects penetration between outfit mesh and body. Skip Step 5 if no penetration.
 
 ### Step 5: Fix Penetration (If Needed)
 ```
-[FixMeshPenetration('outfitMeshName', 'Body', 0.001)]
+<tool name="FixMeshPenetration">
+<arg name="outfitMeshName">outfitMeshName</arg>
+<arg name="bodyMeshName">Body</arg>
+<arg name="offset">0.001</arg>
+</tool>
 ```
 Pushes penetrating and too-close vertices outward along normals.
 Performs accurate mesh-space correction via inverse skinning, considering bone rotation.
@@ -159,20 +210,32 @@ Performs accurate mesh-space correction via inverse skinning, considering bone r
 Apply the avatar's existing Shrink BlendShapes.
 **Note**: The avatar's mesh is not modified. Only existing BlendShapes are activated.
 ```
-[ListBlendShapesEx('avatarRootName/Body', 'shrink')]
-[SetMultipleBlendShapes('avatarRootName/Body', 'Shrink_XXX=100;Shrink_YYY=100')]
+<tool name="ListBlendShapesEx">
+<arg name="gameObjectName">avatarRootName/Body</arg>
+<arg name="filter">shrink</arg>
+</tool>
+<tool name="SetMultipleBlendShapes">
+<arg name="gameObjectName">avatarRootName/Body</arg>
+<arg name="blendShapeData">Shrink_XXX=100;Shrink_YYY=100</arg>
+</tool>
 ```
 
 ### Step 7: Finish with MA Setup Outfit
 Move the retargeted outfit as a child of the avatar and finish with the same procedure as compatible outfits.
 ```
-[SetupOutfit('avatarRootName', 'outfitObjectName')]
+<tool name="SetupOutfit">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="outfitName">outfitObjectName</arg>
+</tool>
 ```
 
 ### Step 8: Weight Transfer (If Needed)
 If joint deformation looks unnatural, transfer weights from the avatar body mesh.
 ```
-[TransferOutfitWeights('outfitMeshName', 'Body')]
+<tool name="TransferOutfitWeights">
+<arg name="outfitMeshName">outfitMeshName</arg>
+<arg name="avatarBodyMeshName">Body</arg>
+</tool>
 ```
 
 ### Fitting Notes

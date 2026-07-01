@@ -18,7 +18,12 @@ Package: `nadena.dev.modular-avatar`
 ### MA Merge Armature
 Non-destructively merges the outfit's Armature (bone structure) into the avatar's Armature.
 ```
-[AddMAMergeArmature('outfitName/Armature', 'avatarRootName/Armature', '', '')]
+<tool name="AddMAMergeArmature">
+<arg name="goName">outfitName/Armature</arg>
+<arg name="mergeTargetName">avatarRootName/Armature</arg>
+<arg name="prefix"></arg>
+<arg name="suffix"></arg>
+</tool>
 ```
 - goName = the outfit's Armature object; mergeTargetName = the avatar's Armature (root bone).
 - If bone names don't match, pass prefix/suffix (e.g. suffix '.1' for bones named 'Hips.1').
@@ -27,7 +32,13 @@ Non-destructively merges the outfit's Armature (bone structure) into the avatar'
 ### MA Merge Animator
 Integrates an Animator Controller into a playable layer (non-destructive).
 ```
-[AddMAMergeAnimator('gimmickHolder', 'Assets/Anim/gimmick.controller', 'FX', 0, true)]
+<tool name="AddMAMergeAnimator">
+<arg name="goName">gimmickHolder</arg>
+<arg name="controllerPath">Assets/Anim/gimmick.controller</arg>
+<arg name="layerType">FX</arg>
+<arg name="pathMode">0</arg>
+<arg name="matchWriteDefaults">true</arg>
+</tool>
 ```
 - layerType: FX (default), Gesture, Action, Base, Additive, Sitting, TPose, IKPose.
 - pathMode: 0=Relative (MA default) / 1=Absolute. matchWriteDefaults=true keeps WD consistent (see Notes).
@@ -36,21 +47,51 @@ Integrates an Animator Controller into a playable layer (non-destructive).
 Non-destructively adds Expression Menu and Parameters.
 - Single entry on an existing object (iconPath optional):
   ```
-  [AddMenuItem('Toggle_Hat', 'Toggle', 'Hat', 1, true, true, false, 'Assets/Icons/hat.png')]
+  <tool name="AddMenuItem">
+  <arg name="goName">Toggle_Hat</arg>
+  <arg name="type">Toggle</arg>
+  <arg name="paramName">Hat</arg>
+  <arg name="value">1</arg>
+  <arg name="synced">true</arg>
+  <arg name="saved">true</arg>
+  <arg name="isDefault">false</arg>
+  <arg name="iconPath">Assets/Icons/hat.png</arg>
+  </tool>
   ```
 - Nested submenu (container + children; nest deeper via a SubMenu entry):
   ```
-  [CreateMAMenu('avatarRootName', 'Outfits')]
-  [AddMAMenuItemUnder('Outfits', 'Dress', 'Toggle', 'Dress')]
-  [AddMAMenuItemUnder('Outfits', 'Colors', 'SubMenu')]
-  [AddMAMenuItemUnder('Colors', 'Red', 'Toggle', 'ColorRed')]
+  <tool name="CreateMAMenu">
+  <arg name="avatarRootName">avatarRootName</arg>
+  <arg name="menuName">Outfits</arg>
+  </tool>
+  <tool name="AddMAMenuItemUnder">
+  <arg name="parentMenuName">Outfits</arg>
+  <arg name="displayName">Dress</arg>
+  <arg name="type">Toggle</arg>
+  <arg name="paramName">Dress</arg>
+  </tool>
+  <tool name="AddMAMenuItemUnder">
+  <arg name="parentMenuName">Outfits</arg>
+  <arg name="displayName">Colors</arg>
+  <arg name="type">SubMenu</arg>
+  </tool>
+  <tool name="AddMAMenuItemUnder">
+  <arg name="parentMenuName">Colors</arg>
+  <arg name="displayName">Red</arg>
+  <arg name="type">Toggle</arg>
+  <arg name="paramName">ColorRed</arg>
+  </tool>
   ```
 
 ### MA Bone Proxy
 Non-destructively places objects as children of specific bones.
 Used for making weapons or accessories follow the hand or Head.
 ```
-[AddMABoneProxy('weaponName', 'RightHand', 1)]
+<tool name="AddMABoneProxy">
+<arg name="goName">weaponName</arg>
+<arg name="targetBoneName">RightHand</arg>
+<arg name="mode">1</arg>
+</tool>
 ```
 - mode 1=AsChildAtRoot (snaps to the bone). To preserve the object's current world placement, use mode 2 (or run AlignAccessoryToBone first).
 - For ring/finger accessories, AttachRingWithBoneProxy is a convenience wrapper.
@@ -59,16 +100,26 @@ Used for making weapons or accessories follow the hand or Head.
 
 1. Place the outfit Prefab as a child of the avatar:
    ```
-   [SetParent('outfitName', 'avatarRootName')]
+   <tool name="SetParent">
+   <arg name="childName">outfitName</arg>
+   <arg name="parentName">avatarRootName</arg>
+   </tool>
    ```
 
 2. Verify MA Merge Armature is configured on the outfit's Armature:
    ```
-   [InspectGameObject('avatarRootName/outfitName/Armature')]
+   <tool name="InspectGameObject">
+   <arg name="gameObjectName">avatarRootName/outfitName/Armature</arg>
+   </tool>
    ```
    If it's missing, add it:
    ```
-   [AddMAMergeArmature('avatarRootName/outfitName/Armature', 'avatarRootName/Armature', '', '')]
+   <tool name="AddMAMergeArmature">
+   <arg name="goName">avatarRootName/outfitName/Armature</arg>
+   <arg name="mergeTargetName">avatarRootName/Armature</arg>
+   <arg name="prefix"></arg>
+   <arg name="suffix"></arg>
+   </tool>
    ```
 
 3. Prevent body mesh clipping:

@@ -16,36 +16,61 @@ For detailed placement procedure, see `ReadSkill('accessory-setup')`.
 ## Step 1: Analyze Gimmick Structure
 Check if the gimmick contains MA/VRCFury components:
 ```
-[AnalyzeGimmickStructure('weaponPrefabName')]
+<tool name="AnalyzeGimmickStructure">
+<arg name="gameObjectName">weaponPrefabName</arg>
+</tool>
 ```
 - BoneProxy already configured → Just place as child of avatar
 - BoneProxy not configured → Manual placement needed
 
 ## Step 2: Place Prefab as Child of Avatar
 ```
-[InstantiatePrefab('Assets/.../Weapon.prefab', 'avatarRootName')]
+<tool name="InstantiatePrefab">
+<arg name="assetPath">Assets/.../Weapon.prefab</arg>
+<arg name="parentName">avatarRootName</arg>
+</tool>
 ```
 
 ## Step 3: Determine Attachment Location and Auto-Align
 
 ### Holding in Hand
 ```
-[AlignAccessoryToBone('weaponName', 'avatarRootName', 'RightHand', 'grip')]
+<tool name="AlignAccessoryToBone">
+<arg name="accessoryName">weaponName</arg>
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="boneName">RightHand</arg>
+<arg name="attachmentStyle">grip</arg>
+</tool>
 ```
 
 ### Hip/Thigh Attachment (Holster, Sheath)
 ```
-[AlignAccessoryToBone('weaponName', 'avatarRootName', 'RightUpperLeg', 'surface', 'right')]
+<tool name="AlignAccessoryToBone">
+<arg name="accessoryName">weaponName</arg>
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="boneName">RightUpperLeg</arg>
+<arg name="attachmentStyle">surface</arg>
+<arg name="direction">right</arg>
+</tool>
 ```
 
 ### Back Attachment
 ```
-[AlignAccessoryToBone('weaponName', 'avatarRootName', 'Spine', 'surface', 'back')]
+<tool name="AlignAccessoryToBone">
+<arg name="accessoryName">weaponName</arg>
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="boneName">Spine</arg>
+<arg name="attachmentStyle">surface</arg>
+<arg name="direction">back</arg>
+</tool>
 ```
 
 ## Step 4: Verify
 ```
-[CaptureMultiAngle('weaponName', 'front,left,right,back')]
+<tool name="CaptureMultiAngle">
+<arg name="targetName">weaponName</arg>
+<arg name="angles">front,left,right,back</arg>
+</tool>
 ```
 
 ## Step 5: Fine Adjustment

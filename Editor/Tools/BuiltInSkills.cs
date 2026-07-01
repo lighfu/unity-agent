@@ -32,13 +32,17 @@ Perform performance validation before building and prompt fixes if issues are fo
 ### 1. Performance Validation
 First, check the avatar's performance:
 ```
-[GetAvatarPerformanceStats('avatarRootName')]
+<tool name=""GetAvatarPerformanceStats"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 
 ### 2. AvatarDescriptor Check
 Verify the configuration is correct:
 ```
-[InspectVRCAvatarDescriptor('avatarRootName')]
+<tool name=""InspectVRCAvatarDescriptor"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 
 ### 3. Common Issues to Check
@@ -49,7 +53,9 @@ Verify the configuration is correct:
 ### 4. Execute Build
 Open the SDK Control Panel:
 ```
-[ExecuteMenu('VRChat SDK/Show Control Panel')]
+<tool name=""ExecuteMenu"">
+<arg name=""menuPath"">VRChat SDK/Show Control Panel</arg>
+</tool>
 ```
 
 **Note**: The actual build and upload must be done manually by the user in the SDK Control Panel.
@@ -94,7 +100,12 @@ Package: `nadena.dev.modular-avatar`
 ### MA Merge Armature
 Non-destructively merges the outfit's Armature (bone structure) into the avatar's Armature.
 ```
-[AddMAMergeArmature('outfitName/Armature', 'avatarRootName/Armature', '', '')]
+<tool name=""AddMAMergeArmature"">
+<arg name=""goName"">outfitName/Armature</arg>
+<arg name=""mergeTargetName"">avatarRootName/Armature</arg>
+<arg name=""prefix""></arg>
+<arg name=""suffix""></arg>
+</tool>
 ```
 - goName = the outfit's Armature object; mergeTargetName = the avatar's Armature (root bone).
 - If bone names don't match, pass prefix/suffix (e.g. suffix '.1' for bones named 'Hips.1').
@@ -103,7 +114,13 @@ Non-destructively merges the outfit's Armature (bone structure) into the avatar'
 ### MA Merge Animator
 Integrates an Animator Controller into a playable layer (non-destructive).
 ```
-[AddMAMergeAnimator('gimmickHolder', 'Assets/Anim/gimmick.controller', 'FX', 0, true)]
+<tool name=""AddMAMergeAnimator"">
+<arg name=""goName"">gimmickHolder</arg>
+<arg name=""controllerPath"">Assets/Anim/gimmick.controller</arg>
+<arg name=""layerType"">FX</arg>
+<arg name=""pathMode"">0</arg>
+<arg name=""matchWriteDefaults"">true</arg>
+</tool>
 ```
 - layerType: FX (default), Gesture, Action, Base, Additive, Sitting, TPose, IKPose.
 - pathMode: 0=Relative (MA default) / 1=Absolute. matchWriteDefaults=true keeps WD consistent (see Notes).
@@ -112,21 +129,51 @@ Integrates an Animator Controller into a playable layer (non-destructive).
 Non-destructively adds Expression Menu and Parameters.
 - Single entry on an existing object (iconPath optional):
   ```
-  [AddMenuItem('Toggle_Hat', 'Toggle', 'Hat', 1, true, true, false, 'Assets/Icons/hat.png')]
+  <tool name=""AddMenuItem"">
+  <arg name=""goName"">Toggle_Hat</arg>
+  <arg name=""type"">Toggle</arg>
+  <arg name=""paramName"">Hat</arg>
+  <arg name=""value"">1</arg>
+  <arg name=""synced"">true</arg>
+  <arg name=""saved"">true</arg>
+  <arg name=""isDefault"">false</arg>
+  <arg name=""iconPath"">Assets/Icons/hat.png</arg>
+  </tool>
   ```
 - Nested submenu (container + children; nest deeper via a SubMenu entry):
   ```
-  [CreateMAMenu('avatarRootName', 'Outfits')]
-  [AddMAMenuItemUnder('Outfits', 'Dress', 'Toggle', 'Dress')]
-  [AddMAMenuItemUnder('Outfits', 'Colors', 'SubMenu')]
-  [AddMAMenuItemUnder('Colors', 'Red', 'Toggle', 'ColorRed')]
+  <tool name=""CreateMAMenu"">
+  <arg name=""avatarRootName"">avatarRootName</arg>
+  <arg name=""menuName"">Outfits</arg>
+  </tool>
+  <tool name=""AddMAMenuItemUnder"">
+  <arg name=""parentMenuName"">Outfits</arg>
+  <arg name=""displayName"">Dress</arg>
+  <arg name=""type"">Toggle</arg>
+  <arg name=""paramName"">Dress</arg>
+  </tool>
+  <tool name=""AddMAMenuItemUnder"">
+  <arg name=""parentMenuName"">Outfits</arg>
+  <arg name=""displayName"">Colors</arg>
+  <arg name=""type"">SubMenu</arg>
+  </tool>
+  <tool name=""AddMAMenuItemUnder"">
+  <arg name=""parentMenuName"">Colors</arg>
+  <arg name=""displayName"">Red</arg>
+  <arg name=""type"">Toggle</arg>
+  <arg name=""paramName"">ColorRed</arg>
+  </tool>
   ```
 
 ### MA Bone Proxy
 Non-destructively places objects as children of specific bones.
 Used for making weapons or accessories follow the hand or Head.
 ```
-[AddMABoneProxy('weaponName', 'RightHand', 1)]
+<tool name=""AddMABoneProxy"">
+<arg name=""goName"">weaponName</arg>
+<arg name=""targetBoneName"">RightHand</arg>
+<arg name=""mode"">1</arg>
+</tool>
 ```
 - mode 1=AsChildAtRoot (snaps to the bone). To preserve the object's current world placement, use mode 2 (or run AlignAccessoryToBone first).
 - For ring/finger accessories, AttachRingWithBoneProxy is a convenience wrapper.
@@ -135,16 +182,26 @@ Used for making weapons or accessories follow the hand or Head.
 
 1. Place the outfit Prefab as a child of the avatar:
    ```
-   [SetParent('outfitName', 'avatarRootName')]
+   <tool name=""SetParent"">
+   <arg name=""childName"">outfitName</arg>
+   <arg name=""parentName"">avatarRootName</arg>
+   </tool>
    ```
 
 2. Verify MA Merge Armature is configured on the outfit's Armature:
    ```
-   [InspectGameObject('avatarRootName/outfitName/Armature')]
+   <tool name=""InspectGameObject"">
+   <arg name=""gameObjectName"">avatarRootName/outfitName/Armature</arg>
+   </tool>
    ```
    If it's missing, add it:
    ```
-   [AddMAMergeArmature('avatarRootName/outfitName/Armature', 'avatarRootName/Armature', '', '')]
+   <tool name=""AddMAMergeArmature"">
+   <arg name=""goName"">avatarRootName/outfitName/Armature</arg>
+   <arg name=""mergeTargetName"">avatarRootName/Armature</arg>
+   <arg name=""prefix""></arg>
+   <arg name=""suffix""></arg>
+   </tool>
    ```
 
 3. Prevent body mesh clipping:
@@ -194,64 +251,155 @@ It manages gesture-to-AnimationClip switching and generates FX layers via NDMF/M
 
 ### Detection & Inspection
 ```
-[FindFaceEmo()] — Discover FaceEmo objects in scene
-[InspectFaceEmo('FaceEmo')] — Show AV3 settings, expression modes, gestures
-[ListFaceEmoExpressions('FaceEmo')] — List all expressions and branches
-[InspectExpressionDetail('Angry')] — Detailed info (branches, conditions, animations)
-[LaunchFaceEmoWindow('FaceEmo')] — Open the FaceEmo editor window
+<tool name=""FindFaceEmo""></tool> — Discover FaceEmo objects in scene
+<tool name=""InspectFaceEmo"">
+<arg name=""gameObjectName"">FaceEmo</arg>
+</tool> — Show AV3 settings, expression modes, gestures
+<tool name=""ListFaceEmoExpressions"">
+<arg name=""gameObjectName"">FaceEmo</arg>
+</tool> — List all expressions and branches
+<tool name=""InspectExpressionDetail"">
+<arg name=""expressionName"">Angry</arg>
+</tool> — Detailed info (branches, conditions, animations)
+<tool name=""LaunchFaceEmoWindow"">
+<arg name=""gameObjectName"">FaceEmo</arg>
+</tool> — Open the FaceEmo editor window
 ```
 
 ### ★ Face Profile (always call first)
 ```
-[IdentifyFaceSmr('Avatar')] — Pick face SMR by viseme count + bone heuristic
-[AnalyzeFaceBlendShapes('Avatar')] — Build profile: face SMR + extras + categorized + presets
-[SuggestExpressionShapes('Avatar', 'smile')] — Get preset shape mix (returns 'shape=value;...')
-[SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')] — Multi-category search across SMRs
+<tool name=""IdentifyFaceSmr"">
+<arg name=""avatarRootName"">Avatar</arg>
+</tool> — Pick face SMR by viseme count + bone heuristic
+<tool name=""AnalyzeFaceBlendShapes"">
+<arg name=""avatarRootName"">Avatar</arg>
+</tool> — Build profile: face SMR + extras + categorized + presets
+<tool name=""SuggestExpressionShapes"">
+<arg name=""avatarRootName"">Avatar</arg>
+<arg name=""intent"">smile</arg>
+</tool> — Get preset shape mix (returns 'shape=value;...')
+<tool name=""SearchExpressionShapesV2"">
+<arg name=""avatarRootName"">Avatar</arg>
+<arg name=""categories"">eye,mouth,brow</arg>
+</tool> — Multi-category search across SMRs
 ```
 
 ### Expression Building (preferred — multi-SMR safe)
 ```
-[SetExpressionPreviewMulti('Avatar', 'eye_joy=80;mouth_smile=100')] — Apply across SMRs (values 0-100)
-[CaptureFacePreview('Avatar')] — Stable face capture (dedicated camera, fixed FOV/distance)
-[GetCurrentExpressionValues('<faceSmrPath>')] — Inspect current non-zero values per SMR
+<tool name=""SetExpressionPreviewMulti"">
+<arg name=""avatarRootName"">Avatar</arg>
+<arg name=""blendShapeData"">eye_joy=80;mouth_smile=100</arg>
+</tool> — Apply across SMRs (values 0-100)
+<tool name=""CaptureFacePreview"">
+<arg name=""avatarRootName"">Avatar</arg>
+</tool> — Stable face capture (dedicated camera, fixed FOV/distance)
+<tool name=""GetCurrentExpressionValues"">
+<arg name=""meshObjectName""><faceSmrPath></arg>
+</tool> — Inspect current non-zero values per SMR
 ```
 
 ### Expression Building (legacy — single SMR fallback)
 ```
-[SearchExpressionShapes('<faceSmrPath>', 'eye')] — Single-mesh search (synonym expansion only)
-[SetExpressionPreview('<faceSmrPath>', 'eye_joy=100;mouth_smile=80')] — Single-mesh preview
-[CaptureExpressionPreview('Avatar')] — SceneView-dependent capture (less stable)
-[ResetExpressionPreview('<faceSmrPath>')] — Reset blend shapes on a single SMR
+<tool name=""SearchExpressionShapes"">
+<arg name=""meshObjectName""><faceSmrPath></arg>
+<arg name=""filter"">eye</arg>
+</tool> — Single-mesh search (synonym expansion only)
+<tool name=""SetExpressionPreview"">
+<arg name=""meshObjectName""><faceSmrPath></arg>
+<arg name=""blendShapeData"">eye_joy=100;mouth_smile=80</arg>
+</tool> — Single-mesh preview
+<tool name=""CaptureExpressionPreview"">
+<arg name=""avatarRootName"">Avatar</arg>
+</tool> — SceneView-dependent capture (less stable)
+<tool name=""ResetExpressionPreview"">
+<arg name=""meshObjectName""><faceSmrPath></arg>
+</tool> — Reset blend shapes on a single SMR
 ```
 
 ### Thumbnail Capture (Plan B)
 ```
-[CaptureFaceEmoModeThumbnail('Smile')] — Save Mode face thumbnail as PNG (for AI response embedding)
-[CaptureFaceEmoGestureTable('Smile')] — Save 4×2 grid of all 8 gesture variants
-[CaptureFaceEmoExMenuThumbnail('Smile')] — Save the VRChat menu image
-[RefreshFaceEmoMainView()] — Force-refresh FaceEmo MainView thumbnails after edits
+<tool name=""CaptureFaceEmoModeThumbnail"">
+<arg name=""modeName"">Smile</arg>
+</tool> — Save Mode face thumbnail as PNG (for AI response embedding)
+<tool name=""CaptureFaceEmoGestureTable"">
+<arg name=""modeName"">Smile</arg>
+</tool> — Save 4×2 grid of all 8 gesture variants
+<tool name=""CaptureFaceEmoExMenuThumbnail"">
+<arg name=""modeName"">Smile</arg>
+</tool> — Save the VRChat menu image
+<tool name=""RefreshFaceEmoMainView""></tool> — Force-refresh FaceEmo MainView thumbnails after edits
 ```
 
 ### Expression Registration & Management
 ```
-[AddExpression('Angry', 'Registered', 'Assets/.../angry.anim')] — Add new expression
-[RemoveExpression('Angry')] — Remove expression (with confirmation)
-[CopyExpression('Smile', 'Smile2', 'Registered')] — Duplicate expression
-[SetExpressionAnimation('Angry', 'Assets/.../angry.anim')] — Set/change animation clip
-[ModifyExpressionProperties('Angry', newDisplayName='Angry_v2')] — Modify properties
-[SetDefaultExpression('Smile')] — Set default expression
-[CreateAndRegisterExpression('Body', 'Smile', 'Assets/.../smile.anim')] — Save current mesh weights as clip + register in one step
-[CreateExpressionFromData('Smile', 'Assets/.../smile.anim', 'Body', 'eye_joy=100;mouth_smile=80')] — Create clip from explicit data + register
-[UpdateExpressionAnimation('Smile', 'Body', 'Assets/.../smile_v2.anim')] — Re-create clip from current mesh weights + update existing expression
-[PreviewFaceEmoExpression('Smile', 'Body')] — Preview existing expression on mesh
+<tool name=""AddExpression"">
+<arg name=""displayName"">Angry</arg>
+<arg name=""destination"">Registered</arg>
+<arg name=""animationClipPath"">Assets/.../angry.anim</arg>
+</tool> — Add new expression
+<tool name=""RemoveExpression"">
+<arg name=""displayName"">Angry</arg>
+</tool> — Remove expression (with confirmation)
+<tool name=""CopyExpression"">
+<arg name=""sourceExpressionName"">Smile</arg>
+<arg name=""newDisplayName"">Smile2</arg>
+<arg name=""destination"">Registered</arg>
+</tool> — Duplicate expression
+<tool name=""SetExpressionAnimation"">
+<arg name=""expressionName"">Angry</arg>
+<arg name=""animationClipPath"">Assets/.../angry.anim</arg>
+</tool> — Set/change animation clip
+<tool name=""ModifyExpressionProperties"">
+<arg name=""expressionName"">Angry</arg>
+<arg name=""newDisplayName"">Angry_v2</arg>
+</tool> — Modify properties
+<tool name=""SetDefaultExpression"">
+<arg name=""expressionName"">Smile</arg>
+</tool> — Set default expression
+<tool name=""CreateAndRegisterExpression"">
+<arg name=""meshObjectName"">Body</arg>
+<arg name=""expressionName"">Smile</arg>
+<arg name=""animPath"">Assets/.../smile.anim</arg>
+</tool> — Save current mesh weights as clip + register in one step
+<tool name=""CreateExpressionFromData"">
+<arg name=""displayName"">Smile</arg>
+<arg name=""animPath"">Assets/.../smile.anim</arg>
+<arg name=""meshPath"">Body</arg>
+<arg name=""blendShapeData"">eye_joy=100;mouth_smile=80</arg>
+</tool> — Create clip from explicit data + register
+<tool name=""UpdateExpressionAnimation"">
+<arg name=""expressionName"">Smile</arg>
+<arg name=""meshObjectName"">Body</arg>
+<arg name=""animPath"">Assets/.../smile_v2.anim</arg>
+</tool> — Re-create clip from current mesh weights + update existing expression
+<tool name=""PreviewFaceEmoExpression"">
+<arg name=""expressionName"">Smile</arg>
+<arg name=""meshObjectName"">Body</arg>
+</tool> — Preview existing expression on mesh
 ```
 
 ### Gesture Branch Management
 ```
-[AddGestureBranch('Angry', 'Left=Fist', 'Assets/.../angry.anim')] — Add gesture branch
-[RemoveGestureBranch('Angry', 0)] — Remove branch by index
-[AddGestureCondition('Angry', 0, 'Right', 'Fist')] — Add condition to branch
-[ModifyBranchProperties('Angry', 0, eyeTracking='Animation')] — Modify branch properties
+<tool name=""AddGestureBranch"">
+<arg name=""expressionName"">Angry</arg>
+<arg name=""conditions"">Left=Fist</arg>
+<arg name=""baseAnimationPath"">Assets/.../angry.anim</arg>
+</tool> — Add gesture branch
+<tool name=""RemoveGestureBranch"">
+<arg name=""expressionName"">Angry</arg>
+<arg name=""branchIndex"">0</arg>
+</tool> — Remove branch by index
+<tool name=""AddGestureCondition"">
+<arg name=""expressionName"">Angry</arg>
+<arg name=""branchIndex"">0</arg>
+<arg name=""hand"">Right</arg>
+<arg name=""gesture"">Fist</arg>
+</tool> — Add condition to branch
+<tool name=""ModifyBranchProperties"">
+<arg name=""expressionName"">Angry</arg>
+<arg name=""branchIndex"">0</arg>
+<arg name=""eyeTracking"">Animation</arg>
+</tool> — Modify branch properties
 ```
 Condition format: `'Left=Fist;Right=Victory'` or `'Either!=Neutral'`
 Hand: Left / Right / Either / Both / OneSide
@@ -268,23 +416,33 @@ Hand: Left / Right / Either / Both / OneSide
 
 ### Menu Structure
 ```
-[CreateExpressionGroup('Combat', 'Registered')] — Create submenu group
-[MoveExpressionItem('Angry', 'Unregistered')] — Move/reorder items
+<tool name=""CreateExpressionGroup"">
+<arg name=""displayName"">Combat</arg>
+<arg name=""destination"">Registered</arg>
+</tool> — Create submenu group
+<tool name=""MoveExpressionItem"">
+<arg name=""itemName"">Angry</arg>
+<arg name=""destination"">Unregistered</arg>
+</tool> — Move/reorder items
 ```
 
 ### Import & Apply
 ```
-[ImportExpressions()] — Import from avatar's existing FX layer (patterns + blink + mouth morph + contacts + prefix). Requires target avatar to be set first.
-[ApplyFaceEmoToAvatar()] — Generate FX layer from FaceEmo menu. Run after finishing all edits.
+<tool name=""ImportExpressions""></tool> — Import from avatar's existing FX layer (patterns + blink + mouth morph + contacts + prefix). Requires target avatar to be set first.
+<tool name=""ApplyFaceEmoToAvatar""></tool> — Generate FX layer from FaceEmo menu. Run after finishing all edits.
 ```
 
 ### Settings
 ```
-[ConfigureTargetAvatar('Chiffon')] — Set target avatar (fixes Avatar=None)
-[ConfigureFaceEmoGeneration()] — View/change generation settings
-[ConfigureMouthMorphs('list')] — Configure mouth morph BlendShapes
-[ConfigureAfkFace()] — Configure AFK expression
-[ConfigureFeatureToggles()] — Configure feature toggles
+<tool name=""ConfigureTargetAvatar"">
+<arg name=""avatarName"">Chiffon</arg>
+</tool> — Set target avatar (fixes Avatar=None)
+<tool name=""ConfigureFaceEmoGeneration""></tool> — View/change generation settings
+<tool name=""ConfigureMouthMorphs"">
+<arg name=""action"">list</arg>
+</tool> — Configure mouth morph BlendShapes
+<tool name=""ConfigureAfkFace""></tool> — Configure AFK expression
+<tool name=""ConfigureFeatureToggles""></tool> — Configure feature toggles
 ```
 
 ## Preconditions (REQUIRED)
@@ -301,27 +459,44 @@ Analysis tools (AnalyzeFaceBlendShapes, SearchExpressionShapesV2) are read-only 
 
 ### A. Setup FaceEmo on Avatar (""FaceEmoを適用して"")
 ```
-1. [FindFaceEmo()] → Check if FaceEmo exists and is configured for this avatar
+1. <tool name=""FindFaceEmo""></tool> → Check if FaceEmo exists and is configured for this avatar
 2. If already configured → skip to step 6
-3. If not found: [ExecuteMenu('FaceEmo/New Menu')]
-4. [ConfigureTargetAvatar('AvatarName')] → Set target avatar
-5. [ImportExpressions()] → Auto-import expressions from existing FX layer
-6. [LaunchFaceEmoWindow()] → Open FaceEmo editor window
+3. If not found: <tool name=""ExecuteMenu"">
+   <arg name=""menuPath"">FaceEmo/New Menu</arg>
+   </tool>
+4. <tool name=""ConfigureTargetAvatar"">
+   <arg name=""avatarName"">AvatarName</arg>
+   </tool> → Set target avatar
+5. <tool name=""ImportExpressions""></tool> → Auto-import expressions from existing FX layer
+6. <tool name=""LaunchFaceEmoWindow""></tool> → Open FaceEmo editor window
 ```
 This is the primary workflow when user asks to ""apply"" or ""set up"" FaceEmo on an avatar.
 ImportExpressions reads the existing FX Animator and recreates the expression setup in FaceEmo.
 
 ### B. Create Expression from Preset (RECOMMENDED — fastest path) (""笑顔の表情を作って"")
 ```
-1. [AnalyzeFaceBlendShapes('Avatar')]
-2. [OpenExpressionSession(newName='Smile', avatarRootName='Avatar')] → MainWindow + ExpressionEditor を開く (Live セッション。avatarRootName を必ず渡すこと — 渡さないと scene の最初の configured launcher が選ばれ、別 avatar の menu に commit されてしまう)
-3. [SuggestExpressionShapes('Avatar', 'smile')] → 'shape1=80;shape2=100;...' を取得
-4. [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → ExpressionEditor のライブプレビューに即反映
-5. (任意) [ReadExpressionFromWindow()] → ユーザーが手で動かしたスライダーを取り込む
-6. [CommitExpressionSession()] → .anim 保存 + FaceEmo Menu に登録
-7. [RefreshFaceEmoMainView()] → MainView の Mode サムネを最新化
-8. [CaptureFaceEmoModeThumbnail('Smile')] → 登録された Mode のサムネを PNG として保存し、AI 応答に画像添付
-9. [ApplyFaceEmoToAvatar()] → FX レイヤー生成
+1. <tool name=""AnalyzeFaceBlendShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool>
+2. <tool name=""OpenExpressionSession"">
+   <arg name=""newName"">Smile</arg>
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → MainWindow + ExpressionEditor を開く (Live セッション。avatarRootName を必ず渡すこと — 渡さないと scene の最初の configured launcher が選ばれ、別 avatar の menu に commit されてしまう)
+3. <tool name=""SuggestExpressionShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""intent"">smile</arg>
+   </tool> → 'shape1=80;shape2=100;...' を取得
+4. <tool name=""SetExpressionPreviewMulti"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""blendShapeData""><shapeData></arg>
+   </tool> → ExpressionEditor のライブプレビューに即反映
+5. (任意) <tool name=""ReadExpressionFromWindow""></tool> → ユーザーが手で動かしたスライダーを取り込む
+6. <tool name=""CommitExpressionSession""></tool> → .anim 保存 + FaceEmo Menu に登録
+7. <tool name=""RefreshFaceEmoMainView""></tool> → MainView の Mode サムネを最新化
+8. <tool name=""CaptureFaceEmoModeThumbnail"">
+   <arg name=""modeName"">Smile</arg>
+   </tool> → 登録された Mode のサムネを PNG として保存し、AI 応答に画像添付
+9. <tool name=""ApplyFaceEmoToAvatar""></tool> → FX レイヤー生成
 ```
 This is the canonical flow. FaceEmo and a configured launcher+avatar are REQUIRED.
 Note: CaptureFaceEmoModeThumbnail / CaptureFaceEmoGestureTable / CaptureFaceEmoExMenuThumbnail all require the Mode to be COMMITTED to the FaceEmo menu first — call them after CommitExpressionSession.
@@ -331,75 +506,143 @@ plus Japanese aliases (笑顔/怒り/驚き/...). If preset confidence is low, f
 
 ### C. Create Expression Manually (preset miss / fine-tuning) (""人差し指で驚いた表情にして"")
 ```
-1. [OpenExpressionSession(newName='Surprised', avatarRootName='Avatar')] → ExpressionEditor を開く (avatarRootName 必須)
-2. [AnalyzeFaceBlendShapes('Avatar')] → SMR / カテゴリ確認
-3. [SearchExpressionShapesV2('Avatar', 'eye,mouth,brow')] → カテゴリ別 shape 候補
-4. [SetExpressionPreviewMulti('Avatar', 'eye_surprised=100;mouth_open=60;brow_up=80')] → ライブ反映
-5. (任意) [ReadExpressionFromWindow()] → 手調整を取り込む
-6. [CommitExpressionSession()] → 保存・登録
+1. <tool name=""OpenExpressionSession"">
+   <arg name=""newName"">Surprised</arg>
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → ExpressionEditor を開く (avatarRootName 必須)
+2. <tool name=""AnalyzeFaceBlendShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → SMR / カテゴリ確認
+3. <tool name=""SearchExpressionShapesV2"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""categories"">eye,mouth,brow</arg>
+   </tool> → カテゴリ別 shape 候補
+4. <tool name=""SetExpressionPreviewMulti"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""blendShapeData"">eye_surprised=100;mouth_open=60;brow_up=80</arg>
+   </tool> → ライブ反映
+5. (任意) <tool name=""ReadExpressionFromWindow""></tool> → 手調整を取り込む
+6. <tool name=""CommitExpressionSession""></tool> → 保存・登録
 ```
-If overwriting: remove the old expression first with [RemoveExpression], then proceed from step 2.
+If overwriting: remove the old expression first with <tool name=""RemoveExpression""></tool>, then proceed from step 2.
 NEVER pass `'Body'` literally — derive `<faceSmrPath>` from AnalyzeFaceBlendShapes output.
 
 ### D. Edit Existing Expression
 ```
-1. [AnalyzeFaceBlendShapes('Avatar')] → Get face SMR path
-2. [PreviewFaceEmoExpression('Smile', '<faceSmrPath>')] → Preview current expression
-3. [SearchExpressionShapesV2('Avatar', 'mouth')] → Find shapes to adjust
-4. [SetExpressionPreviewMulti('Avatar', 'mouth_smile=100;mouth_open=30')] → Adjust (values 0-100)
-5. [CaptureFacePreview('Avatar')] → Verify
-6. [UpdateExpressionAnimation('Smile', '<faceSmrPath>', 'Assets/.../smile_v2.anim')] → Update clip + FaceEmo
+1. <tool name=""AnalyzeFaceBlendShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → Get face SMR path
+2. <tool name=""PreviewFaceEmoExpression"">
+   <arg name=""expressionName"">Smile</arg>
+   <arg name=""meshObjectName""><faceSmrPath></arg>
+   </tool> → Preview current expression
+3. <tool name=""SearchExpressionShapesV2"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""categories"">mouth</arg>
+   </tool> → Find shapes to adjust
+4. <tool name=""SetExpressionPreviewMulti"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""blendShapeData"">mouth_smile=100;mouth_open=30</arg>
+   </tool> → Adjust (values 0-100)
+5. <tool name=""CaptureFacePreview"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → Verify
+6. <tool name=""UpdateExpressionAnimation"">
+   <arg name=""expressionName"">Smile</arg>
+   <arg name=""meshObjectName""><faceSmrPath></arg>
+   <arg name=""animPath"">Assets/.../smile_v2.anim</arg>
+   </tool> → Update clip + FaceEmo
 ```
 
 ### E. Register Existing .anim File
 ```
-1. [AddExpression('Angry', 'Registered', 'Assets/.../angry.anim')]
-2. [AddGestureBranch('Angry', 'Left=Fist')]
+1. <tool name=""AddExpression"">
+   <arg name=""displayName"">Angry</arg>
+   <arg name=""destination"">Registered</arg>
+   <arg name=""animationClipPath"">Assets/.../angry.anim</arg>
+   </tool>
+2. <tool name=""AddGestureBranch"">
+   <arg name=""expressionName"">Angry</arg>
+   <arg name=""conditions"">Left=Fist</arg>
+   </tool>
 ```
 
 ### F. Organize Menu
 ```
-1. [ListFaceEmoExpressions()] → List all
-2. [CreateExpressionGroup('Combat', 'Registered')]
-3. [MoveExpressionItem('Angry', 'Combat')]
+1. <tool name=""ListFaceEmoExpressions""></tool> → List all
+2. <tool name=""CreateExpressionGroup"">
+   <arg name=""displayName"">Combat</arg>
+   <arg name=""destination"">Registered</arg>
+   </tool>
+3. <tool name=""MoveExpressionItem"">
+   <arg name=""itemName"">Angry</arg>
+   <arg name=""destination"">Combat</arg>
+   </tool>
 ```
 
 ### G. Apply to Avatar
 ```
-1. [ApplyFaceEmoToAvatar()] → Generate FX layer
+1. <tool name=""ApplyFaceEmoToAvatar""></tool> → Generate FX layer
 ```
 Run this after finishing all expression edits to generate the FX layer and parameters.
 
 ### H. Preview / List Registered Expressions (""今どんな表情が入ってる？"")
 ```
-1. [AnalyzeFaceBlendShapes('Avatar')] → Get face SMR path
-2. [ListFaceEmoExpressions()] → List all expressions with gesture assignments
+1. <tool name=""AnalyzeFaceBlendShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → Get face SMR path
+2. <tool name=""ListFaceEmoExpressions""></tool> → List all expressions with gesture assignments
 3. For each expression the user wants to see:
-   [PreviewFaceEmoExpression('Smile', '<faceSmrPath>')] → Apply blend shapes to mesh
-   [CaptureFacePreview('Avatar')] → Capture face image for user
+   <tool name=""PreviewFaceEmoExpression"">
+   <arg name=""expressionName"">Smile</arg>
+   <arg name=""meshObjectName""><faceSmrPath></arg>
+   </tool> → Apply blend shapes to mesh
+   <tool name=""CaptureFacePreview"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → Capture face image for user
 ```
 
 ### I. Delete Expression (""怒りの表情を消して"")
 ```
-1. [ListFaceEmoExpressions()] → Confirm the expression exists
-2. [AskUser] → Confirm deletion with user
-3. [RemoveExpression('Angry')] → Remove (tool has built-in confirmation)
+1. <tool name=""ListFaceEmoExpressions""></tool> → Confirm the expression exists
+2. <tool name=""AskUser""></tool> → Confirm deletion with user
+3. <tool name=""RemoveExpression"">
+   <arg name=""displayName"">Angry</arg>
+   </tool> → Remove (tool has built-in confirmation)
 ```
 
 ### J. Swap Gestures Between Expressions (""笑顔と怒りのジェスチャーを入れ替えて"")
 ```
-1. [InspectExpressionDetail('Smile')] → Get current gesture conditions
-   [InspectExpressionDetail('Angry')] → Get current gesture conditions
-2. [RemoveGestureBranch('Smile', 0)] → Remove old branch from Smile
-   [RemoveGestureBranch('Angry', 0)] → Remove old branch from Angry
-3. [AddGestureBranch('Smile', '<Angry's old condition>')] → Assign Angry's gesture to Smile
-   [AddGestureBranch('Angry', '<Smile's old condition>')] → Assign Smile's gesture to Angry
+1. <tool name=""InspectExpressionDetail"">
+   <arg name=""expressionName"">Smile</arg>
+   </tool> → Get current gesture conditions
+   <tool name=""InspectExpressionDetail"">
+   <arg name=""expressionName"">Angry</arg>
+   </tool> → Get current gesture conditions
+2. <tool name=""RemoveGestureBranch"">
+   <arg name=""expressionName"">Smile</arg>
+   <arg name=""branchIndex"">0</arg>
+   </tool> → Remove old branch from Smile
+   <tool name=""RemoveGestureBranch"">
+   <arg name=""expressionName"">Angry</arg>
+   <arg name=""branchIndex"">0</arg>
+   </tool> → Remove old branch from Angry
+3. <tool name=""AddGestureBranch"">
+   <arg name=""expressionName"">Smile</arg>
+   <arg name=""conditions""><Angry's old condition></arg>
+   </tool> → Assign Angry's gesture to Smile
+   <tool name=""AddGestureBranch"">
+   <arg name=""expressionName"">Angry</arg>
+   <arg name=""conditions""><Smile's old condition></arg>
+   </tool> → Assign Smile's gesture to Angry
 ```
 
 ### K. Set Default Expression (""何もしてないときの表情を笑顔にして"")
 ```
-1. [ListFaceEmoExpressions()] → Find the expression
-2. [SetDefaultExpression('Smile')] → Set as default (Neutral gesture)
+1. <tool name=""ListFaceEmoExpressions""></tool> → Find the expression
+2. <tool name=""SetDefaultExpression"">
+   <arg name=""expressionName"">Smile</arg>
+   </tool> → Set as default (Neutral gesture)
 ```
 The default expression is shown when no gesture is active.
 
@@ -407,21 +650,48 @@ The default expression is shown when no gesture is active.
 ```
 1. Check if the desired .anim clip already exists
 2. If not → create it first:
-   [AnalyzeFaceBlendShapes('Avatar')] → Get profile
-   [SuggestExpressionShapes('Avatar', 'sleep')] → Get preset shapeData
-   [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → Apply
-   [CaptureFacePreview('Avatar')] → Verify
+   <tool name=""AnalyzeFaceBlendShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → Get profile
+   <tool name=""SuggestExpressionShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""intent"">sleep</arg>
+   </tool> → Get preset shapeData
+   <tool name=""SetExpressionPreviewMulti"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   <arg name=""blendShapeData""><shapeData></arg>
+   </tool> → Apply
+   <tool name=""CaptureFacePreview"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → Verify
    Use CreateExpressionClip or CreateExpressionClipFromData to save the .anim file
-3. [ConfigureAfkFace(enableAfk='true', afkFacePath='Assets/.../sleeping.anim')] → Set AFK clip
+3. <tool name=""ConfigureAfkFace"">
+   <arg name=""enableAfk"">true</arg>
+   <arg name=""afkFacePath"">Assets/.../sleeping.anim</arg>
+   </tool> → Set AFK clip
 ```
 ConfigureAfkFace params: enableAfk, afkEnterFacePath, afkFacePath, afkExitFacePath, exitDuration.
 
 ### M. Left/Right Hand Separate Conditions (""左手グーで笑顔、右手ピースで怒り"")
 ```
-1. [AddExpression('Smile', 'Registered', 'Assets/.../smile.anim')]
-   [AddExpression('Angry', 'Registered', 'Assets/.../angry.anim')]
-2. [AddGestureBranch('Smile', 'Left=Fist')]
-   [AddGestureBranch('Angry', 'Right=Victory')]
+1. <tool name=""AddExpression"">
+   <arg name=""displayName"">Smile</arg>
+   <arg name=""destination"">Registered</arg>
+   <arg name=""animationClipPath"">Assets/.../smile.anim</arg>
+   </tool>
+   <tool name=""AddExpression"">
+   <arg name=""displayName"">Angry</arg>
+   <arg name=""destination"">Registered</arg>
+   <arg name=""animationClipPath"">Assets/.../angry.anim</arg>
+   </tool>
+2. <tool name=""AddGestureBranch"">
+   <arg name=""expressionName"">Smile</arg>
+   <arg name=""conditions"">Left=Fist</arg>
+   </tool>
+   <tool name=""AddGestureBranch"">
+   <arg name=""expressionName"">Angry</arg>
+   <arg name=""conditions"">Right=Victory</arg>
+   </tool>
 ```
 Use `Left=` or `Right=` prefix to specify which hand triggers the expression.
 Both hands: `'Left=Fist;Right=Victory'` (AND condition).
@@ -429,27 +699,43 @@ Either hand: `'Either=Fist'`.
 
 ### N. Batch Create Multiple Expressions (""表情を全部作り直して"")
 ```
-1. [AnalyzeFaceBlendShapes('Avatar')] → Build profile once (cached for the rest of the batch)
-2. [ListFaceEmoExpressions()] → Check current state
-3. [AskUser] → Confirm which expressions to create/replace
+1. <tool name=""AnalyzeFaceBlendShapes"">
+   <arg name=""avatarRootName"">Avatar</arg>
+   </tool> → Build profile once (cached for the rest of the batch)
+2. <tool name=""ListFaceEmoExpressions""></tool> → Check current state
+3. <tool name=""AskUser""></tool> → Confirm which expressions to create/replace
 4. For each expression, repeat Workflow B (preset path):
-   a. [SuggestExpressionShapes('Avatar', '<intent>')] → Get shapeData
-   b. [SetExpressionPreviewMulti('Avatar', '<shapeData>')] → Apply
-   c. [CaptureFacePreview('Avatar')] → Verify
-   d. [AskUser] → Confirm
-   e. [CreateAndRegisterExpression] → Save + register
-   f. [AddGestureBranch] → Assign gesture
+   a. <tool name=""SuggestExpressionShapes"">
+      <arg name=""avatarRootName"">Avatar</arg>
+      <arg name=""intent""><intent></arg>
+      </tool> → Get shapeData
+   b. <tool name=""SetExpressionPreviewMulti"">
+      <arg name=""avatarRootName"">Avatar</arg>
+      <arg name=""blendShapeData""><shapeData></arg>
+      </tool> → Apply
+   c. <tool name=""CaptureFacePreview"">
+      <arg name=""avatarRootName"">Avatar</arg>
+      </tool> → Verify
+   d. <tool name=""AskUser""></tool> → Confirm
+   e. <tool name=""CreateAndRegisterExpression""></tool> → Save + register
+   f. <tool name=""AddGestureBranch""></tool> → Assign gesture
    (no per-iteration reset needed — next preview overwrites)
 ```
 
 ### O. Workflow C: Gesture-Aware Expression Creation (Plan C) (""<avatar> に <表情> つけて"")
 ```
-1. [ResolveTargetAvatar('<promptHint>')] → avatar 名 + confidence
+1. <tool name=""ResolveTargetAvatar"">
+   <arg name=""promptHint""><promptHint></arg>
+   </tool> → avatar 名 + confidence
    - 'None' なら user に Hierarchy から選んでもらう
    - 'Ambiguous' なら AskUser で alternatives から選択
 
-2. [InspectFaceEmoState(avatarRootName)] → state
-   - NoLauncher: [AutoSetupFaceEmoForAvatar(avatarRootName)]
+2. <tool name=""InspectFaceEmoState"">
+   <arg name=""avatarRootName"">avatarRootName</arg>
+   </tool> → state
+   - NoLauncher: <tool name=""AutoSetupFaceEmoForAvatar"">
+     <arg name=""avatarRootName"">avatarRootName</arg>
+     </tool>
    - LauncherUnconfigured: 同上
    - HasModes: 次へ
 
@@ -457,25 +743,46 @@ Either hand: `'Either=Fist'`.
 
 4. Mode 選択 (modes >1 なら AskUser、1 つなら採用宣言)
 
-5. [ListGestureBindings(launcher, mode)] → 現在 bindings 確認
+5. <tool name=""ListGestureBindings"">
+   <arg name=""launcherName"">launcher</arg>
+   <arg name=""modeName"">mode</arg>
+   </tool> → 現在 bindings 確認
    AskUser gesture (8-grid + IntentGestureMap の推奨 ★)
    発話に gesture 名あれば skip
 
 6. Hand qualifier (デフォルト Either、'左手で' 等で override)
 
-7. [FindBranchByCondition(...)] が >=0 なら既存 binding 有
+7. <tool name=""FindBranchByCondition"">...</tool> が >=0 なら既存 binding 有
    → AskUser [上書き / 編集 / Cancel]
-   [DetectGestureConflicts(...)] が空でなければ shadowed branches を user に提示
+   <tool name=""DetectGestureConflicts"">...</tool> が空でなければ shadowed branches を user に提示
 
 8. AI 任せ mode: SuggestExpressionShapes (Plan A) → 3 variation サムネ生成 → AskUser
-   編集 mode:    [SuggestCandidateShapes(avatar, intent, 'wide')] → 10-15 候補 + 3 案
-                 [OpenExpressionSession(modeName='', newName='temp', avatar, editMode='create-branch-clip')]
-                 [ApplyExpressionVariation(...)] → SetExpressionPreviewMulti で値を適用
+   編集 mode:    <tool name=""SuggestCandidateShapes"">
+                 <arg name=""avatarRootName"">avatar</arg>
+                 <arg name=""intent"">intent</arg>
+                 <arg name=""breadth"">wide</arg>
+                 </tool> → 10-15 候補 + 3 案
+                 <tool name=""OpenExpressionSession"">
+                 <arg name=""modeName""></arg>
+                 <arg name=""newName"">temp</arg>
+                 <arg name=""avatarRootName"">avatar</arg>
+                 <arg name=""editMode"">create-branch-clip</arg>
+                 </tool>
+                 <tool name=""ApplyExpressionVariation"">...</tool> → SetExpressionPreviewMulti で値を適用
                  AskUser [編集する / 次の variation / Cancel]
 
-9. user 編集完了 → [CommitExpressionSessionToBranch(modeName, gesture, hand, slot='Base', overwriteMode='Overwrite')]
+9. user 編集完了 → <tool name=""CommitExpressionSessionToBranch"">
+   <arg name=""modeName"">modeName</arg>
+   <arg name=""gesture"">gesture</arg>
+   <arg name=""hand"">hand</arg>
+   <arg name=""slot"">Base</arg>
+   <arg name=""overwriteMode"">Overwrite</arg>
+   </tool>
 
-10. [CaptureFaceEmoGestureTable(avatarRootName, modeName)] → 結果画像
+10. <tool name=""CaptureFaceEmoGestureTable"">
+    <arg name=""modeName"">modeName</arg>
+    <arg name=""avatarRootName"">avatarRootName</arg>
+    </tool> → 結果画像
 
 注: Registered 7 枠を消費しないこと。Branch 経路 (CommitExpressionSessionToBranch) がデフォルト。
 注: 既存 clip 編集モード時 (editMode='edit-existing-clip') は別ルート、AI は新 shape 追加のみ。
@@ -589,7 +896,10 @@ Primarily uses Avatar Optimizer (AAO) and the NDMF framework.
 The most important component for automatic whole-avatar optimization.
 ```
 1. Select the avatar root
-2. [AddComponent('avatarRootName', 'AAOTraceAndOptimize')]
+2. <tool name=""AddComponent"">
+   <arg name=""gameObjectName"">avatarRootName</arg>
+   <arg name=""componentName"">AAOTraceAndOptimize</arg>
+   </tool>
    *Verify exact component name with SearchTools
 3. Optimization is automatically applied at build time
 ```
@@ -612,7 +922,9 @@ Removes invisible mesh portions to reduce polygon count.
 
 ### 1. Check Current Status
 ```
-[GetAvatarPerformanceStats('avatarRootName')]
+<tool name=""GetAvatarPerformanceStats"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 Shows performance rank for all categories. Check each category rank and overall rank.
 
@@ -793,27 +1105,47 @@ VRChat avatar's 5 layers:
 
 ### Check Parameters
 ```
-[ListVRCExpressionParameters('avatarRootName')]
+<tool name=""ListVRCExpressionParameters"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 
 ### Add Parameter
 ```
-[AddVRCExpressionParameter('avatarRootName', 'ParamName', 'Bool', 1.0, saved=true, synced=true)]
+<tool name=""AddVRCExpressionParameter"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""paramName"">ParamName</arg>
+<arg name=""type"">Bool</arg>
+<arg name=""defaultValue"">1.0</arg>
+<arg name=""saved"">true</arg>
+<arg name=""synced"">true</arg>
+</tool>
 ```
 
 ### Remove Parameter
 ```
-[RemoveVRCExpressionParameter('avatarRootName', 'ParamName')]
+<tool name=""RemoveVRCExpressionParameter"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""paramName"">ParamName</arg>
+</tool>
 ```
 
 ### Add Parameter to FX Controller
 ```
-[AddAnimatorParameter('fxControllerPath', 'ParamName', 'bool', 'true')]
+<tool name=""AddAnimatorParameter"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""name"">ParamName</arg>
+<arg name=""type"">bool</arg>
+<arg name=""defaultValue"">true</arg>
+</tool>
 ```
 
 ### Object Toggle (One-Step Setup)
 ```
-[SetupObjectToggle('avatarRootName', 'objectPath')]
+<tool name=""SetupObjectToggle"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""targetPath"">objectPath</arg>
+</tool>
 ```
 
 ## Notes
@@ -845,22 +1177,36 @@ Expression Menu (radial menu).
 
 One-step tool for complete setup:
 ```
-[SetupObjectToggle('avatarRootName', 'toggleTargetPath')]
+<tool name=""SetupObjectToggle"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""targetPath"">toggleTargetPath</arg>
+</tool>
 ```
 
 Example: Toggle Sailor-Jersey:
 ```
-[SetupObjectToggle('Chiffon', 'Sailor-Jersey')]
+<tool name=""SetupObjectToggle"">
+<arg name=""avatarRootName"">Chiffon</arg>
+<arg name=""targetPath"">Sailor-Jersey</arg>
+</tool>
 ```
 
 Default OFF (initially hidden):
 ```
-[SetupObjectToggle('Chiffon', 'Sailor-Jersey', defaultOn=false)]
+<tool name=""SetupObjectToggle"">
+<arg name=""avatarRootName"">Chiffon</arg>
+<arg name=""targetPath"">Sailor-Jersey</arg>
+<arg name=""defaultOn"">false</arg>
+</tool>
 ```
 
 With a custom name:
 ```
-[SetupObjectToggle('Chiffon', 'Sailor-Jersey', toggleName='SailorJersey')]
+<tool name=""SetupObjectToggle"">
+<arg name=""avatarRootName"">Chiffon</arg>
+<arg name=""targetPath"">Sailor-Jersey</arg>
+<arg name=""toggleName"">SailorJersey</arg>
+</tool>
 ```
 
 This tool automatically creates:
@@ -873,58 +1219,110 @@ This tool automatically creates:
 
 ### Step 1: Identify Target Object Path
 ```
-[ListChildren('avatarRootName')]
+<tool name=""ListChildren"">
+<arg name=""name"">avatarRootName</arg>
+</tool>
 ```
 Find the target GameObject from the avatar's direct children.
 Specify the path as a relative path from the avatar root.
 
 ### Step 2: Create Toggle Animations
 ```
-[CreateToggleAnimations('avatarRootName', 'relativeObjectPath')]
+<tool name=""CreateToggleAnimations"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""targetPath"">relativeObjectPath</arg>
+</tool>
 ```
 Creates two animation clips: ON (m_IsActive=1) and OFF (m_IsActive=0).
 
 ### Step 3: Check FX Controller
 ```
-[GetVRCFXControllerPath('avatarRootName')]
+<tool name=""GetVRCFXControllerPath"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 Get the FX AnimatorController asset path.
 
 ### Step 4: Add Parameter to FX Controller
 ```
-[AddAnimatorParameter('fxControllerPath', 'toggleName', 'bool', 'true')]
+<tool name=""AddAnimatorParameter"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""name"">toggleName</arg>
+<arg name=""type"">bool</arg>
+<arg name=""defaultValue"">true</arg>
+</tool>
 ```
 
 ### Step 5: Add FX Layer
 ```
-[AddAnimatorLayer('fxControllerPath', 'Toggle_toggleName')]
+<tool name=""AddAnimatorLayer"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""layerName"">Toggle_toggleName</arg>
+</tool>
 ```
 ```
-[SetAnimatorLayerWeight('fxControllerPath', layerIndex, 1.0)]
+<tool name=""SetAnimatorLayerWeight"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""layerIndex"">layerIndex</arg>
+<arg name=""weight"">1.0</arg>
+</tool>
 ```
 
 ### Step 6: Add States
 ```
-[AddAnimatorState('fxControllerPath', 'ON', 'onClipPath', layerIndex)]
-[AddAnimatorState('fxControllerPath', 'OFF', 'offClipPath', layerIndex)]
+<tool name=""AddAnimatorState"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""stateName"">ON</arg>
+<arg name=""motionPath"">onClipPath</arg>
+<arg name=""layerIndex"">layerIndex</arg>
+</tool>
+<tool name=""AddAnimatorState"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""stateName"">OFF</arg>
+<arg name=""motionPath"">offClipPath</arg>
+<arg name=""layerIndex"">layerIndex</arg>
+</tool>
 ```
 
 ### Step 7: Add Transitions
 ```
-[AddAnimatorTransition('fxControllerPath', 'OFF', 'ON', 'toggleName=true', layerIndex)]
-[AddAnimatorTransition('fxControllerPath', 'ON', 'OFF', 'toggleName=false', layerIndex)]
+<tool name=""AddAnimatorTransition"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""fromState"">OFF</arg>
+<arg name=""toState"">ON</arg>
+<arg name=""conditions"">toggleName=true</arg>
+<arg name=""layerIndex"">layerIndex</arg>
+</tool>
+<tool name=""AddAnimatorTransition"">
+<arg name=""controllerPath"">fxControllerPath</arg>
+<arg name=""fromState"">ON</arg>
+<arg name=""toState"">OFF</arg>
+<arg name=""conditions"">toggleName=false</arg>
+<arg name=""layerIndex"">layerIndex</arg>
+</tool>
 ```
 
 ### Step 8: Add Expression Parameter
 ```
-[AddVRCExpressionParameter('avatarRootName', 'toggleName', 'Bool', 1.0, saved=true, synced=true)]
+<tool name=""AddVRCExpressionParameter"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""paramName"">toggleName</arg>
+<arg name=""type"">Bool</arg>
+<arg name=""defaultValue"">1.0</arg>
+<arg name=""saved"">true</arg>
+<arg name=""synced"">true</arg>
+</tool>
 ```
 - Bool parameter, synced to other players
 - defaultValue: 1.0=default ON, 0.0=default OFF
 
 ### Step 9: Add Expression Menu Toggle
 ```
-[AddVRCExpressionsMenuToggle('avatarRootName', 'toggleName', 'toggleName')]
+<tool name=""AddVRCExpressionsMenuToggle"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""controlName"">toggleName</arg>
+<arg name=""paramName"">toggleName</arg>
+</tool>
 ```
 
 ## When Menu is Full (SubMenu Support)
@@ -933,22 +1331,44 @@ Expression Menu allows a maximum of 8 controls per page. When full, use submenus
 
 ### Creating a SubMenu
 ```
-[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Outfits')]
+<tool name=""AddVRCExpressionsMenuSubMenu"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""controlName"">Outfits</arg>
+</tool>
 ```
 A new VRCExpressionsMenu asset is automatically generated and linked as a SubMenu control.
 
 ### Adding Controls to a SubMenu
 Use the `subMenuPath` parameter to add within a submenu:
 ```
-[AddVRCExpressionsMenuToggle('avatarRootName', 'Hat', 'Hat', subMenuPath='Outfits')]
-[AddVRCExpressionsMenuToggle('avatarRootName', 'Glasses', 'Glasses', subMenuPath='Outfits')]
+<tool name=""AddVRCExpressionsMenuToggle"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""controlName"">Hat</arg>
+<arg name=""paramName"">Hat</arg>
+<arg name=""subMenuPath"">Outfits</arg>
+</tool>
+<tool name=""AddVRCExpressionsMenuToggle"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""controlName"">Glasses</arg>
+<arg name=""paramName"">Glasses</arg>
+<arg name=""subMenuPath"">Outfits</arg>
+</tool>
 ```
 
 ### Nested SubMenus
 `subMenuPath` supports slash-separated nesting:
 ```
-[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Details', subMenuPath='Outfits')]
-[AddVRCExpressionsMenuToggle('avatarRootName', 'Ring', 'Ring', subMenuPath='Outfits/Details')]
+<tool name=""AddVRCExpressionsMenuSubMenu"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""controlName"">Details</arg>
+<arg name=""subMenuPath"">Outfits</arg>
+</tool>
+<tool name=""AddVRCExpressionsMenuToggle"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""controlName"">Ring</arg>
+<arg name=""paramName"">Ring</arg>
+<arg name=""subMenuPath"">Outfits/Details</arg>
+</tool>
 ```
 
 ## Tool Call Examples
@@ -956,26 +1376,46 @@ Use the `subMenuPath` parameter to add within a submenu:
 ### Example 1: Outfit Toggle (One-Step Setup)
 ```
 User: ""Make Sailor-Jersey toggleable from the Expression Menu""
-AI: [SetupObjectToggle('Chiffon', 'Sailor-Jersey')]
+AI: <tool name=""SetupObjectToggle"">
+    <arg name=""avatarRootName"">Chiffon</arg>
+    <arg name=""targetPath"">Sailor-Jersey</arg>
+    </tool>
     Result: Creates ON/OFF animations, FX layer, parameter, and menu entry in one step
 ```
 
 ### Example 2: Accessory Toggle (Default OFF)
 ```
 User: ""Add glasses as a toggle, hidden by default""
-AI: [SetupObjectToggle('Avatar', 'Glasses', defaultOn=false)]
+AI: <tool name=""SetupObjectToggle"">
+    <arg name=""avatarRootName"">Avatar</arg>
+    <arg name=""targetPath"">Glasses</arg>
+    <arg name=""defaultOn"">false</arg>
+    </tool>
 ```
 
 ### Example 3: SubMenu When Menu is Full
 ```
 User: ""The menu is full but I want to add another toggle""
-AI: [InspectVRCExpressionsMenu('Avatar')]
+AI: <tool name=""InspectVRCExpressionsMenu"">
+    <arg name=""avatarRootName"">Avatar</arg>
+    </tool>
     → Confirm 8 controls
-    [AddVRCExpressionsMenuSubMenu('Avatar', 'Accessories')]
+    <tool name=""AddVRCExpressionsMenuSubMenu"">
+    <arg name=""avatarRootName"">Avatar</arg>
+    <arg name=""controlName"">Accessories</arg>
+    </tool>
     → Create submenu
-    [SetupObjectToggle('Avatar', 'NewItem')]
+    <tool name=""SetupObjectToggle"">
+    <arg name=""avatarRootName"">Avatar</arg>
+    <arg name=""targetPath"">NewItem</arg>
+    </tool>
     → If menu is full, manually add to submenu:
-    [AddVRCExpressionsMenuToggle('Avatar', 'NewItem', 'NewItem', subMenuPath='Accessories')]
+    <tool name=""AddVRCExpressionsMenuToggle"">
+    <arg name=""avatarRootName"">Avatar</arg>
+    <arg name=""controlName"">NewItem</arg>
+    <arg name=""paramName"">NewItem</arg>
+    <arg name=""subMenuPath"">Accessories</arg>
+    </tool>
 ```
 
 ## VRChat Expression Menu Basics
@@ -998,8 +1438,14 @@ AI: [InspectVRCExpressionsMenu('Avatar')]
 
 ### Removing Controls
 ```
-[RemoveVRCExpressionsMenuControl('avatarRootName', 'controlName')]
-[RemoveVRCExpressionParameter('avatarRootName', 'parameterName')]
+<tool name=""RemoveVRCExpressionsMenuControl"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""controlName"">controlName</arg>
+</tool>
+<tool name=""RemoveVRCExpressionParameter"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""paramName"">parameterName</arg>
+</tool>
 ```
 
 ### FX Layer Rules
@@ -1042,36 +1488,61 @@ For detailed placement procedure, see `ReadSkill('accessory-setup')`.
 ## Step 1: Analyze Gimmick Structure
 Check if the gimmick contains MA/VRCFury components:
 ```
-[AnalyzeGimmickStructure('weaponPrefabName')]
+<tool name=""AnalyzeGimmickStructure"">
+<arg name=""gameObjectName"">weaponPrefabName</arg>
+</tool>
 ```
 - BoneProxy already configured → Just place as child of avatar
 - BoneProxy not configured → Manual placement needed
 
 ## Step 2: Place Prefab as Child of Avatar
 ```
-[InstantiatePrefab('Assets/.../Weapon.prefab', 'avatarRootName')]
+<tool name=""InstantiatePrefab"">
+<arg name=""assetPath"">Assets/.../Weapon.prefab</arg>
+<arg name=""parentName"">avatarRootName</arg>
+</tool>
 ```
 
 ## Step 3: Determine Attachment Location and Auto-Align
 
 ### Holding in Hand
 ```
-[AlignAccessoryToBone('weaponName', 'avatarRootName', 'RightHand', 'grip')]
+<tool name=""AlignAccessoryToBone"">
+<arg name=""accessoryName"">weaponName</arg>
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""boneName"">RightHand</arg>
+<arg name=""attachmentStyle"">grip</arg>
+</tool>
 ```
 
 ### Hip/Thigh Attachment (Holster, Sheath)
 ```
-[AlignAccessoryToBone('weaponName', 'avatarRootName', 'RightUpperLeg', 'surface', 'right')]
+<tool name=""AlignAccessoryToBone"">
+<arg name=""accessoryName"">weaponName</arg>
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""boneName"">RightUpperLeg</arg>
+<arg name=""attachmentStyle"">surface</arg>
+<arg name=""direction"">right</arg>
+</tool>
 ```
 
 ### Back Attachment
 ```
-[AlignAccessoryToBone('weaponName', 'avatarRootName', 'Spine', 'surface', 'back')]
+<tool name=""AlignAccessoryToBone"">
+<arg name=""accessoryName"">weaponName</arg>
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""boneName"">Spine</arg>
+<arg name=""attachmentStyle"">surface</arg>
+<arg name=""direction"">back</arg>
+</tool>
 ```
 
 ## Step 4: Verify
 ```
-[CaptureMultiAngle('weaponName', 'front,left,right,back')]
+<tool name=""CaptureMultiAngle"">
+<arg name=""targetName"">weaponName</arg>
+<arg name=""angles"">front,left,right,back</arg>
+</tool>
 ```
 
 ## Step 5: Fine Adjustment
@@ -1222,16 +1693,34 @@ time:value, time:value, time:value
 User: ""Create a right-hand waving animation""
 
 1. Check bone structure:
-[ListBones('MyAvatar', 'Arm')]
+<tool name=""ListBones"">
+<arg name=""avatarRootName"">MyAvatar</arg>
+<arg name=""filter"">Arm</arg>
+</tool>
 
 2. Create clip:
-[CreateAnimationClip('wave', 'Assets/Animations', 2.0, true)]
+<tool name=""CreateAnimationClip"">
+<arg name=""clipName"">wave</arg>
+<arg name=""savePath"">Assets/Animations</arg>
+<arg name=""length"">2.0</arg>
+<arg name=""isLooping"">true</arg>
+</tool>
 
 3. Raise right upper arm (Z-axis rotation to raise arm sideways):
-[SetAnimationCurve('Assets/Animations/wave.anim', 'Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R', 'rotation.z', '0:-60, 0.3:-60, 1.7:-60, 2.0:-60')]
+<tool name=""SetAnimationCurve"">
+<arg name=""clipPath"">Assets/Animations/wave.anim</arg>
+<arg name=""bonePath"">Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R</arg>
+<arg name=""property"">rotation.z</arg>
+<arg name=""keyframes"">0:-60, 0.3:-60, 1.7:-60, 2.0:-60</arg>
+</tool>
 
 4. Wave with forearm (Z-axis oscillation):
-[SetAnimationCurve('Assets/Animations/wave.anim', 'Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R/Lower_Arm_R', 'rotation.z', '0:0, 0.3:-30, 0.6:30, 0.9:-30, 1.2:30, 1.5:-30, 1.8:30, 2.0:0')]
+<tool name=""SetAnimationCurve"">
+<arg name=""clipPath"">Assets/Animations/wave.anim</arg>
+<arg name=""bonePath"">Armature/Hips/Spine/Chest/Shoulder_R/Upper_Arm_R/Lower_Arm_R</arg>
+<arg name=""property"">rotation.z</arg>
+<arg name=""keyframes"">0:0, 0.3:-30, 0.6:30, 0.9:-30, 1.2:30, 1.5:-30, 1.8:30, 2.0:0</arg>
+</tool>
 ```
 
 ### Nodding Animation
@@ -1240,10 +1729,20 @@ User: ""Create a nodding animation""
 
 1. Check bones → Get Head bone path
 2. Create clip:
-[CreateAnimationClip('nod', 'Assets/Animations', 0.8, false)]
+<tool name=""CreateAnimationClip"">
+<arg name=""clipName"">nod</arg>
+<arg name=""savePath"">Assets/Animations</arg>
+<arg name=""length"">0.8</arg>
+<arg name=""isLooping"">false</arg>
+</tool>
 
 3. Tilt head forward (X-axis rotation):
-[SetAnimationCurve('Assets/Animations/nod.anim', 'Armature/Hips/Spine/Chest/Neck/Head', 'rotation.x', '0:0, 0.2:15, 0.4:0, 0.6:10, 0.8:0')]
+<tool name=""SetAnimationCurve"">
+<arg name=""clipPath"">Assets/Animations/nod.anim</arg>
+<arg name=""bonePath"">Armature/Hips/Spine/Chest/Neck/Head</arg>
+<arg name=""property"">rotation.x</arg>
+<arg name=""keyframes"">0:0, 0.2:15, 0.4:0, 0.6:10, 0.8:0</arg>
+</tool>
 ```
 
 ### Facial Expression Animation (BlendShape)
@@ -1251,22 +1750,54 @@ User: ""Create a nodding animation""
 User: ""Create a smile animation""
 
 1. Check BlendShape names:
-[ListBlendShapes('Body')]
+<tool name=""ListBlendShapes"">
+<arg name=""goName"">Body</arg>
+</tool>
 
 2. Create clip:
-[CreateAnimationClip('smile', 'Assets/Animations', 0.5, false)]
+<tool name=""CreateAnimationClip"">
+<arg name=""clipName"">smile</arg>
+<arg name=""savePath"">Assets/Animations</arg>
+<arg name=""length"">0.5</arg>
+<arg name=""isLooping"">false</arg>
+</tool>
 
 3. Set smile BlendShape:
-[SetAnimationCurve('Assets/Animations/smile.anim', 'Body', 'blendShape.face_smile', '0:0, 0.3:100, 0.5:100')]
+<tool name=""SetAnimationCurve"">
+<arg name=""clipPath"">Assets/Animations/smile.anim</arg>
+<arg name=""bonePath"">Body</arg>
+<arg name=""property"">blendShape.face_smile</arg>
+<arg name=""keyframes"">0:0, 0.3:100, 0.5:100</arg>
+</tool>
 ```
 
 ### Object Toggle (Show/Hide)
 ```
-[CreateAnimationClip('hat_on', 'Assets/Animations', 0.0, false)]
-[SetAnimationCurve('Assets/Animations/hat_on.anim', 'Hat', 'active', '0:1')]
+<tool name=""CreateAnimationClip"">
+<arg name=""clipName"">hat_on</arg>
+<arg name=""savePath"">Assets/Animations</arg>
+<arg name=""length"">0.0</arg>
+<arg name=""isLooping"">false</arg>
+</tool>
+<tool name=""SetAnimationCurve"">
+<arg name=""clipPath"">Assets/Animations/hat_on.anim</arg>
+<arg name=""bonePath"">Hat</arg>
+<arg name=""property"">active</arg>
+<arg name=""keyframes"">0:1</arg>
+</tool>
 
-[CreateAnimationClip('hat_off', 'Assets/Animations', 0.0, false)]
-[SetAnimationCurve('Assets/Animations/hat_off.anim', 'Hat', 'active', '0:0')]
+<tool name=""CreateAnimationClip"">
+<arg name=""clipName"">hat_off</arg>
+<arg name=""savePath"">Assets/Animations</arg>
+<arg name=""length"">0.0</arg>
+<arg name=""isLooping"">false</arg>
+</tool>
+<tool name=""SetAnimationCurve"">
+<arg name=""clipPath"">Assets/Animations/hat_off.anim</arg>
+<arg name=""bonePath"">Hat</arg>
+<arg name=""property"">active</arg>
+<arg name=""keyframes"">0:0</arg>
+</tool>
 ```
 
 ## Tips for Natural Motion
@@ -1319,7 +1850,9 @@ Procedure for dressing a VRChat avatar in outfits.
 
 ### Step 1: Check Current Outfit
 ```
-[ListChildren('avatarRootName')]
+<tool name=""ListChildren"">
+<arg name=""name"">avatarRootName</arg>
+</tool>
 ```
 Check the avatar's direct children to identify outfit-related objects.
 Outfit objects are typically mesh objects or outfit prefabs other than the Armature.
@@ -1329,8 +1862,14 @@ Hide each existing outfit object and set its tag to EditorOnly.
 **Hiding alone is not enough**. Data remains when uploading, so the EditorOnly tag is also needed.
 
 ```
-[SetActive('avatarRootName/outfitObjectName', false)]
-[SetTag('avatarRootName/outfitObjectName', 'EditorOnly')]
+<tool name=""SetActive"">
+<arg name=""gameObjectName"">avatarRootName/outfitObjectName</arg>
+<arg name=""active"">false</arg>
+</tool>
+<tool name=""SetTag"">
+<arg name=""gameObjectName"">avatarRootName/outfitObjectName</arg>
+<arg name=""tag"">EditorOnly</arg>
+</tool>
 ```
 
 Execute for all outfit parts if there are multiple.
@@ -1342,31 +1881,46 @@ If shrinks remain, the base body will appear thin.
 
 1. Check shrink-related BlendShapes on the Body mesh:
 ```
-[ListBlendShapesEx('avatarRootName/Body', 'shrink')]
+<tool name=""ListBlendShapesEx"">
+<arg name=""gameObjectName"">avatarRootName/Body</arg>
+<arg name=""filter"">shrink</arg>
+</tool>
 ```
 
 2. Reset all non-zero shrinks to 0:
 ```
-[SetMultipleBlendShapes('avatarRootName/Body', 'Shrink_XXX=0;Shrink_YYY=0')]
+<tool name=""SetMultipleBlendShapes"">
+<arg name=""gameObjectName"">avatarRootName/Body</arg>
+<arg name=""blendShapeData"">Shrink_XXX=0;Shrink_YYY=0</arg>
+</tool>
 ```
 
 ### Step 3: Search for Compatible Outfit Prefab
 ```
-[SearchAssets('outfitName', 'Prefab')]
+<tool name=""SearchAssets"">
+<arg name=""query"">outfitName</arg>
+<arg name=""typeFilter"">Prefab</arg>
+</tool>
 ```
 Select a prefab that contains the avatar name (e.g., `Chiffon_RetroKimono.prefab`).
 Compatible outfits typically include the avatar name in the prefab name.
 
 ### Step 4: Place Outfit Prefab as Child of Avatar
 ```
-[InstantiatePrefab('Assets/path/to/outfit.prefab', 'avatarRootName')]
+<tool name=""InstantiatePrefab"">
+<arg name=""assetPath"">Assets/path/to/outfit.prefab</arg>
+<arg name=""parentName"">avatarRootName</arg>
+</tool>
 ```
 **Important**: Always specify the avatar root name as the 2nd argument `parentName`.
 Placing at scene root instead of as avatar child will prevent Setup Outfit from working.
 
 ### Step 5: Run Modular Avatar Setup Outfit
 ```
-[SetupOutfit('avatarRootName', 'outfitObjectName')]
+<tool name=""SetupOutfit"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""outfitName"">outfitObjectName</arg>
+</tool>
 ```
 This automatically configures:
 - ModularAvatarMergeArmature component addition
@@ -1379,12 +1933,18 @@ Set body shrink BlendShapes for the new outfit to prevent skin clipping.
 
 1. Check shrink-related BlendShapes on the Body mesh:
 ```
-[ListBlendShapesEx('avatarRootName/Body', 'shrink')]
+<tool name=""ListBlendShapesEx"">
+<arg name=""gameObjectName"">avatarRootName/Body</arg>
+<arg name=""filter"">shrink</arg>
+</tool>
 ```
 
 2. Set shrinks for body parts covered by the outfit to 100:
 ```
-[SetMultipleBlendShapes('avatarRootName/Body', 'Shrink_XXX=100;Shrink_YYY=100')]
+<tool name=""SetMultipleBlendShapes"">
+<arg name=""gameObjectName"">avatarRootName/Body</arg>
+<arg name=""blendShapeData"">Shrink_XXX=100;Shrink_YYY=100</arg>
+</tool>
 ```
 
 Note: Shrink names correspond to body parts or outfit areas.
@@ -1393,14 +1953,19 @@ It's preferable to ask the user which shrinks to apply.
 
 ### Step 6: Verify
 ```
-[InspectGameObject('avatarRootName/outfitObjectName')]
+<tool name=""InspectGameObject"">
+<arg name=""gameObjectName"">avatarRootName/outfitObjectName</arg>
+</tool>
 ```
 Verify that ModularAvatarMergeArmature and other components have been added.
 
 ## Adding Outfit Toggles
 To add Expression Menu toggles for outfit parts:
 ```
-[SetupObjectToggle('avatarRootName', 'outfitPartPath')]
+<tool name=""SetupObjectToggle"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""targetPath"">outfitPartPath</arg>
+</tool>
 ```
 See the `object-toggle` skill for details.
 
@@ -1416,20 +1981,30 @@ Even incompatible outfits (different bone structure) can be auto-fitted using Ou
 
 ### Step 1: Compatibility Analysis
 ```
-[AnalyzeOutfitCompatibility('outfitObjectName', 'avatarRootName')]
+<tool name=""AnalyzeOutfitCompatibility"">
+<arg name=""outfitName"">outfitObjectName</arg>
+<arg name=""avatarName"">avatarRootName</arg>
+</tool>
 ```
 Check bone structure comparison, proportion differences, and compatibility score.
 
 ### Step 2: Bone Mapping Verification
 ```
-[MapOutfitBones('outfitObjectName', 'avatarRootName')]
+<tool name=""MapOutfitBones"">
+<arg name=""outfitName"">outfitObjectName</arg>
+<arg name=""avatarName"">avatarRootName</arg>
+</tool>
 ```
 Review the auto-generated bone mapping table.
 Report any low-confidence mappings to the user.
 
 ### Step 3: Execute Retarget
 ```
-[RetargetOutfit('outfitObjectName', 'avatarRootName', 1.0)]
+<tool name=""RetargetOutfit"">
+<arg name=""outfitName"">outfitObjectName</arg>
+<arg name=""avatarName"">avatarRootName</arg>
+<arg name=""adaptStrength"">1.0</arg>
+</tool>
 ```
 - Remaps bones to avatar side
 - Recalculates bind poses
@@ -1440,13 +2015,20 @@ Report any low-confidence mappings to the user.
 
 ### Step 4: Penetration Check
 ```
-[DetectMeshPenetration('outfitMeshName', 'Body')]
+<tool name=""DetectMeshPenetration"">
+<arg name=""outfitMeshName"">outfitMeshName</arg>
+<arg name=""bodyMeshName"">Body</arg>
+</tool>
 ```
 Detects penetration between outfit mesh and body. Skip Step 5 if no penetration.
 
 ### Step 5: Fix Penetration (If Needed)
 ```
-[FixMeshPenetration('outfitMeshName', 'Body', 0.001)]
+<tool name=""FixMeshPenetration"">
+<arg name=""outfitMeshName"">outfitMeshName</arg>
+<arg name=""bodyMeshName"">Body</arg>
+<arg name=""offset"">0.001</arg>
+</tool>
 ```
 Pushes penetrating and too-close vertices outward along normals.
 Performs accurate mesh-space correction via inverse skinning, considering bone rotation.
@@ -1455,20 +2037,32 @@ Performs accurate mesh-space correction via inverse skinning, considering bone r
 Apply the avatar's existing Shrink BlendShapes.
 **Note**: The avatar's mesh is not modified. Only existing BlendShapes are activated.
 ```
-[ListBlendShapesEx('avatarRootName/Body', 'shrink')]
-[SetMultipleBlendShapes('avatarRootName/Body', 'Shrink_XXX=100;Shrink_YYY=100')]
+<tool name=""ListBlendShapesEx"">
+<arg name=""gameObjectName"">avatarRootName/Body</arg>
+<arg name=""filter"">shrink</arg>
+</tool>
+<tool name=""SetMultipleBlendShapes"">
+<arg name=""gameObjectName"">avatarRootName/Body</arg>
+<arg name=""blendShapeData"">Shrink_XXX=100;Shrink_YYY=100</arg>
+</tool>
 ```
 
 ### Step 7: Finish with MA Setup Outfit
 Move the retargeted outfit as a child of the avatar and finish with the same procedure as compatible outfits.
 ```
-[SetupOutfit('avatarRootName', 'outfitObjectName')]
+<tool name=""SetupOutfit"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""outfitName"">outfitObjectName</arg>
+</tool>
 ```
 
 ### Step 8: Weight Transfer (If Needed)
 If joint deformation looks unnatural, transfer weights from the avatar body mesh.
 ```
-[TransferOutfitWeights('outfitMeshName', 'Body')]
+<tool name=""TransferOutfitWeights"">
+<arg name=""outfitMeshName"">outfitMeshName</arg>
+<arg name=""avatarBodyMeshName"">Body</arg>
+</tool>
 ```
 
 ### Fitting Notes
@@ -1512,24 +2106,72 @@ tags: lilToon, emission, scroll, blink, animation
 ## Pattern 1: Emission Scroll (Shooting Stars, Light Streaks)
 
 ### Steps
-1. Check material: `[InspectLilToonMaterial('Assets/.../material.mat')]`
-2. Enable emission: `[SetLilToonFloat('Assets/.../material.mat', '_UseEmission', 1)]`
-3. Generate + apply texture: `[GenerateTextureWithAI('AvatarRoot/Hair', 'seamless shooting stars sparkle pattern on transparent background', '', 0, '_EmissionMap')]`
+1. Check material:
+   <tool name=""InspectLilToonMaterial"">
+   <arg name=""materialPath"">Assets/.../material.mat</arg>
+   </tool>
+2. Enable emission:
+   <tool name=""SetLilToonFloat"">
+   <arg name=""materialPath"">Assets/.../material.mat</arg>
+   <arg name=""property"">_UseEmission</arg>
+   <arg name=""value"">1</arg>
+   </tool>
+3. Generate + apply texture:
+   <tool name=""GenerateTextureWithAI"">
+   <arg name=""gameObjectName"">AvatarRoot/Hair</arg>
+   <arg name=""prompt"">seamless shooting stars sparkle pattern on transparent background</arg>
+   <arg name=""islandIndices""></arg>
+   <arg name=""materialIndex"">0</arg>
+   <arg name=""textureProperty"">_EmissionMap</arg>
+   </tool>
    - **Important**: _EmissionMap can be empty (auto-generates from transparent canvas)
-4. Set color: `[SetLilToonColors('Assets/.../material.mat', 'Emission', '1,1,1,1')]`
-5. Scroll: `[SetMaterialVector('Assets/.../material.mat', '_EmissionMap_ScrollRotate', '0,2,0,0')]`
+4. Set color:
+   <tool name=""SetLilToonColors"">
+   <arg name=""materialPath"">Assets/.../material.mat</arg>
+   <arg name=""property"">Emission</arg>
+   <arg name=""color"">1,1,1,1</arg>
+   </tool>
+5. Scroll:
+   <tool name=""SetMaterialVector"">
+   <arg name=""materialPath"">Assets/.../material.mat</arg>
+   <arg name=""propertyName"">_EmissionMap_ScrollRotate</arg>
+   <arg name=""value"">0,2,0,0</arg>
+   </tool>
    - Scrolls upward at speed 2
 
 ### Adding Blink
-`[SetMaterialVector('Assets/.../material.mat', '_EmissionBlink', '0.5,0,3.14,0')]`
+<tool name=""SetMaterialVector"">
+<arg name=""materialPath"">Assets/.../material.mat</arg>
+<arg name=""propertyName"">_EmissionBlink</arg>
+<arg name=""value"">0.5,0,3.14,0</arg>
+</tool>
 - 50% strength smooth pulsing
 
 ## Pattern 2: Main2nd Overlay Scroll
 
-1. `[SetLilToonFloat('Assets/.../material.mat', '_UseMain2ndTex', 1)]`
-2. `[GenerateTextureWithAI('AvatarRoot/Hair', 'seamless sparkle overlay pattern', '', 0, '_Main2ndTex')]`
-3. `[SetMaterialVector('Assets/.../material.mat', '_Main2ndTex_ScrollRotate', '1,0.5,0,0')]`
-4. Blend mode: `[SetMaterialFloat('Assets/.../material.mat', '_Main2ndTexBlendMode', 1)]` (1=Add)
+1. <tool name=""SetLilToonFloat"">
+   <arg name=""materialPath"">Assets/.../material.mat</arg>
+   <arg name=""property"">_UseMain2ndTex</arg>
+   <arg name=""value"">1</arg>
+   </tool>
+2. <tool name=""GenerateTextureWithAI"">
+   <arg name=""gameObjectName"">AvatarRoot/Hair</arg>
+   <arg name=""prompt"">seamless sparkle overlay pattern</arg>
+   <arg name=""islandIndices""></arg>
+   <arg name=""materialIndex"">0</arg>
+   <arg name=""textureProperty"">_Main2ndTex</arg>
+   </tool>
+3. <tool name=""SetMaterialVector"">
+   <arg name=""materialPath"">Assets/.../material.mat</arg>
+   <arg name=""propertyName"">_Main2ndTex_ScrollRotate</arg>
+   <arg name=""value"">1,0.5,0,0</arg>
+   </tool>
+4. Blend mode:
+   <tool name=""SetMaterialFloat"">
+   <arg name=""materialPath"">Assets/.../material.mat</arg>
+   <arg name=""propertyName"">_Main2ndTexBlendMode</arg>
+   <arg name=""value"">1</arg>
+   </tool> (1=Add)
 
 ## Scroll-Compatible Properties
 
@@ -1627,29 +2269,70 @@ GenerateTextureWithAI(
 User: ""Make the avatar's eyes look like space""
 
 AI:
-1. ListRenderers(""avatarName"") → Confirm Body Material[0]: body contains eyes
-2. ListMeshIslands(""avatarName/Body"") → Island list
-3. EnableIslandSelectionMode(""avatarName/Body"")
+1. Confirm Body Material[0]: body contains eyes
+<tool name=""ListRenderers"">
+<arg name=""gameObjectName"">avatarName</arg>
+</tool>
+2. Island list
+<tool name=""ListMeshIslands"">
+<arg name=""gameObjectName"">avatarName/Body</arg>
+</tool>
+3.
+<tool name=""EnableIslandSelectionMode"">
+<arg name=""gameObjectName"">avatarName/Body</arg>
+</tool>
 4. ""Please click on the eye area in the Scene view""
-5. GetSelectedIslands() → ""5;6""
-6. GenerateTextureWithAI(""avatarName/Body"", ""Transform the eye iris area into a cosmic galaxy nebula with deep blue, purple, and sparkles"", ""5;6"", 0, ""_MainTex"")
+5. → ""5;6""
+<tool name=""GetSelectedIslands"">
+</tool>
+6.
+<tool name=""GenerateTextureWithAI"">
+<arg name=""gameObjectName"">avatarName/Body</arg>
+<arg name=""prompt"">Transform the eye iris area into a cosmic galaxy nebula with deep blue, purple, and sparkles</arg>
+<arg name=""islandIndices"">5;6</arg>
+<arg name=""materialIndex"">0</arg>
+<arg name=""textureProperty"">_MainTex</arg>
+</tool>
 ```
 
 ### Example 2: Make Eyes Glow with Emission
 ```
 AI:
 1. (Same island identification as above)
-2. GenerateTextureWithAI(""avatarName/Body"", ""Create a glowing nebula emission pattern"", ""5;6"", 0, ""_EmissionMap"")
+2.
+<tool name=""GenerateTextureWithAI"">
+<arg name=""gameObjectName"">avatarName/Body</arg>
+<arg name=""prompt"">Create a glowing nebula emission pattern</arg>
+<arg name=""islandIndices"">5;6</arg>
+<arg name=""materialIndex"">0</arg>
+<arg name=""textureProperty"">_EmissionMap</arg>
+</tool>
 ```
 
 ### Example 3: Hair Gradient
 ```
 AI:
-1. ListMeshIslands(""avatarName/hair"")
-2. EnableIslandSelectionMode(""avatarName/hair"")
+1.
+<tool name=""ListMeshIslands"">
+<arg name=""gameObjectName"">avatarName/hair</arg>
+</tool>
+2.
+<tool name=""EnableIslandSelectionMode"">
+<arg name=""gameObjectName"">avatarName/hair</arg>
+</tool>
 3. User selects hair tip islands
-4. GetSelectedIslands() → ""0;1;2""
-5. ApplyGradientEx(""avatarName/hair"", ""1.0,0.8,0.9"", ""0.5,0.2,0.8"", ""top_to_bottom"", ""screen"", ""0;1;2"")
+4. → ""0;1;2""
+<tool name=""GetSelectedIslands"">
+</tool>
+5.
+<tool name=""ApplyGradientEx"">
+<arg name=""gameObjectName"">avatarName/hair</arg>
+<arg name=""fromColor"">1.0,0.8,0.9</arg>
+<arg name=""toColor"">0.5,0.2,0.8</arg>
+<arg name=""direction"">top_to_bottom</arg>
+<arg name=""blendMode"">screen</arg>
+<arg name=""islandIndices"">0;1;2</arg>
+</tool>
 ```
 
 ## Notes
@@ -1682,12 +2365,47 @@ AI:
 - ✅ ScanAvatarMeshes → visually confirm → use correct path
 
 ### Color Quick Reference
-- Recolor: ApplyGradientEx(""go"", ""#FF0000"", ""#FF0000"", blendMode=""tint"")
-- Lighten: ApplyGradientEx(""go"", ""#FFFFFF"", ""#FFFFFF"", blendMode=""screen"")
-- Gradient: ApplyGradientEx(""go"", ""#FF0000"", ""#0000FF"")
-- Brighten: AdjustHSV(""go"", 0, 1, 1.5)
-- Darken: AdjustHSV(""go"", 0, 1, 0.5)
-- Desaturate: AdjustHSV(""go"", 0, 0, 1)" },
+- Recolor:
+<tool name=""ApplyGradientEx"">
+<arg name=""gameObjectName"">go</arg>
+<arg name=""fromColor"">#FF0000</arg>
+<arg name=""toColor"">#FF0000</arg>
+<arg name=""blendMode"">tint</arg>
+</tool>
+- Lighten:
+<tool name=""ApplyGradientEx"">
+<arg name=""gameObjectName"">go</arg>
+<arg name=""fromColor"">#FFFFFF</arg>
+<arg name=""toColor"">#FFFFFF</arg>
+<arg name=""blendMode"">screen</arg>
+</tool>
+- Gradient:
+<tool name=""ApplyGradientEx"">
+<arg name=""gameObjectName"">go</arg>
+<arg name=""fromColor"">#FF0000</arg>
+<arg name=""toColor"">#0000FF</arg>
+</tool>
+- Brighten:
+<tool name=""AdjustHSV"">
+<arg name=""gameObjectName"">go</arg>
+<arg name=""hueShift"">0</arg>
+<arg name=""saturationScale"">1</arg>
+<arg name=""valueScale"">1.5</arg>
+</tool>
+- Darken:
+<tool name=""AdjustHSV"">
+<arg name=""gameObjectName"">go</arg>
+<arg name=""hueShift"">0</arg>
+<arg name=""saturationScale"">1</arg>
+<arg name=""valueScale"">0.5</arg>
+</tool>
+- Desaturate:
+<tool name=""AdjustHSV"">
+<arg name=""gameObjectName"">go</arg>
+<arg name=""hueShift"">0</arg>
+<arg name=""saturationScale"">0</arg>
+<arg name=""valueScale"">1</arg>
+</tool>" },
 
             { "accessory-setup", @"---
 title: Accessory & Prop Placement
@@ -1716,25 +2434,38 @@ on avatar bones.
 ### Step 1: Structure Analysis (For Gimmick-Equipped Items)
 For Prefabs containing MA/VRCFury components, analyze the structure first:
 ```
-[AnalyzeGimmickStructure('prefabName')]
+<tool name=""AnalyzeGimmickStructure"">
+<arg name=""gameObjectName"">prefabName</arg>
+</tool>
 ```
 → If child objects with BoneProxy are found, just place as child of avatar.
 
 ### Step 2: Measure Avatar
 Get the target avatar's dimensions (used for auto scale calculation):
 ```
-[MeasureAvatarBody('avatarRootName')]
+<tool name=""MeasureAvatarBody"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 
 ### Step 3: Place Prefab in Scene
 Instantiate **as a child of the avatar**:
 ```
-[InstantiatePrefab('Assets/.../Item.prefab', 'avatarRootName')]
+<tool name=""InstantiatePrefab"">
+<arg name=""assetPath"">Assets/.../Item.prefab</arg>
+<arg name=""parentName"">avatarRootName</arg>
+</tool>
 ```
 
 ### Step 4: Ask User About Attachment Location
 ```
-[AskUser('Where should it be attached?', 'Hold in right hand', 'Hold in left hand', 'Attach to hip', 'Attach to thigh')]
+<tool name=""AskUser"">
+<arg name=""question"">Where should it be attached?</arg>
+<arg name=""option1"">Hold in right hand</arg>
+<arg name=""option2"">Hold in left hand</arg>
+<arg name=""option3"">Attach to hip</arg>
+<arg name=""option4"">Attach to thigh</arg>
+</tool>
 ```
 
 ### Step 5: Auto-Alignment (Most Important)
@@ -1743,12 +2474,23 @@ Attach with the appropriate style based on user selection:
 
 #### Holding in Hand (grip)
 ```
-[AlignAccessoryToBone('itemName', 'avatarRootName', 'RightHand', 'grip')]
+<tool name=""AlignAccessoryToBone"">
+<arg name=""accessoryName"">itemName</arg>
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""boneName"">RightHand</arg>
+<arg name=""attachmentStyle"">grip</arg>
+</tool>
 ```
 
 #### Attached to Body (surface) — Hip, Thigh, Back, etc.
 ```
-[AlignAccessoryToBone('itemName', 'avatarRootName', 'RightUpperLeg', 'surface', 'right')]
+<tool name=""AlignAccessoryToBone"">
+<arg name=""accessoryName"">itemName</arg>
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""boneName"">RightUpperLeg</arg>
+<arg name=""attachmentStyle"">surface</arg>
+<arg name=""direction"">right</arg>
+</tool>
 ```
 direction parameter specifies attachment direction:
 - Outer thigh: direction='right' (right leg) / 'left' (left leg)
@@ -1758,13 +2500,21 @@ direction parameter specifies attachment direction:
 
 #### Wrapping Around (wrap) — Bracelets, Cuffs, etc.
 ```
-[AlignAccessoryToBone('itemName', 'avatarRootName', 'LeftLowerArm', 'wrap')]
+<tool name=""AlignAccessoryToBone"">
+<arg name=""accessoryName"">itemName</arg>
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""boneName"">LeftLowerArm</arg>
+<arg name=""attachmentStyle"">wrap</arg>
+</tool>
 ```
 
 ### Step 6: Verify Result
 Capture from SceneView to verify:
 ```
-[CaptureMultiAngle('itemName', 'front,left,right,back')]
+<tool name=""CaptureMultiAngle"">
+<arg name=""targetName"">itemName</arg>
+<arg name=""angles"">front,left,right,back</arg>
+</tool>
 ```
 
 ### Step 7: Leave Fine Adjustment to User
@@ -1794,8 +2544,13 @@ Key bone names:
 ## Ring Special Workflow
 Rings have dedicated tools:
 ```
-[AttachRingWithBoneProxy('ringName', 'RightRingProximal')]
-[AlignRingToBone('ringName')]
+<tool name=""AttachRingWithBoneProxy"">
+<arg name=""ringName"">ringName</arg>
+<arg name=""boneName"">RightRingProximal</arg>
+</tool>
+<tool name=""AlignRingToBone"">
+<arg name=""ringName"">ringName</arg>
+</tool>
 ```
 Fine adjustment: NudgeRing, AdjustRingScale, RotateRing
 
@@ -1820,7 +2575,9 @@ When an avatar issue is reported, **investigate with diagnostic tools first** ra
 ## Step 1: Comprehensive Diagnosis (Always Run First)
 
 ```
-[ValidateAvatar('avatarRootName')]
+<tool name=""ValidateAvatar"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 → Returns a categorized list of issues: Error/Warning/Info.
 Errors must be fixed, Warnings are recommended, Info is for reference.
@@ -1837,7 +2594,9 @@ Errors must be fixed, Warnings are recommended, Info is for reference.
 ## Step 2: Performance Check
 
 ```
-[GetAvatarPerformanceStats('avatarRootName')]
+<tool name=""GetAvatarPerformanceStats"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 → Returns VRChat performance rank for all categories.
 Identify bottleneck categories and suggest improvements.
@@ -1846,7 +2605,9 @@ Identify bottleneck categories and suggest improvements.
 
 ### Write Defaults Issues
 ```
-[CheckWriteDefaults('avatarRootName')]
+<tool name=""CheckWriteDefaults"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 → WD state per layer (ON/OFF/MIXED).
 MIXED is problematic → needs unification.
@@ -1855,18 +2616,26 @@ Fix method: See ReadSkill('avatar-optimization').
 
 ### Parameter Budget
 ```
-[CheckParameterBudget('avatarRootName')]
+<tool name=""CheckParameterBudget"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 → Sync parameter bit consumption. Exceeding 256 bits is an error.
 
 Solutions:
-- Remove unnecessary parameters: [RemoveVRCExpressionParameter('avatarRootName', 'parameterName')]
+- Remove unnecessary parameters:
+<tool name=""RemoveVRCExpressionParameter"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+<arg name=""paramName"">parameterName</arg>
+</tool>
 - Change to synced=false (local only)
 - Change Int→Bool (save 8bit→1bit)
 
 ### PhysBone Issues
 ```
-[ListVRCPhysBones('avatarRootName')]
+<tool name=""ListVRCPhysBones"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 → All PhysBones and their parameters.
 Identify excessive PhysBone count or inefficient settings.
@@ -1909,7 +2678,9 @@ Use templates for efficient setup.
 ## Step 1: Check Existing PhysBones
 
 ```
-[ListVRCPhysBones('avatarRootName')]
+<tool name=""ListVRCPhysBones"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 → Check already configured PhysBones. Avoid duplicate additions.
 
@@ -1917,7 +2688,10 @@ Use templates for efficient setup.
 
 Identify the parent of the bones you want to make dynamic:
 ```
-[GetHierarchyTree('avatarRootName/Armature', maxDepth=5)]
+<tool name=""GetHierarchyTree"">
+<arg name=""name"">avatarRootName/Armature</arg>
+<arg name=""maxDepth"">5</arg>
+</tool>
 ```
 
 PhysBone should be added to the **root of the chain**.
@@ -1927,8 +2701,13 @@ Example: Adding PhysBone to Hair_front_Root → All children (Hair_front_0, Hair
 
 Apply a template based on the bone type:
 ```
-[AddVRCPhysBone('boneName')]
-[ApplyVRCPhysBoneTemplate('boneName', 'templateName')]
+<tool name=""AddVRCPhysBone"">
+<arg name=""goName"">boneName</arg>
+</tool>
+<tool name=""ApplyVRCPhysBoneTemplate"">
+<arg name=""goName"">boneName</arg>
+<arg name=""template"">templateName</arg>
+</tool>
 ```
 
 ### Template List and Use Cases
@@ -1958,7 +2737,11 @@ Apply a template based on the bone type:
 
 Fine-tune after applying template:
 ```
-[ConfigureVRCPhysBone('boneName', pull=0.3, gravity=0.2)]
+<tool name=""ConfigureVRCPhysBone"">
+<arg name=""goName"">boneName</arg>
+<arg name=""pull"">0.3</arg>
+<arg name=""gravity"">0.2</arg>
+</tool>
 ```
 
 ### Parameter Meanings and Tuning Guide
@@ -1977,8 +2760,16 @@ Fine-tune after applying template:
 
 Add colliders to prevent penetration through the body:
 ```
-[AddVRCPhysBoneCollider('Head', 1, 0.08, 0.15)]
-[LinkVRCColliderToPhysBone('Hair_Root', 'Head')]
+<tool name=""AddVRCPhysBoneCollider"">
+<arg name=""goName"">Head</arg>
+<arg name=""shapeType"">1</arg>
+<arg name=""radius"">0.08</arg>
+<arg name=""height"">0.15</arg>
+</tool>
+<tool name=""LinkVRCColliderToPhysBone"">
+<arg name=""physBoneGoName"">Hair_Root</arg>
+<arg name=""colliderGoName"">Head</arg>
+</tool>
 ```
 
 ### Common Collider Placements
@@ -1992,7 +2783,9 @@ Add colliders to prevent penetration through the body:
 ## Step 6: Performance Check
 
 ```
-[GetAvatarPerformanceStats('avatarRootName')]
+<tool name=""GetAvatarPerformanceStats"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 Check ranks for PhysBones, PB Transforms, PB Colliders, and PB Collision Checks.
 
@@ -2014,9 +2807,20 @@ If unclear, check existing settings with InspectVRCPhysBone or ask the user.
 ## Notes
 - Add PhysBone to the **root of the chain** (not the tip)
 - Do not add multiple PhysBones to the same bone
-- Use exclusions to exclude unwanted children: [SetVRCPhysBoneExclusions('boneName', 'exclude1,exclude2')]
-- Specify endpoint position via Configure: [ConfigureVRCPhysBone('boneName', endpointPosition='0,0.1,0')]
-- Performance rank thresholds: See ReadSkill('avatar-optimization')" },
+- Use exclusions to exclude unwanted children:
+<tool name=""SetVRCPhysBoneExclusions"">
+<arg name=""goName"">boneName</arg>
+<arg name=""exclusionNames"">exclude1,exclude2</arg>
+</tool>
+- Specify endpoint position via Configure:
+<tool name=""ConfigureVRCPhysBone"">
+<arg name=""goName"">boneName</arg>
+<arg name=""endpointPosition"">0,0.1,0</arg>
+</tool>
+- Performance rank thresholds: See
+<tool name=""ReadSkill"">
+<arg name=""skillName"">avatar-optimization</arg>
+</tool>" },
 
             { "batch-operations", @"---
 title: Batch Operations Guide
@@ -2034,96 +2838,166 @@ Efficient patterns for applying the same change to multiple objects or materials
 
 ### Shadow Settings (Dedicated Tool)
 ```
-[BatchConfigureShadows('avatarRootName', 1, 1)]
+<tool name=""BatchConfigureShadows"">
+<arg name=""rootGoName"">avatarRootName</arg>
+<arg name=""shadowCasting"">1</arg>
+<arg name=""receiveShadows"">1</arg>
+</tool>
 ```
 → Bulk change shadow settings for all Renderers.
 
 ### Get Renderer List → Configure Individually
 ```
-[ListRenderers('avatarRootName')]
+<tool name=""ListRenderers"">
+<arg name=""gameObjectName"">avatarRootName</arg>
+</tool>
 ```
 → Returns paths of all Renderers. For each Renderer:
 ```
-[SetProperty('path', 'SkinnedMeshRenderer', 'probeAnchor', 'referenceTarget')]
+<tool name=""SetProperty"">
+<arg name=""goName"">path</arg>
+<arg name=""componentType"">SkinnedMeshRenderer</arg>
+<arg name=""propertyPath"">probeAnchor</arg>
+<arg name=""value"">referenceTarget</arg>
+</tool>
 ```
 
 ## Pattern 2: Bulk Material Changes
 
 ### Step 1: Get Material List
 ```
-[ListRenderers('avatarRootName')]
+<tool name=""ListRenderers"">
+<arg name=""gameObjectName"">avatarRootName</arg>
+</tool>
 ```
 Check material slots for each Renderer.
 
 ### Step 2: Check Material Properties
 ```
-[InspectMaterial('Assets/.../Material.mat')]
+<tool name=""InspectMaterial"">
+<arg name=""materialPath"">Assets/.../Material.mat</arg>
+</tool>
 ```
 
 ### Step 3: Bulk Apply
 When applying the same change to multiple materials, make consecutive tool calls:
 ```
-[SetMaterialFloat('Assets/.../Mat1.mat', '_Metallic', 0.8)]
-[SetMaterialFloat('Assets/.../Mat2.mat', '_Metallic', 0.8)]
-[SetMaterialFloat('Assets/.../Mat3.mat', '_Metallic', 0.8)]
+<tool name=""SetMaterialFloat"">
+<arg name=""materialPath"">Assets/.../Mat1.mat</arg>
+<arg name=""propertyName"">_Metallic</arg>
+<arg name=""value"">0.8</arg>
+</tool>
+<tool name=""SetMaterialFloat"">
+<arg name=""materialPath"">Assets/.../Mat2.mat</arg>
+<arg name=""propertyName"">_Metallic</arg>
+<arg name=""value"">0.8</arg>
+</tool>
+<tool name=""SetMaterialFloat"">
+<arg name=""materialPath"">Assets/.../Mat3.mat</arg>
+<arg name=""propertyName"">_Metallic</arg>
+<arg name=""value"">0.8</arg>
+</tool>
 ```
 
 ### lilToon Bulk Settings Example
 ```
-[SetMaterialFloat('Assets/.../Mat.mat', '_OutlineWidth', 0.1)]
-[SetMaterialFloat('Assets/.../Mat.mat', '_OutlineFixWidth', 1)]
+<tool name=""SetMaterialFloat"">
+<arg name=""materialPath"">Assets/.../Mat.mat</arg>
+<arg name=""propertyName"">_OutlineWidth</arg>
+<arg name=""value"">0.1</arg>
+</tool>
+<tool name=""SetMaterialFloat"">
+<arg name=""materialPath"">Assets/.../Mat.mat</arg>
+<arg name=""propertyName"">_OutlineFixWidth</arg>
+<arg name=""value"">1</arg>
+</tool>
 ```
 
 ## Pattern 3: Bulk BlendShape Settings
 
 ### Set Multiple BlendShapes at Once
 ```
-[SetMultipleBlendShapes('Body', 'Shrink_UpperBody=100;Shrink_LowerBody=100;Shrink_Arm=100')]
+<tool name=""SetMultipleBlendShapes"">
+<arg name=""gameObjectName"">Body</arg>
+<arg name=""blendShapeData"">Shrink_UpperBody=100;Shrink_LowerBody=100;Shrink_Arm=100</arg>
+</tool>
 ```
 
 ### Check All BlendShapes
 ```
-[ListBlendShapes('Body')]
+<tool name=""ListBlendShapes"">
+<arg name=""goName"">Body</arg>
+</tool>
 ```
 
 ## Pattern 4: Bulk Component Operations
 
 ### Search for Specific Components in Avatar
 ```
-[GetHierarchyTree('avatarRootName', maxDepth=5)]
+<tool name=""GetHierarchyTree"">
+<arg name=""name"">avatarRootName</arg>
+<arg name=""maxDepth"">5</arg>
+</tool>
 ```
 → Identify targets from tree, then operate on each object.
 
 ### Bulk PhysBone Check & Configure
 ```
-[ListVRCPhysBones('avatarRootName')]
+<tool name=""ListVRCPhysBones"">
+<arg name=""avatarRootName"">avatarRootName</arg>
+</tool>
 ```
 → Full PhysBone list. Configure individually:
 ```
-[ConfigureVRCPhysBone('Hair_Root', pull=0.2, spring=0.3)]
-[ConfigureVRCPhysBone('Skirt_Root', pull=0.3, gravity=0.3)]
+<tool name=""ConfigureVRCPhysBone"">
+<arg name=""goName"">Hair_Root</arg>
+<arg name=""pull"">0.2</arg>
+<arg name=""spring"">0.3</arg>
+</tool>
+<tool name=""ConfigureVRCPhysBone"">
+<arg name=""goName"">Skirt_Root</arg>
+<arg name=""pull"">0.3</arg>
+<arg name=""gravity"">0.3</arg>
+</tool>
 ```
 
 ## Pattern 5: Bulk Object ON/OFF
 
 ### Hide Multiple Objects
 ```
-[SetActive('avatarRootName/Outfit_Old/Top', false)]
-[SetActive('avatarRootName/Outfit_Old/Bottom', false)]
-[SetActive('avatarRootName/Outfit_Old/Shoes', false)]
+<tool name=""SetActive"">
+<arg name=""gameObjectName"">avatarRootName/Outfit_Old/Top</arg>
+<arg name=""active"">false</arg>
+</tool>
+<tool name=""SetActive"">
+<arg name=""gameObjectName"">avatarRootName/Outfit_Old/Bottom</arg>
+<arg name=""active"">false</arg>
+</tool>
+<tool name=""SetActive"">
+<arg name=""gameObjectName"">avatarRootName/Outfit_Old/Shoes</arg>
+<arg name=""active"">false</arg>
+</tool>
 ```
 
 ### Set EditorOnly Tag (Exclude from Upload)
 ```
-[SetTag('avatarRootName/Outfit_Old', 'EditorOnly')]
+<tool name=""SetTag"">
+<arg name=""gameObjectName"">avatarRootName/Outfit_Old</arg>
+<arg name=""tag"">EditorOnly</arg>
+</tool>
 ```
 
 ## Pattern 6: Bulk Hierarchy Rename
 
 Identify targets and rename individually:
 ```
-[ListChildren('parentObjectName')]
-[RenameGameObject('oldName', 'newName')]
+<tool name=""ListChildren"">
+<arg name=""name"">parentObjectName</arg>
+</tool>
+<tool name=""RenameGameObject"">
+<arg name=""currentName"">oldName</arg>
+<arg name=""newName"">newName</arg>
+</tool>
 ```
 
 ## Efficient Operation Principles
@@ -2156,7 +3030,9 @@ You MUST visually confirm each mesh with ScanAvatarMeshes before any modificatio
 
 ### Step 2: Visual Mesh Identification (CRITICAL)
 ```
-[ScanAvatarMeshes(""AvatarRoot"")]
+<tool name=""ScanAvatarMeshes"">
+<arg name=""avatarRootName"">AvatarRoot</arg>
+</tool>
 ```
 → Receive a grid image with each mesh isolated
 → Visually determine which mesh is hair, body, clothes, etc.
@@ -2167,11 +3043,15 @@ You MUST visually confirm each mesh with ScanAvatarMeshes before any modificatio
 
 ### Step 4: Material Details (for color changes)
 ```
-[ListRenderers(""targetMeshPath"")]
+<tool name=""ListRenderers"">
+<arg name=""gameObjectName"">targetMeshPath</arg>
+</tool>
 ```
 → Get material name/path
 ```
-[InspectLilToonMaterial(""materialPath"")]
+<tool name=""InspectLilToonMaterial"">
+<arg name=""materialPath"">materialPath</arg>
+</tool>
 ```
 → Check current colors/properties
 
@@ -2187,7 +3067,9 @@ User: ""Make the hair blue""
 
 ```
 Agent: Let me visually identify all meshes on the avatar.
-[ScanAvatarMeshes(""MANUKA"")]
+<tool name=""ScanAvatarMeshes"">
+<arg name=""avatarRootName"">MANUKA</arg>
+</tool>
 
 System: ""Scanned 6 meshes. [1] Manuka_atama — 12k verts...
         [2] Manuka_hair_front — 8k verts... ...""
@@ -2195,7 +3077,9 @@ System: ""Scanned 6 meshes. [1] Manuka_atama — 12k verts...
 
 Agent: From the image, [2] Manuka_hair_front and [3] Manuka_hair_bun
        are the hair meshes. Let me read the color change procedure.
-[ReadSkill(""texture-editing"")]
+<tool name=""ReadSkill"">
+<arg name=""skillName"">texture-editing</arg>
+</tool>
 ```
 (Continue with texture-editing skill workflow → CaptureSceneView → AskUser)" },
         };

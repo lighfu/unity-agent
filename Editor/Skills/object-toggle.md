@@ -20,22 +20,36 @@ Expression Menu (radial menu).
 
 One-step tool for complete setup:
 ```
-[SetupObjectToggle('avatarRootName', 'toggleTargetPath')]
+<tool name="SetupObjectToggle">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="targetPath">toggleTargetPath</arg>
+</tool>
 ```
 
 Example: Toggle Sailor-Jersey:
 ```
-[SetupObjectToggle('Chiffon', 'Sailor-Jersey')]
+<tool name="SetupObjectToggle">
+<arg name="avatarRootName">Chiffon</arg>
+<arg name="targetPath">Sailor-Jersey</arg>
+</tool>
 ```
 
 Default OFF (initially hidden):
 ```
-[SetupObjectToggle('Chiffon', 'Sailor-Jersey', defaultOn=false)]
+<tool name="SetupObjectToggle">
+<arg name="avatarRootName">Chiffon</arg>
+<arg name="targetPath">Sailor-Jersey</arg>
+<arg name="defaultOn">false</arg>
+</tool>
 ```
 
 With a custom name:
 ```
-[SetupObjectToggle('Chiffon', 'Sailor-Jersey', toggleName='SailorJersey')]
+<tool name="SetupObjectToggle">
+<arg name="avatarRootName">Chiffon</arg>
+<arg name="targetPath">Sailor-Jersey</arg>
+<arg name="toggleName">SailorJersey</arg>
+</tool>
 ```
 
 This tool automatically creates:
@@ -48,58 +62,110 @@ This tool automatically creates:
 
 ### Step 1: Identify Target Object Path
 ```
-[ListChildren('avatarRootName')]
+<tool name="ListChildren">
+<arg name="name">avatarRootName</arg>
+</tool>
 ```
 Find the target GameObject from the avatar's direct children.
 Specify the path as a relative path from the avatar root.
 
 ### Step 2: Create Toggle Animations
 ```
-[CreateToggleAnimations('avatarRootName', 'relativeObjectPath')]
+<tool name="CreateToggleAnimations">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="targetPath">relativeObjectPath</arg>
+</tool>
 ```
 Creates two animation clips: ON (m_IsActive=1) and OFF (m_IsActive=0).
 
 ### Step 3: Check FX Controller
 ```
-[GetVRCFXControllerPath('avatarRootName')]
+<tool name="GetVRCFXControllerPath">
+<arg name="avatarRootName">avatarRootName</arg>
+</tool>
 ```
 Get the FX AnimatorController asset path.
 
 ### Step 4: Add Parameter to FX Controller
 ```
-[AddAnimatorParameter('fxControllerPath', 'toggleName', 'bool', 'true')]
+<tool name="AddAnimatorParameter">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="name">toggleName</arg>
+<arg name="type">bool</arg>
+<arg name="defaultValue">true</arg>
+</tool>
 ```
 
 ### Step 5: Add FX Layer
 ```
-[AddAnimatorLayer('fxControllerPath', 'Toggle_toggleName')]
+<tool name="AddAnimatorLayer">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="layerName">Toggle_toggleName</arg>
+</tool>
 ```
 ```
-[SetAnimatorLayerWeight('fxControllerPath', layerIndex, 1.0)]
+<tool name="SetAnimatorLayerWeight">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="layerIndex">layerIndex</arg>
+<arg name="weight">1.0</arg>
+</tool>
 ```
 
 ### Step 6: Add States
 ```
-[AddAnimatorState('fxControllerPath', 'ON', 'onClipPath', layerIndex)]
-[AddAnimatorState('fxControllerPath', 'OFF', 'offClipPath', layerIndex)]
+<tool name="AddAnimatorState">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="stateName">ON</arg>
+<arg name="motionPath">onClipPath</arg>
+<arg name="layerIndex">layerIndex</arg>
+</tool>
+<tool name="AddAnimatorState">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="stateName">OFF</arg>
+<arg name="motionPath">offClipPath</arg>
+<arg name="layerIndex">layerIndex</arg>
+</tool>
 ```
 
 ### Step 7: Add Transitions
 ```
-[AddAnimatorTransition('fxControllerPath', 'OFF', 'ON', 'toggleName=true', layerIndex)]
-[AddAnimatorTransition('fxControllerPath', 'ON', 'OFF', 'toggleName=false', layerIndex)]
+<tool name="AddAnimatorTransition">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="fromState">OFF</arg>
+<arg name="toState">ON</arg>
+<arg name="conditions">toggleName=true</arg>
+<arg name="layerIndex">layerIndex</arg>
+</tool>
+<tool name="AddAnimatorTransition">
+<arg name="controllerPath">fxControllerPath</arg>
+<arg name="fromState">ON</arg>
+<arg name="toState">OFF</arg>
+<arg name="conditions">toggleName=false</arg>
+<arg name="layerIndex">layerIndex</arg>
+</tool>
 ```
 
 ### Step 8: Add Expression Parameter
 ```
-[AddVRCExpressionParameter('avatarRootName', 'toggleName', 'Bool', 1.0, saved=true, synced=true)]
+<tool name="AddVRCExpressionParameter">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="paramName">toggleName</arg>
+<arg name="type">Bool</arg>
+<arg name="defaultValue">1.0</arg>
+<arg name="saved">true</arg>
+<arg name="synced">true</arg>
+</tool>
 ```
 - Bool parameter, synced to other players
 - defaultValue: 1.0=default ON, 0.0=default OFF
 
 ### Step 9: Add Expression Menu Toggle
 ```
-[AddVRCExpressionsMenuToggle('avatarRootName', 'toggleName', 'toggleName')]
+<tool name="AddVRCExpressionsMenuToggle">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="controlName">toggleName</arg>
+<arg name="paramName">toggleName</arg>
+</tool>
 ```
 
 ## When Menu is Full (SubMenu Support)
@@ -108,22 +174,44 @@ Expression Menu allows a maximum of 8 controls per page. When full, use submenus
 
 ### Creating a SubMenu
 ```
-[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Outfits')]
+<tool name="AddVRCExpressionsMenuSubMenu">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="controlName">Outfits</arg>
+</tool>
 ```
 A new VRCExpressionsMenu asset is automatically generated and linked as a SubMenu control.
 
 ### Adding Controls to a SubMenu
 Use the `subMenuPath` parameter to add within a submenu:
 ```
-[AddVRCExpressionsMenuToggle('avatarRootName', 'Hat', 'Hat', subMenuPath='Outfits')]
-[AddVRCExpressionsMenuToggle('avatarRootName', 'Glasses', 'Glasses', subMenuPath='Outfits')]
+<tool name="AddVRCExpressionsMenuToggle">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="controlName">Hat</arg>
+<arg name="paramName">Hat</arg>
+<arg name="subMenuPath">Outfits</arg>
+</tool>
+<tool name="AddVRCExpressionsMenuToggle">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="controlName">Glasses</arg>
+<arg name="paramName">Glasses</arg>
+<arg name="subMenuPath">Outfits</arg>
+</tool>
 ```
 
 ### Nested SubMenus
 `subMenuPath` supports slash-separated nesting:
 ```
-[AddVRCExpressionsMenuSubMenu('avatarRootName', 'Details', subMenuPath='Outfits')]
-[AddVRCExpressionsMenuToggle('avatarRootName', 'Ring', 'Ring', subMenuPath='Outfits/Details')]
+<tool name="AddVRCExpressionsMenuSubMenu">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="controlName">Details</arg>
+<arg name="subMenuPath">Outfits</arg>
+</tool>
+<tool name="AddVRCExpressionsMenuToggle">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="controlName">Ring</arg>
+<arg name="paramName">Ring</arg>
+<arg name="subMenuPath">Outfits/Details</arg>
+</tool>
 ```
 
 ## Tool Call Examples
@@ -131,26 +219,46 @@ Use the `subMenuPath` parameter to add within a submenu:
 ### Example 1: Outfit Toggle (One-Step Setup)
 ```
 User: "Make Sailor-Jersey toggleable from the Expression Menu"
-AI: [SetupObjectToggle('Chiffon', 'Sailor-Jersey')]
+AI: <tool name="SetupObjectToggle">
+    <arg name="avatarRootName">Chiffon</arg>
+    <arg name="targetPath">Sailor-Jersey</arg>
+    </tool>
     Result: Creates ON/OFF animations, FX layer, parameter, and menu entry in one step
 ```
 
 ### Example 2: Accessory Toggle (Default OFF)
 ```
 User: "Add glasses as a toggle, hidden by default"
-AI: [SetupObjectToggle('Avatar', 'Glasses', defaultOn=false)]
+AI: <tool name="SetupObjectToggle">
+    <arg name="avatarRootName">Avatar</arg>
+    <arg name="targetPath">Glasses</arg>
+    <arg name="defaultOn">false</arg>
+    </tool>
 ```
 
 ### Example 3: SubMenu When Menu is Full
 ```
 User: "The menu is full but I want to add another toggle"
-AI: [InspectVRCExpressionsMenu('Avatar')]
+AI: <tool name="InspectVRCExpressionsMenu">
+    <arg name="avatarRootName">Avatar</arg>
+    </tool>
     → Confirm 8 controls
-    [AddVRCExpressionsMenuSubMenu('Avatar', 'Accessories')]
+    <tool name="AddVRCExpressionsMenuSubMenu">
+    <arg name="avatarRootName">Avatar</arg>
+    <arg name="controlName">Accessories</arg>
+    </tool>
     → Create submenu
-    [SetupObjectToggle('Avatar', 'NewItem')]
+    <tool name="SetupObjectToggle">
+    <arg name="avatarRootName">Avatar</arg>
+    <arg name="targetPath">NewItem</arg>
+    </tool>
     → If menu is full, manually add to submenu:
-    [AddVRCExpressionsMenuToggle('Avatar', 'NewItem', 'NewItem', subMenuPath='Accessories')]
+    <tool name="AddVRCExpressionsMenuToggle">
+    <arg name="avatarRootName">Avatar</arg>
+    <arg name="controlName">NewItem</arg>
+    <arg name="paramName">NewItem</arg>
+    <arg name="subMenuPath">Accessories</arg>
+    </tool>
 ```
 
 ## VRChat Expression Menu Basics
@@ -173,8 +281,14 @@ AI: [InspectVRCExpressionsMenu('Avatar')]
 
 ### Removing Controls
 ```
-[RemoveVRCExpressionsMenuControl('avatarRootName', 'controlName')]
-[RemoveVRCExpressionParameter('avatarRootName', 'parameterName')]
+<tool name="RemoveVRCExpressionsMenuControl">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="controlName">controlName</arg>
+</tool>
+<tool name="RemoveVRCExpressionParameter">
+<arg name="avatarRootName">avatarRootName</arg>
+<arg name="paramName">parameterName</arg>
+</tool>
 ```
 
 ### FX Layer Rules

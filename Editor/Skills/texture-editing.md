@@ -14,12 +14,47 @@ on a per-mesh-island basis. Supports color adjustments through AI image generati
 ## Quick Reference
 
 ### Common Operations
-- Recolor: [ApplyGradientEx("go", "#FF0000", "#FF0000", blendMode="tint")]
-- Lighten: [ApplyGradientEx("go", "#FFFFFF", "#FFFFFF", blendMode="screen")]
-- Gradient: [ApplyGradientEx("go", "#FF0000", "#0000FF")]
-- Brighten: [AdjustHSV("go", 0, 1, 1.5)]
-- Darken: [AdjustHSV("go", 0, 1, 0.5)]
-- Desaturate: [AdjustHSV("go", 0, 0, 1)]
+- Recolor:
+  <tool name="ApplyGradientEx">
+  <arg name="gameObjectName">go</arg>
+  <arg name="fromColor">#FF0000</arg>
+  <arg name="toColor">#FF0000</arg>
+  <arg name="blendMode">tint</arg>
+  </tool>
+- Lighten:
+  <tool name="ApplyGradientEx">
+  <arg name="gameObjectName">go</arg>
+  <arg name="fromColor">#FFFFFF</arg>
+  <arg name="toColor">#FFFFFF</arg>
+  <arg name="blendMode">screen</arg>
+  </tool>
+- Gradient:
+  <tool name="ApplyGradientEx">
+  <arg name="gameObjectName">go</arg>
+  <arg name="fromColor">#FF0000</arg>
+  <arg name="toColor">#0000FF</arg>
+  </tool>
+- Brighten:
+  <tool name="AdjustHSV">
+  <arg name="gameObjectName">go</arg>
+  <arg name="hueShift">0</arg>
+  <arg name="saturationScale">1</arg>
+  <arg name="valueScale">1.5</arg>
+  </tool>
+- Darken:
+  <tool name="AdjustHSV">
+  <arg name="gameObjectName">go</arg>
+  <arg name="hueShift">0</arg>
+  <arg name="saturationScale">1</arg>
+  <arg name="valueScale">0.5</arg>
+  </tool>
+- Desaturate:
+  <tool name="AdjustHSV">
+  <arg name="gameObjectName">go</arg>
+  <arg name="hueShift">0</arg>
+  <arg name="saturationScale">0</arg>
+  <arg name="valueScale">1</arg>
+  </tool>
 
 ### Color Formats
 - Hex: '#FF0000', '#FF000080' (with alpha)

@@ -13,51 +13,117 @@ Package: `jp.suzuryg.face-emo`
 
 ## Basic Tools (Always Available — Reflection Version)
 ```
-[FindFaceEmo()] — Discover all FaceEmo objects in the scene
-[InspectFaceEmo('FaceEmo')] — Show detailed AV3 settings, expression modes, gestures
-[ListFaceEmoExpressions('FaceEmo')] — List all expression modes and branches
-[LaunchFaceEmoWindow('FaceEmo')] — Launch the FaceEmo editor window
-[ReadFaceEmoProperty('FaceEmo', 'AV3Setting.TargetAvatar')] — Read a property
-[WriteFaceEmoProperty('FaceEmo', 'AV3Setting.SmoothAnalogFist', 'false')] — Write a property
-[ListFaceEmoProperties('FaceEmo', 'AV3Setting')] — List properties
+<tool name="FindFaceEmo"></tool> — Discover all FaceEmo objects in the scene
+<tool name="InspectFaceEmo">
+<arg name="gameObjectName">FaceEmo</arg>
+</tool> — Show detailed AV3 settings, expression modes, gestures
+<tool name="ListFaceEmoExpressions">
+<arg name="gameObjectName">FaceEmo</arg>
+</tool> — List all expression modes and branches
+<tool name="LaunchFaceEmoWindow">
+<arg name="gameObjectName">FaceEmo</arg>
+</tool> — Launch the FaceEmo editor window
+<tool name="ReadFaceEmoProperty">
+<arg name="gameObjectName">FaceEmo</arg>
+<arg name="propertyPath">AV3Setting.TargetAvatar</arg>
+</tool> — Read a property
+<tool name="WriteFaceEmoProperty">
+<arg name="gameObjectName">FaceEmo</arg>
+<arg name="propertyPath">AV3Setting.SmoothAnalogFist</arg>
+<arg name="value">false</arg>
+</tool> — Write a property
+<tool name="ListFaceEmoProperties">
+<arg name="gameObjectName">FaceEmo</arg>
+<arg name="subObject">AV3Setting</arg>
+</tool> — List properties
 ```
 
 ## Expression Management Tools (FaceEmo Advanced)
 ```
-[AddExpression('Angry', 'Registered', 'Assets/Animations/angry.anim')] — Add a new expression
-[RemoveExpression('Angry')] — Remove an expression (with confirmation)
-[CopyExpression('Smile', 'Smile2', 'Registered')] — Duplicate and rename an expression
-[SetExpressionAnimation('Angry', 'Assets/Animations/angry.anim')] — Set animation
-[ModifyExpressionProperties('Angry', newDisplayName='Angry_v2')] — Modify expression properties
-[SetDefaultExpression('Smile')] — Set default expression
-[InspectExpressionDetail('Angry')] — Detailed info (branches, conditions, animations)
-[CreateAndRegisterExpression('Body', 'Angry', 'Assets/Animations/angry.anim')] — Create expression from BlendShape + register (one step)
+<tool name="AddExpression">
+<arg name="displayName">Angry</arg>
+<arg name="destination">Registered</arg>
+<arg name="animationClipPath">Assets/Animations/angry.anim</arg>
+</tool> — Add a new expression
+<tool name="RemoveExpression">
+<arg name="displayName">Angry</arg>
+</tool> — Remove an expression (with confirmation)
+<tool name="CopyExpression">
+<arg name="sourceExpressionName">Smile</arg>
+<arg name="newDisplayName">Smile2</arg>
+<arg name="destination">Registered</arg>
+</tool> — Duplicate and rename an expression
+<tool name="SetExpressionAnimation">
+<arg name="expressionName">Angry</arg>
+<arg name="animationClipPath">Assets/Animations/angry.anim</arg>
+</tool> — Set animation
+<tool name="ModifyExpressionProperties">
+<arg name="expressionName">Angry</arg>
+<arg name="newDisplayName">Angry_v2</arg>
+</tool> — Modify expression properties
+<tool name="SetDefaultExpression">
+<arg name="expressionName">Smile</arg>
+</tool> — Set default expression
+<tool name="InspectExpressionDetail">
+<arg name="expressionName">Angry</arg>
+</tool> — Detailed info (branches, conditions, animations)
+<tool name="CreateAndRegisterExpression">
+<arg name="meshObjectName">Body</arg>
+<arg name="expressionName">Angry</arg>
+<arg name="animPath">Assets/Animations/angry.anim</arg>
+</tool> — Create expression from BlendShape + register (one step)
 ```
 
 ## Gesture Branch Management
 ```
-[AddGestureBranch('Angry', 'Left=Fist', 'Assets/Animations/angry.anim')] — Add gesture branch
+<tool name="AddGestureBranch">
+<arg name="expressionName">Angry</arg>
+<arg name="conditions">Left=Fist</arg>
+<arg name="baseAnimationPath">Assets/Animations/angry.anim</arg>
+</tool> — Add gesture branch
   Condition format: 'Left=Fist;Right=Victory' or 'Either!=Neutral'
   Hand: Left/Right/Either/Both/OneSide
   Gesture: Neutral/Fist/HandOpen/Fingerpoint/Victory/RockNRoll/HandGun/ThumbsUp
-[RemoveGestureBranch('Angry', 0)] — Remove branch (with confirmation)
-[AddGestureCondition('Angry', 0, 'Right', 'Fist')] — Add condition to existing branch
-[ModifyBranchProperties('Angry', 0, eyeTracking='Animation')] — Modify branch properties
+<tool name="RemoveGestureBranch">
+<arg name="expressionName">Angry</arg>
+<arg name="branchIndex">0</arg>
+</tool> — Remove branch (with confirmation)
+<tool name="AddGestureCondition">
+<arg name="expressionName">Angry</arg>
+<arg name="branchIndex">0</arg>
+<arg name="hand">Right</arg>
+<arg name="gesture">Fist</arg>
+</tool> — Add condition to existing branch
+<tool name="ModifyBranchProperties">
+<arg name="expressionName">Angry</arg>
+<arg name="branchIndex">0</arg>
+<arg name="eyeTracking">Animation</arg>
+</tool> — Modify branch properties
 ```
 
 ## Menu Structure Management
 ```
-[CreateExpressionGroup('Combat', 'Registered')] — Create submenu group
-[MoveExpressionItem('Angry', 'Unregistered')] — Move/reorder expressions or groups
+<tool name="CreateExpressionGroup">
+<arg name="displayName">Combat</arg>
+<arg name="destination">Registered</arg>
+</tool> — Create submenu group
+<tool name="MoveExpressionItem">
+<arg name="itemName">Angry</arg>
+<arg name="destination">Unregistered</arg>
+</tool> — Move/reorder expressions or groups
 ```
 
 ## AV3 Settings
 ```
-[ConfigureTargetAvatar('Chiffon')] — Set target avatar (resolves Avatar=None)
-[ConfigureFaceEmoGeneration()] — View/change generation settings
-[ConfigureMouthMorphs('list')] — Configure mouth morph BlendShapes
-[ConfigureAfkFace()] — Configure AFK expression
-[ConfigureFeatureToggles()] — Configure feature toggles (emote selection, contact lock, etc.)
+<tool name="ConfigureTargetAvatar">
+<arg name="avatarName">Chiffon</arg>
+</tool> — Set target avatar (resolves Avatar=None)
+<tool name="ConfigureFaceEmoGeneration"></tool> — View/change generation settings
+<tool name="ConfigureMouthMorphs">
+<arg name="action">list</arg>
+</tool> — Configure mouth morph BlendShapes
+<tool name="ConfigureAfkFace"></tool> — Configure AFK expression
+<tool name="ConfigureFeatureToggles"></tool> — Configure feature toggles (emote selection, contact lock, etc.)
 ```
 
 ## Hand Gesture Reference
@@ -76,36 +142,73 @@ Package: `jp.suzuryg.face-emo`
 
 ### New Setup
 ```
-1. [FindFaceEmo()] → Check FaceEmo status
-2. If no FaceEmo exists: [ExecuteMenu('FaceEmo/New Menu')]
-3. If Avatar=None: [ConfigureTargetAvatar('Chiffon')]
-4. [LaunchFaceEmoWindow('FaceEmo')] → Open the window
+1. <tool name="FindFaceEmo"></tool> → Check FaceEmo status
+2. If no FaceEmo exists:
+<tool name="ExecuteMenu">
+<arg name="menuPath">FaceEmo/New Menu</arg>
+</tool>
+3. If Avatar=None:
+<tool name="ConfigureTargetAvatar">
+<arg name="avatarName">Chiffon</arg>
+</tool>
+4. <tool name="LaunchFaceEmoWindow">
+<arg name="gameObjectName">FaceEmo</arg>
+</tool> → Open the window
 ```
 
 ### Adding an Expression (with Gesture)
 ```
-1. [AddExpression('Angry', 'Registered', 'Assets/Animations/angry.anim')]
-2. [AddGestureBranch('Angry', 'Left=Fist', 'Assets/Animations/angry.anim')]
-3. [InspectExpressionDetail('Angry')] → Verify
+1. <tool name="AddExpression">
+<arg name="displayName">Angry</arg>
+<arg name="destination">Registered</arg>
+<arg name="animationClipPath">Assets/Animations/angry.anim</arg>
+</tool>
+2. <tool name="AddGestureBranch">
+<arg name="expressionName">Angry</arg>
+<arg name="conditions">Left=Fist</arg>
+<arg name="baseAnimationPath">Assets/Animations/angry.anim</arg>
+</tool>
+3. <tool name="InspectExpressionDetail">
+<arg name="expressionName">Angry</arg>
+</tool> → Verify
 ```
 
 ### Organizing the Expression Menu
 ```
-1. [ListFaceEmoExpressions()] → List all expressions
-2. [CreateExpressionGroup('Combat', 'Registered')] → Create group
-3. [MoveExpressionItem('Angry', 'Combat')] → Move into group
+1. <tool name="ListFaceEmoExpressions"></tool> → List all expressions
+2. <tool name="CreateExpressionGroup">
+<arg name="displayName">Combat</arg>
+<arg name="destination">Registered</arg>
+</tool> → Create group
+3. <tool name="MoveExpressionItem">
+<arg name="itemName">Angry</arg>
+<arg name="destination">Combat</arg>
+</tool> → Move into group
 ```
 
 ### Duplicating / Creating Variants
 ```
-1. [CopyExpression('Smile', 'BigSmile', 'Registered')] → Duplicate
-2. [SetExpressionAnimation('BigSmile', 'Assets/Animations/smile_strong.anim')] → Change animation
+1. <tool name="CopyExpression">
+<arg name="sourceExpressionName">Smile</arg>
+<arg name="newDisplayName">BigSmile</arg>
+<arg name="destination">Registered</arg>
+</tool> → Duplicate
+2. <tool name="SetExpressionAnimation">
+<arg name="expressionName">BigSmile</arg>
+<arg name="animationClipPath">Assets/Animations/smile_strong.anim</arg>
+</tool> → Change animation
 ```
 
 ### Bulk Configuration
 ```
-[ConfigureFaceEmoGeneration(transitionDuration='0.05', smoothAnalogFist='false')]
-[ConfigureFeatureToggles(contactLock='true', danceGimmick='true')]
+<tool name="ConfigureFaceEmoGeneration">
+<arg name="transitionDuration">0.05</arg>
+<arg name="smoothAnalogFist">false</arg>
+</tool>
+<tool name="ConfigureFeatureToggles">
+<arg name="contactLock">true</arg>
+<arg name="danceGimmick">true</arg>
+</tool>
 ```
 
 ## Important Notes

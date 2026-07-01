@@ -44,14 +44,19 @@ Explain what this skill does in 2-3 sentences.
 
 First, understand the current state:
 ```
-[ToolA('parameter')]
+<tool name="ToolA">
+<arg name="param1">parameter</arg>
+</tool>
 ```
 ← Check for "XX" in the output.
 
 ### Step 2: Main Operation
 
 ```
-[ToolB('param1', 'param2')]
+<tool name="ToolB">
+<arg name="param1">param1</arg>
+<arg name="param2">param2</arg>
+</tool>
 ```
 **Important**: Highlight critical points in bold.
 
@@ -62,13 +67,17 @@ First, understand the current state:
 **When needed**: Only when Step 2 result shows XX
 
 ```
-[ToolC('parameter')]
+<tool name="ToolC">
+<arg name="param1">parameter</arg>
+</tool>
 ```
 
 ### Step 3: Verify Result
 
 ```
-[ToolD('parameter')]
+<tool name="ToolD">
+<arg name="param1">parameter</arg>
+</tool>
 ```
 ← Success if "XX" is displayed.
 
@@ -89,8 +98,13 @@ First, understand the current state:
 User: "Do XX"
 
 AI:
-1. [ToolA('avatarName')] → Check result
-2. [ToolB('avatarName', 'param')]
+1. <tool name="ToolA">
+<arg name="param1">avatarName</arg>
+</tool> → Check result
+2. <tool name="ToolB">
+<arg name="param1">avatarName</arg>
+<arg name="param2">param</arg>
+</tool>
 3. "Done. XX has been configured."
 ```
 
@@ -99,18 +113,30 @@ AI:
 User: "Set up XX under YY conditions"
 
 AI:
-1. [ToolA('avatarName')] → Confirm condition B applies
+1. <tool name="ToolA">
+<arg name="param1">avatarName</arg>
+</tool> → Confirm condition B applies
 2. "Since it's in YY state, proceeding with manual steps."
-3. [ToolE('avatarName', 'param')]
-4. [ToolF('avatarName', 'param')]
+3. <tool name="ToolE">
+<arg name="param1">avatarName</arg>
+<arg name="param2">param</arg>
+</tool>
+4. <tool name="ToolF">
+<arg name="param1">avatarName</arg>
+<arg name="param2">param</arg>
+</tool>
 ```
 
 ### Example 3: Error Recovery
 ```
 AI:
-1. [ToolA('avatarName')] → Error: XX not found
+1. <tool name="ToolA">
+<arg name="param1">avatarName</arg>
+</tool> → Error: XX not found
 2. "XX doesn't appear to be configured. Setting up YY first."
-3. [ToolG('avatarName')]
+3. <tool name="ToolG">
+<arg name="param1">avatarName</arg>
+</tool>
 4. (Restart from Step 1)
 ```
 
@@ -122,7 +148,7 @@ AI:
 - Type: string / int / float
 - Format: `"value1;value2;value3"` (semicolon-separated)
 - Default: `"default"`
-- How to check: Value shown in `[InspectTool()]` output
+- How to check: Value shown in `<tool name="InspectTool"></tool>` output
 
 ## Common Mistakes
 
@@ -150,5 +176,5 @@ AI:
 
 <!-- Error message/symptom → cause → fix -->
 
-- **Error message / symptom**: Cause explanation → Fix with `[FixTool()]`, or check XX
+- **Error message / symptom**: Cause explanation → Fix with `<tool name="FixTool"></tool>`, or check XX
 - **Unexpected result**: Possibly caused by XX → Try YY

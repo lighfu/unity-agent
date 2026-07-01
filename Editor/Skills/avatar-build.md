@@ -20,13 +20,17 @@ Perform performance validation before building and prompt fixes if issues are fo
 ### 1. Performance Validation
 First, check the avatar's performance:
 ```
-[GetAvatarPerformanceStats('avatarRootName')]
+<tool name="GetAvatarPerformanceStats">
+<arg name="avatarRootName">avatarRootName</arg>
+</tool>
 ```
 
 ### 2. AvatarDescriptor Check
 Verify the configuration is correct:
 ```
-[InspectVRCAvatarDescriptor('avatarRootName')]
+<tool name="InspectVRCAvatarDescriptor">
+<arg name="avatarRootName">avatarRootName</arg>
+</tool>
 ```
 
 ### 3. Common Issues to Check
@@ -37,7 +41,9 @@ Verify the configuration is correct:
 ### 4. Execute Build
 Open the SDK Control Panel:
 ```
-[ExecuteMenu('VRChat SDK/Show Control Panel')]
+<tool name="ExecuteMenu">
+<arg name="menuPath">VRChat SDK/Show Control Panel</arg>
+</tool>
 ```
 
 **Note**: The actual build and upload must be done manually by the user in the SDK Control Panel.

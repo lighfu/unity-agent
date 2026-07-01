@@ -80,7 +80,10 @@ Primarily uses Avatar Optimizer (AAO) and the NDMF framework.
 The most important component for automatic whole-avatar optimization.
 ```
 1. Select the avatar root
-2. [AddComponent('avatarRootName', 'AAOTraceAndOptimize')]
+2. <tool name="AddComponent">
+   <arg name="gameObjectName">avatarRootName</arg>
+   <arg name="componentName">AAOTraceAndOptimize</arg>
+   </tool>
    *Verify exact component name with SearchTools
 3. Optimization is automatically applied at build time
 ```
@@ -103,7 +106,9 @@ Removes invisible mesh portions to reduce polygon count.
 
 ### 1. Check Current Status
 ```
-[GetAvatarPerformanceStats('avatarRootName')]
+<tool name="GetAvatarPerformanceStats">
+<arg name="avatarRootName">avatarRootName</arg>
+</tool>
 ```
 Shows performance rank for all categories. Check each category rank and overall rank.
 
