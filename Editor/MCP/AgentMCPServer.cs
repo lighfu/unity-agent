@@ -232,8 +232,19 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             string safeCt = SanitizeForLog(req.ContentType, 120);
             TraceLog($"REQ {safeMethod} {safePath} remote={remote} len={req.ContentLength64} ct={safeCt} auth={(req.Headers["Authorization"] != null ? "present" : "MISSING")} accept={safeAccept} ua={ua}");
 
+            string originHeader = req.Headers[MCPHttpProtocol.HeaderOrigin];
+            if (!MCPHttpProtocol.IsAllowedOrigin(originHeader))
+            {
+                string safeOrigin = SanitizeForLog(originHeader, 200);
+                AgentLogger.Warning(LogTag.MCP, $"Rejected MCP HTTP request with non-local Origin={safeOrigin} remote={remote}");
+                WriteJson(resp, 403, "{\"error\":\"forbidden_origin\"}");
+                return;
+            }
+
             // CORS (ローカルツール用)
-            resp.AddHeader("Access-Control-Allow-Origin", "*");
+            resp.AddHeader("Access-Control-Allow-Origin", MCPHttpProtocol.GetCorsAllowOriginValue(originHeader));
+            if (!string.IsNullOrWhiteSpace(originHeader))
+                resp.AddHeader("Vary", "Origin");
             resp.AddHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
             resp.AddHeader("Access-Control-Allow-Headers",
                 "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID");

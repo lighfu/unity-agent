@@ -8,6 +8,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public const string DefaultProtocolVersionWhenHeaderMissing = "2025-03-26";
         public const string HeaderProtocolVersion = "MCP-Protocol-Version";
         public const string HeaderSessionId = "Mcp-Session-Id";
+        public const string HeaderOrigin = "Origin";
 
         public static string NegotiateProtocolVersion(JNode initializeParams)
         {
@@ -46,6 +47,34 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             return !string.IsNullOrWhiteSpace(acceptHeader)
                 && !AcceptsJsonAndEventStream(acceptHeader);
+        }
+
+        public static bool IsAllowedOrigin(string originHeader)
+        {
+            if (string.IsNullOrWhiteSpace(originHeader))
+                return true;
+
+            string origin = originHeader.Trim();
+            if (string.Equals(origin, "null", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                return false;
+            if (!string.IsNullOrEmpty(uri.UserInfo) ||
+                !string.IsNullOrEmpty(uri.Query) ||
+                !string.IsNullOrEmpty(uri.Fragment) ||
+                uri.AbsolutePath != "/")
+                return false;
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string host = uri.Host.Trim('[', ']').ToLowerInvariant();
+            return host == "localhost" || host == "127.0.0.1" || host == "::1";
+        }
+
+        public static string GetCorsAllowOriginValue(string originHeader)
+        {
+            return string.IsNullOrWhiteSpace(originHeader) ? "*" : originHeader.Trim();
         }
 
         static bool HeaderContainsMediaType(string header, string mediaType)

@@ -64,6 +64,30 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
         }
 
         [Test]
+        public void NonLocalOriginReturns403()
+        {
+            var response = PostMcp(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}",
+                "application/json, text/event-stream",
+                origin: "https://example.com");
+
+            Assert.AreEqual(403, response.StatusCode);
+        }
+
+        [Test]
+        public void LocalOriginIsAllowedAndEchoedForCors()
+        {
+            const string Origin = "http://localhost:3000";
+            var response = PostMcp(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}",
+                "application/json, text/event-stream",
+                origin: Origin);
+
+            Assert.AreEqual(200, response.StatusCode);
+            Assert.AreEqual(Origin, response.Headers["Access-Control-Allow-Origin"]);
+        }
+
+        [Test]
         public void NotificationReturns202()
         {
             var response = PostMcp(
@@ -74,7 +98,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
             Assert.AreEqual("", response.Body);
         }
 
-        ServerResponse PostMcp(string json, string accept, string protocolVersion = null)
+        ServerResponse PostMcp(string json, string accept, string protocolVersion = null, string origin = null)
         {
             var req = (HttpWebRequest)WebRequest.Create($"http://localhost:{_port}/mcp");
             req.Method = "POST";
@@ -84,6 +108,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
                 req.Accept = accept;
             if (!string.IsNullOrEmpty(protocolVersion))
                 req.Headers[MCPHttpProtocol.HeaderProtocolVersion] = protocolVersion;
+            if (!string.IsNullOrEmpty(origin))
+                req.Headers[MCPHttpProtocol.HeaderOrigin] = origin;
 
             byte[] body = Encoding.UTF8.GetBytes(json);
             req.ContentLength = body.Length;

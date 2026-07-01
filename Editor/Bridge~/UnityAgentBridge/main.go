@@ -34,6 +34,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -371,6 +372,9 @@ func (b *Bridge) startMCPHTTPServer(addr string) error {
 }
 
 func (b *Bridge) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if rejectDisallowedOrigin(w, r) {
+		return
+	}
 	if r.URL.Path != "/" && r.URL.Path != "/health" {
 		http.NotFound(w, r)
 		return
@@ -380,8 +384,12 @@ func (b *Bridge) handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
+	if rejectDisallowedOrigin(w, r) {
+		return
+	}
+
 	// CORS for local tools
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	applyCORSHeaders(w, r.Header.Get("Origin"))
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
 	w.Header().Set("Access-Control-Expose-Headers", "MCP-Protocol-Version, Mcp-Session-Id")
@@ -499,6 +507,50 @@ func acceptsJSONAndEventStream(header string) bool {
 
 func warnPostAcceptHeader(header string) bool {
 	return strings.TrimSpace(header) != "" && !acceptsJSONAndEventStream(header)
+}
+
+func rejectDisallowedOrigin(w http.ResponseWriter, r *http.Request) bool {
+	if validOriginHeader(r.Header.Get("Origin")) {
+		return false
+	}
+	http.Error(w, "forbidden origin", http.StatusForbidden)
+	return true
+}
+
+func applyCORSHeaders(w http.ResponseWriter, originHeader string) {
+	origin := strings.TrimSpace(originHeader)
+	if origin == "" {
+		origin = "*"
+	} else {
+		w.Header().Add("Vary", "Origin")
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+}
+
+func validOriginHeader(header string) bool {
+	origin := strings.TrimSpace(header)
+	if origin == "" {
+		return true
+	}
+	if strings.EqualFold(origin, "null") {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	if u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https") {
+		return false
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func headerContainsMediaType(header, mediaType string) bool {

@@ -52,6 +52,36 @@ func TestProtocolVersionHeader(t *testing.T) {
 	}
 }
 
+func TestValidOriginHeaderAllowsOnlyLoopbackOrigins(t *testing.T) {
+	if !validOriginHeader("") {
+		t.Fatal("missing origin should be allowed")
+	}
+	if !validOriginHeader("http://localhost:3000") {
+		t.Fatal("localhost origin should be allowed")
+	}
+	if !validOriginHeader("http://localhost:3000/") {
+		t.Fatal("localhost origin with slash should be allowed")
+	}
+	if !validOriginHeader("https://127.0.0.1:3000") {
+		t.Fatal("127.0.0.1 origin should be allowed")
+	}
+	if !validOriginHeader("http://[::1]:3000") {
+		t.Fatal("IPv6 loopback origin should be allowed")
+	}
+	if validOriginHeader("https://example.com") {
+		t.Fatal("non-local origin should be rejected")
+	}
+	if validOriginHeader("null") {
+		t.Fatal("null origin should be rejected")
+	}
+	if validOriginHeader("file://local/test.html") {
+		t.Fatal("file origin should be rejected")
+	}
+	if validOriginHeader("http://localhost:3000/path") {
+		t.Fatal("origin with path should be rejected")
+	}
+}
+
 func TestBridgeGETMCPReturns405BecauseStandaloneSSEIsNotSupported(t *testing.T) {
 	bridge := newBridge("secret")
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
@@ -63,6 +93,53 @@ func TestBridgeGETMCPReturns405BecauseStandaloneSSEIsNotSupported(t *testing.T) 
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}
+
+func TestBridgePOSTRejectsNonLocalOrigin(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Origin", "https://example.com")
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestBridgePOSTLocalOriginIsEchoedForCORS(t *testing.T) {
+	const origin = "http://localhost:3000"
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Origin", origin)
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
+		t.Fatalf("expected Access-Control-Allow-Origin %q, got %q", origin, got)
+	}
+}
+
+func TestBridgeHealthRejectsNonLocalOrigin(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Origin", "https://example.com")
+	rec := httptest.NewRecorder()
+
+	bridge.handleRoot(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 }
 

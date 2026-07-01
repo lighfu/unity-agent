@@ -58,5 +58,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
             Assert.IsTrue(MCPHttpProtocol.IsValidProtocolVersionHeader("2025-03-26"));
             Assert.IsFalse(MCPHttpProtocol.IsValidProtocolVersionHeader("not-a-date"));
         }
+
+        [Test]
+        public void OriginHeaderAllowsOnlyLoopbackOrigins()
+        {
+            Assert.IsTrue(MCPHttpProtocol.IsAllowedOrigin(null));
+            Assert.IsTrue(MCPHttpProtocol.IsAllowedOrigin(""));
+            Assert.IsTrue(MCPHttpProtocol.IsAllowedOrigin("http://localhost:3000"));
+            Assert.IsTrue(MCPHttpProtocol.IsAllowedOrigin("http://localhost:3000/"));
+            Assert.IsTrue(MCPHttpProtocol.IsAllowedOrigin("https://127.0.0.1:3000"));
+            Assert.IsTrue(MCPHttpProtocol.IsAllowedOrigin("http://[::1]:3000"));
+            Assert.IsFalse(MCPHttpProtocol.IsAllowedOrigin("https://example.com"));
+            Assert.IsFalse(MCPHttpProtocol.IsAllowedOrigin("null"));
+            Assert.IsFalse(MCPHttpProtocol.IsAllowedOrigin("file://local/test.html"));
+            Assert.IsFalse(MCPHttpProtocol.IsAllowedOrigin("http://localhost:3000/path"));
+        }
     }
 }
