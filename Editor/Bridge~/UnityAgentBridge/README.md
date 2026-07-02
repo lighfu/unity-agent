@@ -1,6 +1,6 @@
 # UnityAgentBridge (Go)
 
-Out-of-process MCP HTTP/SSE endpoint that survives Unity domain reloads.
+Out-of-process MCP HTTP endpoint that survives Unity domain reloads.
 
 ## Why
 
@@ -15,14 +15,15 @@ delivery once Unity reconnects.
 ## Architecture
 
 ```
-┌─────────────┐    HTTP+SSE    ┌──────────────┐    TCP+JSONL    ┌──────────────┐
+┌─────────────┐    HTTP POST   ┌──────────────┐    TCP+JSONL    ┌──────────────┐
 │ MCP client  │ ─────────────→ │   Bridge     │ ←─────────────→ │ Unity Editor │
 │ (Claude/etc)│                │   (this)     │                 │              │
 └─────────────┘                └──────────────┘                 └──────────────┘
                                 long-lived                       reloads, reconnects
 ```
 
-- Public side: HTTP `POST /mcp` with Bearer token (matches existing AgentMCPServer.cs surface)
+- Public side: HTTP `POST /mcp` with Bearer token (matches existing AgentMCPServer.cs surface).
+  `GET /mcp` SSE is intentionally not supported in P1 and returns 405.
 - Internal side: TCP listener, line-delimited JSON, shared-secret hello
 
 ## Build
