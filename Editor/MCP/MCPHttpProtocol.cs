@@ -68,8 +68,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            string host = uri.Host.Trim('[', ']').ToLowerInvariant();
-            return host == "localhost" || host == "127.0.0.1" || host == "::1";
+            if (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return System.Net.IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address)
+                && System.Net.IPAddress.IsLoopback(address);
         }
 
         public static string GetCorsAllowOriginValue(string originHeader)
