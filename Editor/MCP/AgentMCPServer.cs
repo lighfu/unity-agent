@@ -249,7 +249,6 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             resp.AddHeader("Access-Control-Allow-Headers",
                 "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID");
             resp.AddHeader("Access-Control-Expose-Headers", "MCP-Protocol-Version, Mcp-Session-Id");
-            resp.AddHeader(MCPHttpProtocol.HeaderProtocolVersion, MCPHttpProtocol.LatestProtocolVersion);
 
             if (req.HttpMethod == "OPTIONS")
             {
@@ -396,6 +395,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     "\",\"2024-11-05\"]}");
                 return;
             }
+            resp.Headers[MCPHttpProtocol.HeaderProtocolVersion] =
+                MCPHttpProtocol.GetEffectiveProtocolVersionForHeader(protocolHeader);
 
             // GET /mcp (Accept: text/event-stream) → MCP Streamable HTTP の
             // サーバー送信イベントチャネル。Claude Code はこれが貼れないと
@@ -498,14 +499,29 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 return;
             }
 
-            if (root["method"].Type == JNode.JType.Null &&
-                (root.Has("result") || root.Has("error")))
+            if (root["method"].AsString == "initialize")
+                resp.Headers[MCPHttpProtocol.HeaderProtocolVersion] =
+                    MCPHttpProtocol.NegotiateProtocolVersion(root["params"]);
+
+            if (root["method"].Type == JNode.JType.Null)
             {
-                AgentLogger.Debug(LogTag.MCP, "JSON-RPC response received over Streamable HTTP; returning 202.");
-                resp.StatusCode = 202;
-                resp.ContentLength64 = 0;
-                resp.OutputStream.Close();
-                return;
+                bool hasResult = root.Has("result");
+                bool hasError = root.Has("error");
+                if (hasResult || hasError)
+                {
+                    if (!root.Has("id") || (hasResult && hasError))
+                    {
+                        WriteJsonRpcError(resp, JNode.NullNode, -32600, "Invalid Request",
+                            "JSON-RPC response must include id and exactly one of result or error.");
+                        return;
+                    }
+
+                    AgentLogger.Debug(LogTag.MCP, "JSON-RPC response received over Streamable HTTP; returning 202.");
+                    resp.StatusCode = 202;
+                    resp.ContentLength64 = 0;
+                    resp.OutputStream.Close();
+                    return;
+                }
             }
 
             DispatchJsonRpc(resp, root);

@@ -52,6 +52,18 @@ func TestProtocolVersionHeader(t *testing.T) {
 	}
 }
 
+func TestEffectiveProtocolVersionForHeader(t *testing.T) {
+	if got := effectiveProtocolVersionForHeader(""); got != defaultProtocolVersionWhenHeaderMissing {
+		t.Fatalf("expected missing header fallback %q, got %q", defaultProtocolVersionWhenHeaderMissing, got)
+	}
+	if got := effectiveProtocolVersionForHeader("2025-03-26"); got != defaultProtocolVersionWhenHeaderMissing {
+		t.Fatalf("expected explicit compatibility version, got %q", got)
+	}
+	if got := effectiveProtocolVersionForHeader("2025-06-18"); got != latestProtocolVersion {
+		t.Fatalf("expected latest version, got %q", got)
+	}
+}
+
 func TestValidOriginHeaderAllowsOnlyLoopbackOrigins(t *testing.T) {
 	if !validOriginHeader("") {
 		t.Fatal("missing origin should be allowed")
@@ -165,6 +177,43 @@ func TestBridgePOSTMissingAcceptStaysCompatible(t *testing.T) {
 	}
 }
 
+func TestBridgeInitializeOlderProtocolKeepsResponseHeaderAndBodyAligned(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get(headerProtocolVersion); got != defaultProtocolVersionWhenHeaderMissing {
+		t.Fatalf("expected protocol header %q, got %q", defaultProtocolVersionWhenHeaderMissing, got)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"protocolVersion":"2025-03-26"`) {
+		t.Fatalf("expected negotiated protocol in response body, got %s", body)
+	}
+}
+
+func TestBridgePingMissingProtocolHeaderUsesCompatibilityDefault(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get(headerProtocolVersion); got != defaultProtocolVersionWhenHeaderMissing {
+		t.Fatalf("expected protocol header %q, got %q", defaultProtocolVersionWhenHeaderMissing, got)
+	}
+}
+
 func TestBridgePOSTInvalidProtocolVersionReturns400(t *testing.T) {
 	bridge := newBridge("secret")
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
@@ -191,5 +240,70 @@ func TestBridgeNotificationReturns202(t *testing.T) {
 
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+}
+
+func TestBridgeJSONRPCResponseReturns202(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+}
+
+func TestBridgeMissingMethodRequestReturnsInvalidRequest(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected JSON-RPC error over 200, got %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"code":-32600`) {
+		t.Fatalf("expected invalid request error, got %s", body)
+	}
+}
+
+func TestBridgeResponseWithoutIDReturnsInvalidRequest(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","result":{}}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected JSON-RPC error over 200, got %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"code":-32600`) {
+		t.Fatalf("expected invalid request error, got %s", body)
+	}
+}
+
+func TestBridgeResponseWithResultAndErrorReturnsInvalidRequest(t *testing.T) {
+	bridge := newBridge("secret")
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-32000,"message":"bad"}}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+
+	bridge.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected JSON-RPC error over 200, got %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"code":-32600`) {
+		t.Fatalf("expected invalid request error, got %s", body)
 	}
 }

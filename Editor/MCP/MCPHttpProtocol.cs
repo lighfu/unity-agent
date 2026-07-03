@@ -32,6 +32,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             return IsSupportedProtocolVersion(headerValue.Trim());
         }
 
+        public static string GetEffectiveProtocolVersionForHeader(string headerValue)
+        {
+            if (string.IsNullOrWhiteSpace(headerValue))
+                return DefaultProtocolVersionWhenHeaderMissing;
+
+            string version = headerValue.Trim();
+            return version;
+        }
+
         public static bool AcceptsJsonAndEventStream(string acceptHeader)
         {
             return HeaderContainsMediaType(acceptHeader, "application/json")

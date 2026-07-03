@@ -53,6 +53,29 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
         }
 
         [Test]
+        public void InitializeOlderProtocolKeepsResponseHeaderAndBodyAligned()
+        {
+            var response = PostMcp(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\"}}",
+                "application/json, text/event-stream");
+
+            Assert.AreEqual(200, response.StatusCode);
+            Assert.AreEqual("2025-03-26", response.Headers[MCPHttpProtocol.HeaderProtocolVersion]);
+            StringAssert.Contains("\"protocolVersion\":\"2025-03-26\"", response.Body);
+        }
+
+        [Test]
+        public void MissingProtocolHeaderUsesCompatibilityDefaultForNonInitializeRequest()
+        {
+            var response = PostMcp(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+                "application/json, text/event-stream");
+
+            Assert.AreEqual(200, response.StatusCode);
+            Assert.AreEqual("2025-03-26", response.Headers[MCPHttpProtocol.HeaderProtocolVersion]);
+        }
+
+        [Test]
         public void InvalidProtocolVersionHeaderReturns400()
         {
             var response = PostMcp(
@@ -96,6 +119,39 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
 
             Assert.AreEqual(202, response.StatusCode);
             Assert.AreEqual("", response.Body);
+        }
+
+        [Test]
+        public void JsonRpcResponseReturns202()
+        {
+            var response = PostMcp(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}",
+                "application/json, text/event-stream");
+
+            Assert.AreEqual(202, response.StatusCode);
+            Assert.AreEqual("", response.Body);
+        }
+
+        [Test]
+        public void MissingMethodRequestReturnsInvalidRequest()
+        {
+            var response = PostMcp(
+                "{\"jsonrpc\":\"2.0\",\"id\":1}",
+                "application/json, text/event-stream");
+
+            Assert.AreEqual(200, response.StatusCode);
+            StringAssert.Contains("\"code\":-32600", response.Body);
+        }
+
+        [Test]
+        public void JsonRpcResponseWithoutIdReturnsInvalidRequest()
+        {
+            var response = PostMcp(
+                "{\"jsonrpc\":\"2.0\",\"result\":{}}",
+                "application/json, text/event-stream");
+
+            Assert.AreEqual(200, response.StatusCode);
+            StringAssert.Contains("\"code\":-32600", response.Body);
         }
 
         ServerResponse PostMcp(string json, string accept, string protocolVersion = null, string origin = null)

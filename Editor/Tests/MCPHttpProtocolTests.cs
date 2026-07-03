@@ -60,6 +60,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
         }
 
         [Test]
+        public void EffectiveProtocolVersionUsesCompatibilityDefaultWhenHeaderIsMissing()
+        {
+            Assert.AreEqual("2025-03-26", MCPHttpProtocol.GetEffectiveProtocolVersionForHeader(null));
+            Assert.AreEqual("2025-03-26", MCPHttpProtocol.GetEffectiveProtocolVersionForHeader(""));
+            Assert.AreEqual("2025-03-26", MCPHttpProtocol.GetEffectiveProtocolVersionForHeader("2025-03-26"));
+            Assert.AreEqual("2025-06-18", MCPHttpProtocol.GetEffectiveProtocolVersionForHeader("2025-06-18"));
+        }
+
+        [Test]
         public void OriginHeaderAllowsOnlyLoopbackOrigins()
         {
             Assert.IsTrue(MCPHttpProtocol.IsAllowedOrigin(null));

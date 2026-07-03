@@ -2,21 +2,21 @@
 //
 // Architecture:
 //
-//   ┌─────────────┐    HTTP POST   ┌──────────────┐    TCP+JSONL    ┌──────────────┐
-//   │ MCP client  │ ─────────────→ │   Bridge     │ ←─────────────→ │ Unity Editor │
-//   │ (Claude/etc)│                │   (this)     │                 │              │
-//   └─────────────┘                └──────────────┘                 └──────────────┘
-//                                   long-lived                       reloads, reconnects
+//	┌─────────────┐    HTTP POST   ┌──────────────┐    TCP+JSONL    ┌──────────────┐
+//	│ MCP client  │ ─────────────→ │   Bridge     │ ←─────────────→ │ Unity Editor │
+//	│ (Claude/etc)│                │   (this)     │                 │              │
+//	└─────────────┘                └──────────────┘                 └──────────────┘
+//	                                long-lived                       reloads, reconnects
 //
 // The bridge owns the public MCP HTTP endpoint for one MCP client. It accepts a single Unity
 // TCP connection. When Unity disconnects (domain reload), pending tool-call requests are held
 // in a queue and re-dispatched when Unity reconnects.
 //
 // P1 SCOPE: skeleton only. Just enough to:
-//   1. Accept Unity over TCP (with shared-secret token auth)
-//   2. Accept Claude Code / curl over HTTP /mcp (Bearer token auth)
-//   3. Forward `tools/call` from MCP client → Unity → response
-//   4. Survive Unity reload (buffering tool calls, replying to MCP client when Unity is back)
+//  1. Accept Unity over TCP (with shared-secret token auth)
+//  2. Accept Claude Code / curl over HTTP /mcp (Bearer token auth)
+//  3. Forward `tools/call` from MCP client → Unity → response
+//  4. Survive Unity reload (buffering tool calls, replying to MCP client when Unity is back)
 //
 // NOT in P1: OAuth discovery, SSE, multi-MCP-client, fault-tolerant reconnect after crash.
 // Those land in P2 and beyond.
@@ -53,7 +53,7 @@ const (
 	latestProtocolVersion                   = "2025-06-18"
 	defaultProtocolVersionWhenHeaderMissing = "2025-03-26"
 	headerProtocolVersion                   = "MCP-Protocol-Version"
-	idleQuitGrace                           = 5 * time.Minute  // Quit after both sides are gone for this long.
+	idleQuitGrace                           = 5 * time.Minute   // Quit after both sides are gone for this long.
 	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 )
 
@@ -393,7 +393,6 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
 	w.Header().Set("Access-Control-Expose-Headers", "MCP-Protocol-Version, Mcp-Session-Id")
-	w.Header().Set(headerProtocolVersion, latestProtocolVersion)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -403,6 +402,7 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported MCP protocol version", http.StatusBadRequest)
 		return
 	}
+	w.Header().Set(headerProtocolVersion, effectiveProtocolVersionForHeader(r.Header.Get(headerProtocolVersion)))
 	if r.Method == http.MethodGet {
 		// Bridge P1 does not provide a standalone server-to-client SSE channel.
 		// Streamable HTTP allows servers to signal that by returning 405.
@@ -444,9 +444,16 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[bridge] mcp ← %s id=%s", req.Method, string(req.ID))
 	}
 
-	if req.Method == "" && (len(req.ID) > 0 || len(req.Result) > 0 || req.Error != nil) {
-		w.WriteHeader(http.StatusAccepted)
-		return
+	if req.Method == "" {
+		isResponse, validResponse := classifyJSONRPCResponse(req)
+		if isResponse && validResponse {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if isResponse {
+			writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "JSON-RPC response must include exactly one of result or error.")
+			return
+		}
 	}
 	if req.Method == "" {
 		writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "Missing method.")
@@ -461,7 +468,9 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		writeJSONRPCResult(w, req.ID, b.handleInitialize(req.Params))
+		protocolVersion := negotiateProtocolVersionFromParams(req.Params)
+		w.Header().Set(headerProtocolVersion, protocolVersion)
+		writeJSONRPCResult(w, req.ID, b.handleInitialize(protocolVersion))
 	case "ping":
 		writeJSONRPCResult(w, req.ID, map[string]any{})
 	case "tools/list":
@@ -479,11 +488,41 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func effectiveProtocolVersionForHeader(header string) string {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return defaultProtocolVersionWhenHeaderMissing
+	}
+	return header
+}
+
 func negotiateProtocolVersion(requested string) string {
 	if supportedProtocolVersion(requested) {
 		return requested
 	}
 	return latestProtocolVersion
+}
+
+func negotiateProtocolVersionFromParams(rawParams json.RawMessage) string {
+	if len(rawParams) == 0 {
+		return latestProtocolVersion
+	}
+	var params struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := json.Unmarshal(rawParams, &params); err != nil {
+		return latestProtocolVersion
+	}
+	return negotiateProtocolVersion(params.ProtocolVersion)
+}
+
+func classifyJSONRPCResponse(req rpcRequest) (isResponse bool, valid bool) {
+	hasResult := len(req.Result) > 0
+	hasError := req.Error != nil
+	if !hasResult && !hasError {
+		return false, false
+	}
+	return true, len(req.ID) > 0 && hasResult != hasError
 }
 
 func supportedProtocolVersion(version string) bool {
@@ -587,16 +626,7 @@ func constantTimeEq(a, b string) bool {
 
 // handleInitialize returns the same shape as AgentMCPServer.Handlers.HandleInitialize so existing
 // MCP clients (Claude Code) treat the bridge as a drop-in replacement.
-func (b *Bridge) handleInitialize(rawParams json.RawMessage) map[string]any {
-	protocolVersion := latestProtocolVersion
-	if len(rawParams) > 0 {
-		var params struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		if err := json.Unmarshal(rawParams, &params); err == nil {
-			protocolVersion = negotiateProtocolVersion(params.ProtocolVersion)
-		}
-	}
+func (b *Bridge) handleInitialize(protocolVersion string) map[string]any {
 	return map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities": map[string]any{
