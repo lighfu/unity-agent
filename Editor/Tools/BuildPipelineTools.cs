@@ -29,8 +29,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 {
                     // Select the avatar first
                     Selection.activeGameObject = go;
+                    // Pin the parameterless overload (invoked with null args) to avoid
+                    // AmbiguousMatchException if BakeAvatar is ever overloaded.
                     var bakeMethod = manualBakeType.GetMethod("BakeAvatar",
-                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                        null, Type.EmptyTypes, null);
                     if (bakeMethod != null)
                     {
                         try
@@ -48,22 +51,54 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return "Error: NDMF not found. Install 'Non-Destructive Modular Framework' package.";
             }
 
-            // Use AvatarProcessor.ProcessAvatar
+            // Bake exactly like the official "Tools/NDM Framework/Manual bake avatar" menu:
+            // NDMF's ManualProcessAvatar() CLONES the avatar and processes the clone, so it tolerates
+            // prefab instances/assets. The plain ProcessAvatar(GameObject) overload processes the avatar
+            // IN PLACE, and NDMF's BuildContext rejects prefab instances with
+            // "Can't process an avatar that contains prefab instances/assets" — which is why the direct
+            // call failed on real avatars. Prefer ManualProcessAvatar; fall back to the in-place API
+            // (older NDMF) and finally the menu item.
             try
             {
                 Selection.activeGameObject = go;
+
+                // ManualProcessAvatar(GameObject obj, INDMFPlatformProvider platform = null).
+                // Match by name + first-parameter type (never by name alone) to avoid
+                // AmbiguousMatchException if the API gains overloads.
+                var manualMethod = processorType
+                    .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == "ManualProcessAvatar"
+                        && m.GetParameters().Length >= 1
+                        && m.GetParameters()[0].ParameterType == typeof(GameObject));
+                if (manualMethod != null)
+                {
+                    var baked = InvokeStaticWithGameObject(manualMethod, go) as GameObject;
+                    if (baked != null)
+                    {
+                        Selection.activeGameObject = baked;
+                        EditorGUIUtility.PingObject(baked);
+                    }
+                    return $"Success: NDMF manual bake completed for '{avatarRootName}'. " +
+                           $"A processed clone '{(baked != null ? baked.name : avatarRootName + " (Clone)")}' was created; " +
+                           "the original avatar was left untouched.";
+                }
+
+                // Fallback (older NDMF): in-place ProcessAvatar(GameObject). Pin the single-GameObject
+                // overload by parameter type to avoid AmbiguousMatchException. NOTE: this fails on avatars
+                // that still contain prefab instances/assets.
                 var processMethod = processorType.GetMethod("ProcessAvatar",
-                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                    null, new[] { typeof(GameObject) }, null);
                 if (processMethod != null)
                 {
                     processMethod.Invoke(null, new object[] { go });
                     return $"Success: NDMF ProcessAvatar completed for '{avatarRootName}'.";
                 }
 
-                // Fallback: try menu item
+                // Final fallback: menu item (also clones internally; operates on the current Selection)
                 bool menuResult = EditorApplication.ExecuteMenuItem("Tools/NDM Framework/Manual bake avatar");
                 if (!menuResult)
-                    return "Error: NDMF ProcessAvatar method not found, and the 'Tools/NDM Framework/Manual bake avatar' menu item could not be executed. NDMF may be missing or its API changed.";
+                    return "Error: NDMF ManualProcessAvatar/ProcessAvatar not found, and the 'Tools/NDM Framework/Manual bake avatar' menu item could not be executed. NDMF may be missing or its API changed.";
                 return $"Success: NDMF manual bake triggered via menu for '{avatarRootName}'.";
             }
             catch (Exception e)
@@ -348,6 +383,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         // ===== Helpers =====
+
+        // Invokes a static NDMF method whose first parameter is the avatar GameObject, filling any
+        // remaining parameters with their default value (or null for reference types). Lets us call
+        // ManualProcessAvatar(GameObject, INDMFPlatformProvider = null) without a compile-time NDMF ref.
+        private static object InvokeStaticWithGameObject(MethodInfo method, GameObject go)
+        {
+            var pars = method.GetParameters();
+            var args = new object[pars.Length];
+            args[0] = go;
+            for (int i = 1; i < pars.Length; i++)
+                args[i] = pars[i].HasDefaultValue ? pars[i].DefaultValue : null;
+            return method.Invoke(null, args);
+        }
 
         private static Type FindType(string fullName)
         {
