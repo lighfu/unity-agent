@@ -38,22 +38,25 @@ Verify the configuration is correct:
 - LipSync is correctly configured
 - ExpressionParameters cost is within 256 bits
 
-### 4. Execute Build
-Open the SDK Control Panel:
+### 4. Check Authentication
 ```
-<tool name="ExecuteMenu">
-<arg name="menuPath">VRChat SDK/Show Control Panel</arg>
+<tool name="CheckVRChatAuthentication">
 </tool>
 ```
+If not authenticated, open the Control Panel with `OpenVRChatSdkControlPanel` and ask the user to log in.
 
-**Note**: The actual build and upload must be done manually by the user in the SDK Control Panel.
-The AI supports up to opening the Control Panel and guides the user through the process.
-
-### 5. Post-Build Guidance
-Tell the user:
-- Select the "Build & Publish" tab in the Control Panel
-- Select the avatar
-- Use "Build & Test" for local testing, or "Build & Publish" to upload
+### 5. Build & Publish
+Upload directly with the upload tool. Visibility defaults to **private**:
+```
+<tool name="UploadVRChatAvatar">
+<arg name="avatarRootName">avatarRootName</arg>
+</tool>
+```
+- NEW avatars (no blueprint ID) also require `contentName` and `thumbnailPath`.
+- `visibility=public` is only allowed after the user explicitly approved it — ask with `AskUser` first, then pass `confirmPublic=true`. A native confirmation dialog is shown to the user as a final gate.
+- The SDK may show its copyright-agreement dialog once per session; the user must answer it.
+- For local testing instead of uploading, use `TriggerVRChatBuildTest`.
+- To review or edit already-uploaded content, use `ListVRChatUploadedContent` / `GetVRChatContentInfo` / `UpdateVRChatContentInfo`.
 
 ## Performance Rank Thresholds (PC)
 | Category | Excellent | Good | Medium | Poor |

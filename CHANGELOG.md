@@ -34,6 +34,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Model definitions are now single-sourced from `ModelCapabilityRegistry`. Provider dropdown presets and display names were previously hand-maintained in `ProviderRegistry.cs` as a second list parallel to the capability registry, and the two drifted: `grok-4` / `grok-code-fast-1` were registered but not selectable from the xAI dropdown, several Groq dropdown models had no capability entry (wrong context-window fallback), Perplexity's `sonar-reasoning-pro` / `sonar-deep-research` were missing from the registry, and Vertex AI's effective default resolved to the deprecated `gemini-2.0-flash`. Each model now declares which provider dropdowns it appears in via a `dropdowns:` argument; `ProviderRegistry` derives presets and `"DisplayName (id)"` labels from the registry, and a startup self-check warns on deprecated or unregistered provider defaults.
 
 ## [Unreleased]
+### Added
+- VRChat SDK 連携の公開ツール群 `VRChatUploadTools`（7 ツール、`Editor/Tools/VRChatUploadTools.cs`）。VRChat SDK の型はすべてリフレクションで解決し、SDK 未導入プロジェクトでもコンパイル可能（`VRChatTools.FindVrcType` と同じ流儀）。
+  - `CheckVRChatAuthentication` — ログイン済みか否かだけを返す（資格情報は返さない）。未ログインで保存済み資格情報がある場合は SDK Control Panel を開いてセッション復元を待つ。
+  - `OpenVRChatSdkControlPanel` — SDK Control Panel を開く。
+  - `ListVRChatUploadedContent` / `GetVRChatContentInfo` — Content Manager 相当。`VRCApi.Get<List<T>>("avatars"/"worlds", user=me, releaseStatus=all)` で自分のアップロード済みアバター/ワールドの一覧・詳細を取得。
+  - `UploadVRChatAvatar` / `UploadVRChatWorld`（Risk=Dangerous）— `IVRCSdkAvatarBuilderApi` / `IVRCSdkWorldBuilderApi` の `BuildAndUpload` を呼ぶ Build & Publish。IEnumerator コルーチンで `Task` をポーリングし `ToolProgress` に進捗表示。新規は contentName + thumbnailPath 必須（SDK がサムネ欠如をビルド後にしか検出せず孤児レコードが残るため事前検証）。
+  - `UpdateVRChatContentInfo` — 再アップロードなしで name/description/tags/visibility を変更。ワールドの public/private は Community Labs の publish/unpublish エンドポイントを使用。
+  - **Visibility はデフォルト private**。public 化は「`confirmPublic=true` 引数（エージェントがユーザーに確認してから設定）+ ネイティブ確認ダイアログ（人間がクリック）」の二重ゲートで、LLM 単独では公開できない。
+  - **batchmode ではアップロード自体を拒否**。`-batchmode` では `EditorUtility.DisplayDialog` が自動 true になるため、SDK の著作権同意ダイアログも public 確認ダイアログも人間の同意なしに通ってしまう。両アップロードツールは `Application.isBatchMode` で冒頭拒否し、対話的な Editor セッションでのみ動作する（SDK の著作権同意フローは意図的にバイパスしない）。
+- Skill Management に「URLから取込」ボタンを追加。GitHub の raw `.md` URL（blob URL は自動で raw に変換）を指定してスキルを取り込める。ダウンロード後に frontmatter（title/description/tags）と本文をプレビュー表示し、ID を確認・編集して `UserSkillsPath` に保存する。既存スキルは上書き確認あり。ダウンロードは `UnityWebRequest` + `EditorApplication.update` ポーリング（`UpdateChecker` と同方式）。中央レジストリを持たない分散型の配布を意図した最小実装。
+
 ### Changed
 - FaceEmo is now REQUIRED for expression editing. Expression tools refuse to run without FaceEmo installed + a configured launcher + TargetAvatar.
 - Expression building now drives FaceEmo's ExpressionEditor live preview (when reflection access is healthy) or falls back to `.anim` write + window refresh (Degraded mode).
