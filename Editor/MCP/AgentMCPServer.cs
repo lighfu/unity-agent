@@ -232,10 +232,23 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             string safeCt = SanitizeForLog(req.ContentType, 120);
             TraceLog($"REQ {safeMethod} {safePath} remote={remote} len={req.ContentLength64} ct={safeCt} auth={(req.Headers["Authorization"] != null ? "present" : "MISSING")} accept={safeAccept} ua={ua}");
 
+            string originHeader = req.Headers[MCPHttpProtocol.HeaderOrigin];
+            if (!MCPHttpProtocol.IsAllowedOrigin(originHeader))
+            {
+                string safeOrigin = SanitizeForLog(originHeader, 200);
+                AgentLogger.Warning(LogTag.MCP, $"Rejected MCP HTTP request with non-local Origin={safeOrigin} remote={remote}");
+                WriteJson(resp, 403, "{\"error\":\"forbidden_origin\"}");
+                return;
+            }
+
             // CORS (ローカルツール用)
-            resp.AddHeader("Access-Control-Allow-Origin", "*");
-            resp.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            resp.AddHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+            resp.AddHeader("Access-Control-Allow-Origin", MCPHttpProtocol.GetCorsAllowOriginValue(originHeader));
+            if (!string.IsNullOrWhiteSpace(originHeader))
+                resp.AddHeader("Vary", "Origin");
+            resp.AddHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+            resp.AddHeader("Access-Control-Allow-Headers",
+                "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID");
+            resp.AddHeader("Access-Control-Expose-Headers", "MCP-Protocol-Version, Mcp-Session-Id");
 
             if (req.HttpMethod == "OPTIONS")
             {
@@ -372,13 +385,26 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 return;
             }
 
+            string protocolHeader = req.Headers[MCPHttpProtocol.HeaderProtocolVersion];
+            if (!MCPHttpProtocol.IsValidProtocolVersionHeader(protocolHeader))
+            {
+                WriteJson(resp, 400,
+                    "{\"error\":\"unsupported_protocol_version\",\"supported\":[\"" +
+                    MCPHttpProtocol.LatestProtocolVersion + "\",\"" +
+                    MCPHttpProtocol.DefaultProtocolVersionWhenHeaderMissing +
+                    "\",\"2024-11-05\"]}");
+                return;
+            }
+            resp.Headers[MCPHttpProtocol.HeaderProtocolVersion] =
+                MCPHttpProtocol.GetEffectiveProtocolVersionForHeader(protocolHeader);
+
             // GET /mcp (Accept: text/event-stream) → MCP Streamable HTTP の
             // サーバー送信イベントチャネル。Claude Code はこれが貼れないと
             // 「capabilities: none」扱いにするため、認証が通っていれば空ストリームを維持する。
             if (req.HttpMethod == "GET")
             {
                 string accept = req.Headers["Accept"] ?? "";
-                if (accept.IndexOf("text/event-stream", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (MCPHttpProtocol.AcceptsEventStream(accept))
                 {
                     if (!CheckAuth(req))
                     {
@@ -393,10 +419,24 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 return;
             }
 
+            if (req.HttpMethod == "DELETE")
+            {
+                WriteJson(resp, 405, "{\"error\":\"method_not_allowed\"}");
+                return;
+            }
+
             if (req.HttpMethod != "POST")
             {
                 WriteJson(resp, 405, "{\"error\":\"method_not_allowed\"}");
                 return;
+            }
+
+            string postAccept = req.Headers["Accept"] ?? "";
+            if (MCPHttpProtocol.ShouldWarnAboutPostAcceptHeader(postAccept))
+            {
+                // Keep existing clients working while surfacing the Streamable HTTP requirement.
+                AgentLogger.Warning(LogTag.MCP,
+                    $"POST /mcp from {remote} sent non-compliant Accept header; continuing for compatibility. accept={safeAccept}");
             }
 
             // Body read (size capped)
@@ -459,6 +499,31 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 return;
             }
 
+            if (root["method"].AsString == "initialize")
+                resp.Headers[MCPHttpProtocol.HeaderProtocolVersion] =
+                    MCPHttpProtocol.NegotiateProtocolVersion(root["params"]);
+
+            if (root["method"].Type == JNode.JType.Null)
+            {
+                bool hasResult = root.Has("result");
+                bool hasError = root.Has("error");
+                if (hasResult || hasError)
+                {
+                    if (!root.Has("id") || (hasResult && hasError))
+                    {
+                        WriteJsonRpcError(resp, JNode.NullNode, -32600, "Invalid Request",
+                            "JSON-RPC response must include id and exactly one of result or error.");
+                        return;
+                    }
+
+                    AgentLogger.Debug(LogTag.MCP, "JSON-RPC response received over Streamable HTTP; returning 202.");
+                    resp.StatusCode = 202;
+                    resp.ContentLength64 = 0;
+                    resp.OutputStream.Close();
+                    return;
+                }
+            }
+
             DispatchJsonRpc(resp, root);
         }
 
@@ -476,7 +541,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             // Notifications (no response expected)
-            if (method.StartsWith("notifications/"))
+            if ((idNode == null || idNode.Type == JNode.JType.Null) || method.StartsWith("notifications/"))
             {
                 AgentLogger.Debug(LogTag.MCP, $"notification received method={method} paramsBytes={(paramsNode?.ToJson().Length ?? 0)}");
                 resp.StatusCode = 202;

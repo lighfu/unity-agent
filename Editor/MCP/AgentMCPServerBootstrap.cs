@@ -198,7 +198,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 AgentLogger.Error(LogTag.MCP, "[Bootstrap] Could not resolve package root; bridge binary path is empty.");
                 throw new FileNotFoundException(
                     "Bridge binary path could not be resolved (package root lookup failed). " +
-                    "Verify UnityAgent is installed as a UPM package or switch back to InProc mode.");
+                    "Verify UnityAgent is installed as a UPM package or legacy Assets package, or switch back to InProc mode.");
             }
             if (!File.Exists(binaryPath))
             {
@@ -273,7 +273,6 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 var asm = typeof(AgentMCPServerBootstrap).Assembly;
                 string asmPath = asm.Location;
-                if (string.IsNullOrEmpty(asmPath)) return null;
 
                 // Editor assemblies live under .../Editor/<asmname>.dll or under Library/ScriptAssemblies/
                 // For source distribution, we rely on PackageInfo lookup instead.
@@ -282,13 +281,24 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     return pkg.resolvedPath;
 
                 // Fallback: walk up from the assembly path
-                string dir = Path.GetDirectoryName(asmPath);
-                while (!string.IsNullOrEmpty(dir))
+                if (!string.IsNullOrEmpty(asmPath))
                 {
-                    if (File.Exists(Path.Combine(dir, "package.json")))
-                        return dir;
-                    dir = Path.GetDirectoryName(dir);
+                    string dir = Path.GetDirectoryName(asmPath);
+                    while (!string.IsNullOrEmpty(dir))
+                    {
+                        if (File.Exists(Path.Combine(dir, "package.json")))
+                            return dir;
+                        dir = Path.GetDirectoryName(dir);
+                    }
                 }
+            }
+            catch { }
+            try
+            {
+                string legacyRoot = PackagePaths.PackageRoot;
+                if (!string.IsNullOrEmpty(legacyRoot) &&
+                    File.Exists(Path.Combine(legacyRoot, "package.json")))
+                    return legacyRoot;
             }
             catch { }
             return null;

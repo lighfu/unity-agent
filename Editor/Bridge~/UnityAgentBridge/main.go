@@ -1,22 +1,22 @@
-// UnityAgentBridge — Out-of-process MCP HTTP/SSE endpoint that survives Unity domain reloads.
+// UnityAgentBridge — Out-of-process MCP HTTP endpoint that survives Unity domain reloads.
 //
 // Architecture:
 //
-//   ┌─────────────┐    HTTP+SSE    ┌──────────────┐    TCP+JSONL    ┌──────────────┐
-//   │ MCP client  │ ─────────────→ │   Bridge     │ ←─────────────→ │ Unity Editor │
-//   │ (Claude/etc)│                │   (this)     │                 │              │
-//   └─────────────┘                └──────────────┘                 └──────────────┘
-//                                   long-lived                       reloads, reconnects
+//	┌─────────────┐    HTTP POST   ┌──────────────┐    TCP+JSONL    ┌──────────────┐
+//	│ MCP client  │ ─────────────→ │   Bridge     │ ←─────────────→ │ Unity Editor │
+//	│ (Claude/etc)│                │   (this)     │                 │              │
+//	└─────────────┘                └──────────────┘                 └──────────────┘
+//	                                long-lived                       reloads, reconnects
 //
-// The bridge owns the public MCP HTTP endpoint and the persistent SSE channel for one MCP
-// client. It accepts a single Unity TCP connection. When Unity disconnects (domain reload),
-// pending tool-call requests are held in a queue and re-dispatched when Unity reconnects.
+// The bridge owns the public MCP HTTP endpoint for one MCP client. It accepts a single Unity
+// TCP connection. When Unity disconnects (domain reload), pending tool-call requests are held
+// in a queue and re-dispatched when Unity reconnects.
 //
 // P1 SCOPE: skeleton only. Just enough to:
-//   1. Accept Unity over TCP (with shared-secret token auth)
-//   2. Accept Claude Code / curl over HTTP /mcp (Bearer token auth)
-//   3. Forward `tools/call` from MCP client → Unity → response
-//   4. Survive Unity reload (buffering tool calls, replying to MCP client when Unity is back)
+//  1. Accept Unity over TCP (with shared-secret token auth)
+//  2. Accept Claude Code / curl over HTTP /mcp (Bearer token auth)
+//  3. Forward `tools/call` from MCP client → Unity → response
+//  4. Survive Unity reload (buffering tool calls, replying to MCP client when Unity is back)
 //
 // NOT in P1: OAuth discovery, SSE, multi-MCP-client, fault-tolerant reconnect after crash.
 // Those land in P2 and beyond.
@@ -34,7 +34,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,11 +47,14 @@ import (
 // ─────────────────────────────────────────────────────────────────────────
 
 const (
-	defaultPublicPort   = 17800 // MCP HTTP endpoint exposed to Claude Code et al.
-	defaultInternalPort = 17801 // TCP endpoint where Unity connects in.
-	mcpEndpointPath     = "/mcp"
-	idleQuitGrace       = 5 * time.Minute  // Quit after both sides are gone for this long.
-	callTimeout         = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
+	defaultPublicPort                       = 17800 // MCP HTTP endpoint exposed to Claude Code et al.
+	defaultInternalPort                     = 17801 // TCP endpoint where Unity connects in.
+	mcpEndpointPath                         = "/mcp"
+	latestProtocolVersion                   = "2025-06-18"
+	defaultProtocolVersionWhenHeaderMissing = "2025-03-26"
+	headerProtocolVersion                   = "MCP-Protocol-Version"
+	idleQuitGrace                           = 5 * time.Minute   // Quit after both sides are gone for this long.
+	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 )
 
 var (
@@ -330,6 +335,8 @@ type rpcRequest struct {
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
 }
 
 type rpcResponse struct {
@@ -365,6 +372,9 @@ func (b *Bridge) startMCPHTTPServer(addr string) error {
 }
 
 func (b *Bridge) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if rejectDisallowedOrigin(w, r) {
+		return
+	}
 	if r.URL.Path != "/" && r.URL.Path != "/health" {
 		http.NotFound(w, r)
 		return
@@ -374,18 +384,41 @@ func (b *Bridge) handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
+	if rejectDisallowedOrigin(w, r) {
+		return
+	}
+
 	// CORS for local tools
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	applyCORSHeaders(w, r.Header.Get("Origin"))
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
+	w.Header().Set("Access-Control-Expose-Headers", "MCP-Protocol-Version, Mcp-Session-Id")
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if !validProtocolVersionHeader(r.Header.Get(headerProtocolVersion)) {
+		http.Error(w, "unsupported MCP protocol version", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set(headerProtocolVersion, effectiveProtocolVersionForHeader(r.Header.Get(headerProtocolVersion)))
+	if r.Method == http.MethodGet {
+		// Bridge P1 does not provide a standalone server-to-client SSE channel.
+		// Streamable HTTP allows servers to signal that by returning 405.
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+	if warnPostAcceptHeader(r.Header.Get("Accept")) {
+		log.Printf("[bridge] non-compliant POST Accept header; continuing for compatibility: %q", r.Header.Get("Accept"))
 	}
 
 	// Bearer auth — must match shared token.
@@ -411,6 +444,22 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[bridge] mcp ← %s id=%s", req.Method, string(req.ID))
 	}
 
+	if req.Method == "" {
+		isResponse, validResponse := classifyJSONRPCResponse(req)
+		if isResponse && validResponse {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if isResponse {
+			writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "JSON-RPC response must include exactly one of result or error.")
+			return
+		}
+	}
+	if req.Method == "" {
+		writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "Missing method.")
+		return
+	}
+
 	// Notifications (no response expected).
 	if len(req.ID) == 0 || string(req.ID) == "null" {
 		w.WriteHeader(http.StatusAccepted)
@@ -419,7 +468,9 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		writeJSONRPCResult(w, req.ID, b.handleInitialize())
+		protocolVersion := negotiateProtocolVersionFromParams(req.Params)
+		w.Header().Set(headerProtocolVersion, protocolVersion)
+		writeJSONRPCResult(w, req.ID, b.handleInitialize(protocolVersion))
 	case "ping":
 		writeJSONRPCResult(w, req.ID, map[string]any{})
 	case "tools/list":
@@ -435,6 +486,123 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSONRPCError(w, req.ID, -32601, "Method not found", req.Method)
 	}
+}
+
+func effectiveProtocolVersionForHeader(header string) string {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return defaultProtocolVersionWhenHeaderMissing
+	}
+	return header
+}
+
+func negotiateProtocolVersion(requested string) string {
+	if supportedProtocolVersion(requested) {
+		return requested
+	}
+	return latestProtocolVersion
+}
+
+func negotiateProtocolVersionFromParams(rawParams json.RawMessage) string {
+	if len(rawParams) == 0 {
+		return latestProtocolVersion
+	}
+	var params struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := json.Unmarshal(rawParams, &params); err != nil {
+		return latestProtocolVersion
+	}
+	return negotiateProtocolVersion(params.ProtocolVersion)
+}
+
+func classifyJSONRPCResponse(req rpcRequest) (isResponse bool, valid bool) {
+	hasResult := len(req.Result) > 0
+	hasError := req.Error != nil
+	if !hasResult && !hasError {
+		return false, false
+	}
+	return true, len(req.ID) > 0 && hasResult != hasError
+}
+
+func supportedProtocolVersion(version string) bool {
+	switch strings.TrimSpace(version) {
+	case latestProtocolVersion, defaultProtocolVersionWhenHeaderMissing, "2024-11-05":
+		return true
+	default:
+		return false
+	}
+}
+
+func validProtocolVersionHeader(header string) bool {
+	header = strings.TrimSpace(header)
+	return header == "" || supportedProtocolVersion(header)
+}
+
+func acceptsJSONAndEventStream(header string) bool {
+	return headerContainsMediaType(header, "application/json") &&
+		headerContainsMediaType(header, "text/event-stream")
+}
+
+func warnPostAcceptHeader(header string) bool {
+	return strings.TrimSpace(header) != "" && !acceptsJSONAndEventStream(header)
+}
+
+func rejectDisallowedOrigin(w http.ResponseWriter, r *http.Request) bool {
+	if validOriginHeader(r.Header.Get("Origin")) {
+		return false
+	}
+	http.Error(w, "forbidden origin", http.StatusForbidden)
+	return true
+}
+
+func applyCORSHeaders(w http.ResponseWriter, originHeader string) {
+	origin := strings.TrimSpace(originHeader)
+	if origin == "" {
+		origin = "*"
+	} else {
+		w.Header().Add("Vary", "Origin")
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+}
+
+func validOriginHeader(header string) bool {
+	origin := strings.TrimSpace(header)
+	if origin == "" {
+		return true
+	}
+	if strings.EqualFold(origin, "null") {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	if u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https") {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func headerContainsMediaType(header, mediaType string) bool {
+	for _, part := range strings.Split(header, ",") {
+		item := strings.TrimSpace(part)
+		if idx := strings.IndexByte(item, ';'); idx >= 0 {
+			item = strings.TrimSpace(item[:idx])
+		}
+		if strings.EqualFold(item, mediaType) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bridge) checkBearer(header string) bool {
@@ -458,9 +626,9 @@ func constantTimeEq(a, b string) bool {
 
 // handleInitialize returns the same shape as AgentMCPServer.Handlers.HandleInitialize so existing
 // MCP clients (Claude Code) treat the bridge as a drop-in replacement.
-func (b *Bridge) handleInitialize() map[string]any {
+func (b *Bridge) handleInitialize(protocolVersion string) map[string]any {
 	return map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": protocolVersion,
 		"capabilities": map[string]any{
 			"experimental": map[string]any{},
 			"prompts":      map[string]any{"listChanged": false},
