@@ -237,7 +237,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 string safeOrigin = SanitizeForLog(originHeader, 200);
                 AgentLogger.Warning(LogTag.MCP, $"Rejected MCP HTTP request with non-local Origin={safeOrigin} remote={remote}");
-                WriteJson(resp, 403, "{\"error\":\"forbidden_origin\"}");
+                WriteJson(req, resp, 403, "{\"error\":\"forbidden_origin\"}");
                 return;
             }
 
@@ -328,7 +328,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     "\"redirect_uris\":[]," +
                     "\"token_endpoint_auth_method\":\"none\"" +
                     "}";
-                WriteJson(resp, 201, clientMd);
+                // client metadata の中身は使わないが、読み捨てないと応答が RST になり得る。
+                WriteJson(req, resp, 201, clientMd);
                 return;
             }
 
@@ -375,20 +376,21 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     "\"expires_in\":" + OAuthTokenExpiresInSeconds + "," +
                     "\"scope\":\"mcp\"" +
                     "}";
-                WriteJson(resp, 200, tokenMd);
+                // grant_type 等のフォームボディは検証しないが、読み捨てないと応答が RST になり得る。
+                WriteJson(req, resp, 200, tokenMd);
                 return;
             }
 
             if (path != EndpointPath)
             {
-                WriteJson(resp, 404, "{\"error\":\"not_found\"}");
+                WriteJson(req, resp, 404, "{\"error\":\"not_found\"}");
                 return;
             }
 
             string protocolHeader = req.Headers[MCPHttpProtocol.HeaderProtocolVersion];
             if (!MCPHttpProtocol.IsValidProtocolVersionHeader(protocolHeader))
             {
-                WriteJson(resp, 400,
+                WriteJson(req, resp, 400,
                     "{\"error\":\"unsupported_protocol_version\",\"supported\":[\"" +
                     MCPHttpProtocol.LatestProtocolVersion + "\",\"" +
                     MCPHttpProtocol.DefaultProtocolVersionWhenHeaderMissing +
@@ -415,19 +417,19 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     return;
                 }
 
-                WriteJson(resp, 405, "{\"error\":\"method_not_allowed\"}");
+                WriteJson(req, resp, 405, "{\"error\":\"method_not_allowed\"}");
                 return;
             }
 
             if (req.HttpMethod == "DELETE")
             {
-                WriteJson(resp, 405, "{\"error\":\"method_not_allowed\"}");
+                WriteJson(req, resp, 405, "{\"error\":\"method_not_allowed\"}");
                 return;
             }
 
             if (req.HttpMethod != "POST")
             {
-                WriteJson(resp, 405, "{\"error\":\"method_not_allowed\"}");
+                WriteJson(req, resp, 405, "{\"error\":\"method_not_allowed\"}");
                 return;
             }
 
@@ -781,6 +783,39 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             for (int i = 0; i < a.Length; i++)
                 diff |= a[i] ^ b[i];
             return diff == 0;
+        }
+
+        /// <summary>
+        /// ボディを読まずに応答を閉じると、Windows の http.sys は graceful close ではなく
+        /// RST を送ることがある。クライアントには本来のステータス (400/403/405 や OAuth の 200/201)
+        /// ではなく「接続が強制的に切断されました」に見えてしまうため、
+        /// ボディを読まないパスでは応答前に読み捨てる。
+        /// 読み捨て量は ReadBody と同じ上限で打ち切る (巨大ボディの読み込みを強制されないため)。
+        /// 413 応答だけは意図的に読み捨てない — 上限超過を理由に拒否した直後に全量を読むのは本末転倒なため。
+        /// </summary>
+        static void DrainRequestBody(HttpListenerRequest req)
+        {
+            try
+            {
+                if (req == null || !req.HasEntityBody) return;
+
+                var buf = new byte[4096];
+                int total = 0;
+                int read;
+                while (total <= MaxRequestBodyBytes && (read = req.InputStream.Read(buf, 0, buf.Length)) > 0)
+                    total += read;
+            }
+            catch (Exception ex)
+            {
+                AgentLogger.Debug(LogTag.MCP, $"DrainRequestBody failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>ボディを読まずに応答を返すパス用。<see cref="DrainRequestBody"/> してから応答する。</summary>
+        static void WriteJson(HttpListenerRequest req, HttpListenerResponse resp, int status, string json)
+        {
+            DrainRequestBody(req);
+            WriteJson(resp, status, json);
         }
 
         static string ReadBody(HttpListenerRequest req)
