@@ -192,8 +192,14 @@ Does NOT enter Unity Play mode - GM is an Edit-mode simulator.")]
             var go = FindGO(avatarName);
             if (go == null) return $"Error: GameObject '{avatarName}' not found.";
 
-            var module = ModuleHelper.GetModuleFor(go);
-            if (module == null) return $"Error: '{avatarName}' has no VRCAvatarDescriptor (or SDK not resolvable). GM cannot preview it.";
+            // ModuleHelper.GetModuleFor takes the descriptor component, not the GameObject
+            // (GmgAvatarDescriptor is an alias for VRC.SDKBase.VRC_AvatarDescriptor).
+            var descriptor = go.GetComponent<VRC.SDKBase.VRC_AvatarDescriptor>();
+            if (descriptor == null)
+                return $"Error: '{avatarName}' has no VRC_AvatarDescriptor. GM cannot preview it.";
+
+            var module = ModuleHelper.GetModuleFor(descriptor);
+            if (module == null) return $"Error: '{avatarName}' has a descriptor GM does not support (not an SDK2/SDK3 avatar). GM cannot preview it.";
             if (!module.IsValidDesc())
             {
                 var errs = string.Join("; ", module.GetErrors());
