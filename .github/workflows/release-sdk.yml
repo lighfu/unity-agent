@@ -32,6 +32,9 @@ jobs:
           cd SDK
           zip -r "../com.ajisaiflow.unityagent.sdk-${{ steps.version.outputs.version }}.zip" .
 
+      - name: Verify packaged package.json
+        run: python3 .github/scripts/verify-package-json.py "com.ajisaiflow.unityagent.sdk-${{ steps.version.outputs.version }}.zip"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
