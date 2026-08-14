@@ -487,7 +487,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             string genFileName = $"{safeName}_ai_gen_{DateTime.Now:HHmmss}.png";
             string genFilePath = $"{GeneratedDir}/{genFileName}";
             File.WriteAllBytes(genFilePath, generatedImage);
-            SceneViewTools.SetPendingImage(generatedImage, "image/png");
+            SceneViewTools.SetPendingImage(generatedImage, "image/png", dumpDebugCopy: false);
             AssetDatabase.Refresh();
 
             // 7. Apply to mesh (same material/property)

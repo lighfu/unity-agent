@@ -604,7 +604,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 if (webMessage != null)
                 {
                     if (webMessage.imageBytes != null && webMessage.imageBytes.Length > 0)
-                        Tools.SceneViewTools.SetPendingImage(webMessage.imageBytes, webMessage.imageMimeType);
+                        Tools.SceneViewTools.SetPendingImage(webMessage.imageBytes, webMessage.imageMimeType, dumpDebugCopy: false);
                     _userQuery = webMessage.text;
                     if (string.IsNullOrEmpty(_userQuery) && webMessage.imageBytes != null)
                         _userQuery = M("(画像を添付しました)");
@@ -1521,7 +1521,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (_agent == null) InitializeAgent();
 
             if (hasAttachment)
-                Tools.SceneViewTools.SetPendingImage(_pendingAttachmentBytes, _pendingAttachmentMimeType);
+                Tools.SceneViewTools.SetPendingImage(_pendingAttachmentBytes, _pendingAttachmentMimeType, dumpDebugCopy: false);
 
             string query = _userQuery;
             if (string.IsNullOrEmpty(query) && hasAttachment)
