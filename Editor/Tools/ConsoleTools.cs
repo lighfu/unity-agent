@@ -41,12 +41,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                    "maxEntries: cap on returned rows (default 50, max 500). " +
                    "keyword: case-insensitive substring filter on the message (optional). " +
                    "includeStackTrace: include the callstack attached to each entry (default false). " +
+                   "sinceIndex: return only entries NEWER than this console index (default -1 = all). " +
+                   "Every response ends with 'nextSinceIndex=N' — pass that back on the next call to see " +
+                   "only what appeared since, instead of trying to tell old errors from new ones by eye. " +
+                   "Indices reset when the console is cleared, so treat a smaller total than expected as a reset. " +
                    "Returns newest entries last, matching the Console window order.")]
         public static string GetConsoleLogs(
             string severity = "all",
             int maxEntries = 50,
             string keyword = "",
-            bool includeStackTrace = false)
+            bool includeStackTrace = false,
+            int sinceIndex = -1)
         {
             if (maxEntries <= 0) maxEntries = 50;
             if (maxEntries > 500) maxEntries = 500;
@@ -64,13 +69,33 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             try
             {
                 int total = (int)refl.GetCount.Invoke(null, null);
-                if (total == 0) return "Console is empty.";
+                if (total == 0) return "Console is empty. nextSinceIndex=-1";
+
+                // Indices restart whenever the console is cleared — which "Clear on Recompile"
+                // does on every script compile, exactly when a caller is polling with sinceIndex
+                // to see new compile errors. Without this check every entry looks old and three
+                // fresh errors get reported as a clean build.
+                bool indexReset = sinceIndex >= 0 && total <= sinceIndex;
+                if (indexReset) sinceIndex = -1;
 
                 var rows = new List<ConsoleRow>(Math.Min(maxEntries, total));
                 int errorCount = 0, warnCount = 0, infoCount = 0;
 
                 for (int i = 0; i < total; i++)
                 {
+                    // Severity counts stay whole-console so the header still answers
+                    // "is the project broken right now", independent of the since window.
+                    if (sinceIndex >= 0 && i <= sinceIndex)
+                    {
+                        var skipped = Activator.CreateInstance(refl.LogEntryType);
+                        refl.GetEntryInternal.Invoke(null, new object[] { i, skipped });
+                        string skippedSev = ClassifySeverity((int)refl.ModeField.GetValue(skipped));
+                        if (skippedSev == "error") errorCount++;
+                        else if (skippedSev == "warning") warnCount++;
+                        else infoCount++;
+                        continue;
+                    }
+
                     var entry = Activator.CreateInstance(refl.LogEntryType);
                     refl.GetEntryInternal.Invoke(null, new object[] { i, entry });
 
@@ -104,10 +129,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 int kept = rows.Count - start;
 
                 var sb = new StringBuilder();
+                if (indexReset)
+                    sb.AppendLine("NOTE: the console was cleared since your last call (entry count went backwards). " +
+                                  "sinceIndex was ignored and ALL current entries are shown.");
                 sb.Append($"=== Console ({total} total | errors={errorCount}, warnings={warnCount}, info={infoCount}");
+                if (sinceIndex >= 0) sb.Append($" | since #{sinceIndex}");
                 if (rows.Count != total) sb.Append($" | filtered {rows.Count}");
                 if (kept != rows.Count) sb.Append($" | showing last {kept}");
                 sb.AppendLine(") ===");
+
+                if (sinceIndex >= 0 && rows.Count == 0)
+                    sb.AppendLine($"(no new entries since #{sinceIndex})");
 
                 for (int i = start; i < rows.Count; i++)
                 {
@@ -134,6 +166,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
                 }
 
+                sb.Append($"nextSinceIndex={total - 1}");
                 return sb.ToString();
             }
             finally
@@ -182,6 +215,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return $"Error: {err}";
             refl.Clear.Invoke(null, null);
             return "Console cleared.";
+        }
+
+        /// <summary>
+        /// Current console entry count, or -1 if the internal API is unavailable.
+        /// Lets other tools take a "before" marker to pass back as GetConsoleLogs(sinceIndex:).
+        /// </summary>
+        internal static int GetEntryCount()
+        {
+            if (!TryGetLogEntriesReflection(out var refl, out _)) return -1;
+            refl.StartGettingEntries.Invoke(null, null);
+            try { return (int)refl.GetCount.Invoke(null, null); }
+            finally { refl.EndGettingEntries.Invoke(null, null); }
         }
 
         // ── internals ────────────────────────────────────────────────────────

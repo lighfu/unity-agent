@@ -27,6 +27,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         const int MaxRequestBodyBytes = 2 * 1024 * 1024; // 2MB
         const int DefaultCallTimeoutMs = 120_000;
 
+        const int MainThreadStallThresholdMs = MainThreadWatchdog.DefaultStallThresholdMs;
+
         /// <summary>
         /// OAuth /token レスポンスの expires_in。ローカル専用なので 1 年 (31,536,000 秒) を静的に返す。
         /// Claude Code の MCP SDK は短命トークンだと頻繁に再発行を求めるため、実害無く長期化する。
@@ -116,6 +118,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             _running = true;
+            MainThreadWatchdog.Reset();
             _listenerThread = new Thread(ListenLoop)
             {
                 IsBackground = true,
@@ -579,6 +582,33 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         string toolName = paramsNode["name"].AsString ?? "";
                         JNode args = paramsNode["arguments"];
                         string argsJson = (args ?? JNode.Obj()).ToJson();
+
+                        // GetEditorState だけはここで答える。メインスレッドが詰まっている理由を
+                        // 報告するためのツールなので、キューに積むと報告対象と同じ運命をたどる。
+                        // UI イベント (RaiseCallStart/Finish) は発火しない — リスナースレッドから
+                        // UI Toolkit を触るとエディタごと壊れるため、意図的に GUI ログには載せない。
+                        if (string.Equals(toolName, "GetEditorState", StringComparison.Ordinal))
+                        {
+                            TraceLog("  tools/call fast-path tool=GetEditorState (off main thread)");
+                            string state = Tools.EditorStateTools.GetEditorState();
+                            WriteJsonRpcResult(resp, idNode, JNode.Obj(
+                                ("content", JNode.Arr(JNode.Obj(
+                                    ("type", JNode.Str("text")),
+                                    ("text", JNode.Str(state))))),
+                                ("isError", JNode.Bool(false))));
+                            return;
+                        }
+
+                        // メインスレッドが詰まっているなら、キューに積んで 120 秒後に
+                        // "Timeout" とだけ返すより、原因を今すぐ返すほうが遥かに有用。
+                        if (MainThreadWatchdog.TryDescribeStall(MainThreadStallThresholdMs, out string stallMsg))
+                        {
+                            AgentLogger.Warning(LogTag.MCP, $"tools/call REJECTED (main thread stalled) tool={toolName}");
+                            TraceLog($"  tools/call rejected tool={toolName} reason=main-thread-stalled");
+                            WriteJsonRpcError(resp, idNode, -32002, "Unity main thread blocked", stallMsg);
+                            return;
+                        }
+
                         var pending = new PendingCall(toolName, args ?? JNode.Obj());
                         int qdepth;
                         EnqueueCall(pending);
@@ -716,8 +746,29 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             _pumpRegistered = false;
         }
 
+        double _lastAutoRefreshSample;
+
         void PumpMainThread()
         {
+            // update が回っている = メインスレッドは生きている。キューが空でも必ず記録する。
+            MainThreadWatchdog.NotePump();
+
+            // GetEditorState はリスナースレッドで応答するため、Unity 側の状態をここで写し取る。
+            // EditorApplication.* はメインスレッド専用で、詰まっている時ほど読めなくなるため。
+            MainThreadWatchdog.NoteEditorState(
+                EditorApplication.isCompiling,
+                EditorApplication.isUpdating,
+                EditorApplication.isPlaying,
+                EditorApplication.isPaused);
+
+            // Auto Refresh は EditorPrefs (レジストリ読み) なので毎 tick は避け、1 秒に 1 回だけ。
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _lastAutoRefreshSample > 1.0)
+            {
+                _lastAutoRefreshSample = now;
+                MainThreadWatchdog.NoteAutoRefresh(Tools.EditorStateTools.SampleAutoRefresh());
+            }
+
             // 1 フレームで最大 N 件処理 (Editor UI を塞がないため)
             const int MaxPerFrame = 4;
             int processed = 0;
@@ -743,6 +794,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
                 RaiseCallStart(call.ToolName, call.Arguments?.ToJson() ?? "{}");
 
+                MainThreadWatchdog.NoteToolStart(call.ToolName);
                 try
                 {
                     Invoker.Invoke(call);
@@ -751,6 +803,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 {
                     AgentLogger.Error(LogTag.MCP, $"Invoker unhandled exception tool={call.ToolName}: {ex.Message}");
                     call.SetError($"Invoker exception: {ex.Message}", ex.ToString(), -32603);
+                }
+                finally
+                {
+                    MainThreadWatchdog.NoteToolFinish();
                 }
                 processed++;
             }

@@ -141,13 +141,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         private static readonly HashSet<string> s_ScriptReferenceExact =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            // .NET core — reference ONLY "netstandard". The project is on the .NET Standard
-            // 2.1 API compat level, where netstandard.dll is the canonical reference assembly
-            // (surfaces System.Object .. AppDomain). Adding mscorlib/System/System.Core/
-            // System.Xml alongside it makes mcs fail with "type X is defined multiple times"
-            // because the implementation assemblies redefine the same BCL types. At runtime
-            // netstandard's type-forwards resolve to the already-loaded implementation.
+            // .NET core. netstandard.dll is the canonical reference assembly for the project's
+            // .NET Standard 2.1 API compat level and surfaces System.Object .. AppDomain.
+            //
+            // "System.Core" and "System" are also required, despite an earlier note here claiming
+            // that adding them makes mcs fail with "type X is defined multiple times". Measured on
+            // Unity 2022.3.22f1 (2026-08-12): with netstandard alone, `new HashSet<string>()` fails
+            // with "The type or namespace name `HashSet' could not be found"; adding System.Core
+            // moves the failure to "ISet`1<T> has been forwarded to an assembly that is not
+            // referenced ... System"; adding both compiles and runs. No duplicate-definition error
+            // occurs with this trio — mscorlib (which mcs references implicitly) is the one that
+            // must NOT be added explicitly.
             "netstandard",
+            "System",
+            "System.Core",
             // UnityAgent
             "AjisaiFlow.UnityAgent.SDK",
             "AjisaiFlow.UnityAgent.Editor",
