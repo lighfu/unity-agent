@@ -53,10 +53,17 @@ docs.meta
 # the binary when present, and CI writes canonical ones (with fixed GUIDs) into
 # the release zip. Folder-level .meta files under Editor/Bridge/bin/ ARE tracked
 # so folder GUIDs stay stable across installs.
+#
+# The `~` variants are leftovers from rebuilding while a bridge process is still
+# running: Go cannot overwrite the locked executable, so it renames the old one
+# aside and writes the new one. The stale copy stays until that process exits, and
+# without these patterns it shows up as a 6 MB untracked file ready to be committed.
 Editor/Bridge/bin/*/UnityAgentBridge
 Editor/Bridge/bin/*/UnityAgentBridge.exe
 Editor/Bridge/bin/*/UnityAgentBridge.meta
 Editor/Bridge/bin/*/UnityAgentBridge.exe.meta
+Editor/Bridge/bin/*/UnityAgentBridge~
+Editor/Bridge/bin/*/UnityAgentBridge.exe~
 
 # brainstorming sessions (visual companion)
 .superpowers/

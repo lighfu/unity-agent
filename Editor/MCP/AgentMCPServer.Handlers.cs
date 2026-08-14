@@ -35,9 +35,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         }
 
         /// <summary>
-        /// MCP 経由で公開するのは 3 つのメタツールだけ。
+        /// MCP 経由で公開するのは 3 つのメタツールと GetUnityAgentInfo だけ。
         /// 実際の ~456 Unity ツールは <see cref="Invoker"/> 内で名前ディスパッチする。
         /// これにより Claude Code の Zod validator の 60 秒タイムアウト問題を回避する。
+        ///
+        /// GetUnityAgentInfo は他の 3 つと違い専用の実装を持たない。名前が [AgentTool] と一致して
+        /// いるので <see cref="Invoker"/> の通常の名前ディスパッチがそのまま拾い、引数バインドと
+        /// メインスレッド投入は既存経路が処理する。ここに要るのはスキーマだけ。
         /// </summary>
         public static JNode HandleToolsList(JNode _)
         {
@@ -46,6 +50,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 BuildSearchToolSchema(),
                 BuildDescribeToolSchema(),
                 BuildExecuteToolSchema(),
+                BuildAgentInfoToolSchema(),
             };
             return JNode.Obj(("tools", JNode.Arr(tools.ToArray())));
         }
@@ -104,6 +109,28 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         ("additionalProperties", JNode.Bool(true))))
                 )),
                 ("required", JNode.Arr(JNode.Str("name"), JNode.Str("arguments")))
+            ))
+        );
+
+        static JNode BuildAgentInfoToolSchema() => JNode.Obj(
+            ("name", JNode.Str("GetUnityAgentInfo")),
+            ("description", JNode.Str(
+                "Report what this UnityAgent install is: UnityAgent version, Unity version and project, " +
+                "how many tools are registered and how many are reachable over MCP, which optional VRChat / " +
+                "avatar packages are installed (with versions), and how the MCP server is wired up. " +
+                "Call this once at the start of a session — the tool surface is not constant between " +
+                "installs because optional packages compile whole tool modules in or out, so 'that tool " +
+                "does not exist' usually means the package is absent rather than the build being broken.")),
+            ("inputSchema", JNode.Obj(
+                ("type", JNode.Str("object")),
+                ("properties", JNode.Obj(
+                    ("detail", JNode.Obj(
+                        ("type", JNode.Str("string")),
+                        ("enum", JNode.Arr(JNode.Str("brief"), JNode.Str("full"))),
+                        ("description", JNode.Str("'brief' (default) returns a few lines suitable for every session start. 'full' adds per-category and per-risk tool counts, every detected package, MCP endpoint / bridge state and project render settings — use it for bug reports.")),
+                        ("default", JNode.Str("brief"))))
+                )),
+                ("required", JNode.Arr())
             ))
         );
 
@@ -232,15 +259,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             return $"Error: Tool '{name}' not found.";
         }
 
+        /// <summary>
+        /// initialize が返す serverInfo.version。
+        /// 以前は Assembly.Version を返していたが、このアセンブリに [assembly: AssemblyVersion] が
+        /// 無いため実際には常に "0.0.0.0" になっていた。接続してきたクライアントが見る唯一の
+        /// バージョンなので、package.json 由来の実バージョン (UpdateChecker.CurrentVersion) を返す。
+        /// </summary>
         static string GetPackageVersion()
         {
             try
             {
-                // package.json は UnityEditor.PackageManager から取得する手もあるが、
-                // 同期で軽量に参照するため Assembly.Version を返す。
-                var asm = typeof(Handlers).Assembly;
-                var v = asm.GetName().Version;
-                return v != null ? v.ToString() : "0.0.0";
+                var version = UpdateChecker.CurrentVersion;
+                return string.IsNullOrEmpty(version) ? "0.0.0" : version;
             }
             catch
             {

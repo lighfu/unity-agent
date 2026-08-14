@@ -112,7 +112,7 @@ Each direction is line-delimited JSON. One object per line.
 ## Limitations (P1)
 
 - Only one Unity connection at a time
-- Only `tools/call` for the 3 meta-tools (SearchUnityTool, DescribeUnityTool, ExecuteUnityTool)
+- `tools/list` advertises only the 4 top-level tools (SearchUnityTool, DescribeUnityTool, ExecuteUnityTool, GetUnityAgentInfo). The schemas are hardcoded here and duplicated from `Handlers.HandleToolsList` on the C# side, so adding a top-level tool means editing both. `tools/call` forwards any name to Unity, so a tool absent from this list still runs — it is only undiscoverable.
 - No SSE channel (Claude Code falls back to plain POST)
 - No OAuth discovery (Bearer token only)
 - macOS / Linux binaries are unsigned

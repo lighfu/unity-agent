@@ -642,8 +642,13 @@ func (b *Bridge) handleInitialize(protocolVersion string) map[string]any {
 	}
 }
 
-// handleToolsList returns the same 3 meta-tools as the InProc server.
+// handleToolsList returns the same 4 top-level tools as the InProc server.
 // In P1 we hardcode the schemas; P2 will fetch them from Unity at hello time.
+//
+// This list is a duplicate of Handlers.HandleToolsList on the C# side and the two drift silently:
+// tools/call forwards any name straight through to Unity, so a tool missing here still WORKS if the
+// client already knows its name — it is merely undiscoverable in Bridge mode. Anything added there
+// has to be added here too.
 func (b *Bridge) handleToolsList() map[string]any {
 	return map[string]any{
 		"tools": []any{
@@ -680,6 +685,25 @@ func (b *Bridge) handleToolsList() map[string]any {
 						"arguments": map[string]any{"type": "object", "additionalProperties": true},
 					},
 					"required": []any{"name", "arguments"},
+				},
+			},
+			map[string]any{
+				"name": "GetUnityAgentInfo",
+				"description": "Report UnityAgent's own version, the Unity version and project, how many tools are " +
+					"registered and reachable, which optional VRChat/avatar packages are installed, and how MCP is " +
+					"wired up. Call once at session start: the tool surface differs between installs because optional " +
+					"packages compile whole modules in or out, so a missing tool usually means a missing package.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"detail": map[string]any{
+							"type":        "string",
+							"enum":        []any{"brief", "full"},
+							"default":     "brief",
+							"description": "'brief' (default) is a few lines. 'full' adds per-category and per-risk tool counts, package versions, MCP endpoint/bridge state and project render settings.",
+						},
+					},
+					"required": []any{},
 				},
 			},
 		},
