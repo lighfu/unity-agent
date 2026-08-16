@@ -190,16 +190,25 @@ modalDialog is read live from the OS, so it is accurate even while everything el
 appeared while waiting. Replaces polling GetPlayModeState and guessing from isCompiling.
 
 timeoutSeconds: give up after this long (default 60) and report what state Unity is in.
-  Clamped to 110 s because the MCP transport abandons a call at 120 s — waiting longer than that
-  cannot produce a result, it only leaves a coroutine polling after the caller has given up.
+  Clamped so that settleSeconds + timeoutSeconds stays under 110 s, because the MCP transport
+  abandons a call at 120 s — waiting longer than that cannot produce a result, it only leaves a
+  coroutine polling after the caller has given up.
+
+settleSeconds: before concluding 'nothing to wait for', keep watching this long for a compile to
+  START (default 3, max 30). Both AssetDatabase.Refresh and CompilationPipeline.RequestScriptCompilation
+  hand the actual start to a later editor tick, so a check on the first frame sees an idle editor and
+  reports success while the compile is about to begin. Pass 0 for the pre-settle behaviour of
+  deciding immediately. Time spent settling is reported separately and does not count against
+  timeoutSeconds.
 
 IMPORTANT — domain reload: if scripts actually recompile, Unity reloads the app domain and the MCP
 bridge disconnects for several seconds. This call cannot survive that: it dies mid-wait and the
 caller sees a dropped connection, not a result. That is a property of the editor, not a bug here.
 The reliable pattern after editing scripts is:
-  1. note the console index (GetConsoleLogs returns nextSinceIndex)
-  2. trigger the compile
-  3. reconnect, then call GetConsoleLogs(severity:'error', sinceIndex: <that index>)
+  1. note the console index (GetConsoleLogs returns nextSinceIndex) and call RecordAssemblyBaseline
+  2. trigger the work with RefreshAssetDatabase
+  3. reconnect, then call CompareAssemblyBaseline (did the DLL actually get rebuilt?) and
+     GetConsoleLogs(severity:'error', sinceIndex: <that index>)
 This tool is for the common case: confirming the editor is idle and clean before doing more work,
 and waiting out an asset import that does not reload the domain.
 
@@ -208,17 +217,31 @@ assemblyName: also report where that assembly was loaded from and when it was bu
   name with or without .dll (e.g. 'Assembly-CSharp-Editor'). Leave empty to report the two default
   script assemblies when they are loaded.
 
-BEWARE 'Unity was already idle': that is also what you get when Auto Refresh is off and Unity
-never noticed your edit — nothing is compiling because nothing was imported. This tool reports the
-Auto Refresh setting for exactly that reason. If it says DISABLED, trigger the work yourself with
-TriggerDomainReload(confirm:true, mode:'recompile').")]
-        public static IEnumerator WaitForCompilation(int timeoutSeconds = 60, string assemblyName = "")
+BEWARE 'Unity stayed idle': that is also what you get when Unity never noticed your edit — nothing
+is compiling because nothing was imported. A backgrounded editor imports nothing on its own, and
+with Auto Refresh off it does not import even on focus. This tool reports the Auto Refresh setting
+and waits out a settle window for exactly that reason. If it still reports idle after you edited
+scripts, make Unity notice them with RefreshAssetDatabase.")]
+        public static IEnumerator WaitForCompilation(int timeoutSeconds = 60, string assemblyName = "", int settleSeconds = 3)
         {
+            if (settleSeconds < 0) settleSeconds = 0;
+            if (settleSeconds > 30) settleSeconds = 30;
             if (timeoutSeconds <= 0) timeoutSeconds = 60;
-            if (timeoutSeconds > MaxToolSeconds) timeoutSeconds = MaxToolSeconds;
+            if (timeoutSeconds > MaxToolSeconds - settleSeconds)
+                timeoutSeconds = Math.Max(1, MaxToolSeconds - settleSeconds);
 
             int baseline = ConsoleTools.GetEntryCount();
             int sinceIndex = baseline > 0 ? baseline - 1 : -1;
+
+            // Settle window: 予約されたコンパイルは次以降の tick で始まるので、最初のフレームで
+            // idle を見ても「始まらない」ことの証明にはならない。ここで少し待ってから判定する。
+            double settleStart = EditorApplication.timeSinceStartup;
+            while (!EditorApplication.isCompiling && !EditorApplication.isUpdating
+                   && EditorApplication.timeSinceStartup - settleStart < settleSeconds)
+            {
+                yield return null;
+            }
+            double settled = EditorApplication.timeSinceStartup - settleStart;
 
             double start = EditorApplication.timeSinceStartup;
             bool everBusy = false;
@@ -248,17 +271,29 @@ TriggerDomainReload(confirm:true, mode:'recompile').")]
                 yield break;
             }
 
-            sb.AppendLine(everBusy
-                ? $"Compilation / import finished after {waited:F1}s ({(int)(waited * 1000)}ms)."
-                : $"Unity was already idle (nothing to wait for) after {(int)(waited * 1000)}ms.");
+            if (everBusy)
+            {
+                sb.AppendLine($"Compilation / import finished after {waited:F1}s ({(int)(waited * 1000)}ms)"
+                    + (settled >= 0.05 ? $", having taken {settled:F1}s to start." : "."));
+            }
+            else if (settleSeconds > 0)
+            {
+                sb.AppendLine($"Unity stayed idle for the whole {settleSeconds}s settle window — nothing started compiling or importing.");
+            }
+            else
+            {
+                sb.AppendLine($"Unity was idle on the first frame (settleSeconds:0, so nothing was waited for) after {(int)(waited * 1000)}ms.");
+            }
 
             string autoRefresh = DescribeAutoRefresh();
             sb.AppendLine($"autoRefresh: {autoRefresh}");
-            if (!everBusy && autoRefresh.StartsWith("DISABLED", StringComparison.Ordinal))
+            if (!everBusy)
             {
-                sb.AppendLine("  WARNING: nothing was compiling AND Auto Refresh is off. If you just edited a script,");
-                sb.AppendLine("  Unity has not imported it yet — 'idle' here does NOT mean your code is loaded.");
-                sb.AppendLine("  Call TriggerDomainReload(confirm:true, mode:'recompile') to force it.");
+                sb.AppendLine("  NOTE: idle does NOT mean your code is loaded. If you just edited scripts, Unity may simply");
+                sb.AppendLine("  never have imported them — a backgrounded editor does not import on its own.");
+                if (autoRefresh.StartsWith("DISABLED", StringComparison.Ordinal))
+                    sb.AppendLine("  Auto Refresh is OFF, so it will not import even when the editor regains focus.");
+                sb.AppendLine("  Call RefreshAssetDatabase to import them (it reports whether that started a compile).");
             }
             AppendAssemblyInfo(sb, assemblyName);
 
@@ -345,13 +380,25 @@ verifying serialization survives a reload, or recovering from stale references.
 
 mode:
   'reload' (default) — EditorUtility.RequestScriptReload(). Managed-only reload, no recompile.
-  'recompile'        — CompilationPipeline.RequestScriptCompilation(). Recompile then reload
-                       (no-op if no .cs file is dirty; touch a script first if you need a guaranteed compile).
+                       Always takes effect; nothing needs to be dirty.
+  'recompile'        — AssetDatabase.Refresh() (unless refreshFirst=false), then
+                       CompilationPipeline.RequestScriptCompilation(). Recompile, then reload.
+
+refreshFirst (default true, 'recompile' only): import changed files before asking for the compile.
+  This matters far more than it sounds. RequestScriptCompilation only raises a flag — Unity compiles
+  what it already knows is dirty, and a backgrounded editor has imported nothing, so without the
+  refresh the request compiles nothing at all. Pass false only when you have just refreshed and want
+  to avoid a second import; the result string then says plainly that no refresh was done and that
+  the request may be a no-op.
+
+This call cannot tell you whether a compile actually happened — it returns as soon as the request is
+queued, and the compile plus domain reload outlive the connection. Bracket it with
+RecordAssemblyBaseline / CompareAssemblyBaseline if you need proof.
 
 Pass confirm=true to proceed. The MCP bridge will briefly disconnect during the reload, and
 unsaved EditorWindow state that isn't [SerializeField] will be lost. Cannot run while in Play mode
 or while Unity is already compiling/updating.")]
-        public static string TriggerDomainReload(bool confirm = false, string mode = "reload")
+        public static string TriggerDomainReload(bool confirm = false, string mode = "reload", bool refreshFirst = true)
         {
             if (!confirm)
                 return "Error: Dangerous operation - pass confirm=true to proceed. This will trigger a Unity domain reload and briefly disconnect the MCP bridge.";
@@ -372,8 +419,31 @@ or while Unity is already compiling/updating.")]
                     return "Success: RequestScriptReload queued. Domain reload will start on the next editor tick. MCP bridge will briefly disconnect.";
                 case "recompile":
                 case "compile":
+                {
+                    string refreshNote;
+                    if (refreshFirst)
+                    {
+                        // Refresh を前置しないと、バックグラウンドの Unity は編集を import しておらず
+                        // dirty なファイルがゼロなので、RequestScriptCompilation は成功を返す no-op になる。
+                        string refreshError = ScriptCompilationTools.TryRefreshNow();
+                        if (refreshError != null)
+                            return $"Error: AssetDatabase.Refresh() threw before the compile request ({refreshError}). Nothing was queued.";
+
+                        // Refresh 自体がコンパイルを始めていることがある。その場合 RequestScriptCompilation は不要。
+                        if (EditorApplication.isCompiling)
+                            return "Success: AssetDatabase.Refresh() imported the changed files and compilation has already started; RequestScriptCompilation was unnecessary and was not called. The MCP bridge will disconnect when the compile ends and the domain reloads.";
+
+                        refreshNote = "AssetDatabase.Refresh() ran first, so files edited outside the editor are now imported. ";
+                    }
+                    else
+                    {
+                        refreshNote = "refreshFirst=false: NO refresh was performed, so if Unity has not imported your edits nothing is dirty and this request does nothing — success below means 'the request was queued', not 'a compile will happen'. ";
+                    }
+
                     CompilationPipeline.RequestScriptCompilation();
-                    return "Success: RequestScriptCompilation queued. Unity will recompile dirty scripts (no-op if none dirty) and then reload. MCP bridge will briefly disconnect.";
+                    return "Success: " + refreshNote
+                        + "RequestScriptCompilation queued; Unity starts the compile on a later editor tick and reloads the domain afterwards, briefly disconnecting the MCP bridge. This call cannot observe the outcome — confirm with CompareAssemblyBaseline.";
+                }
                 default:
                     return $"Error: Unknown mode '{mode}'. Expected 'reload' or 'recompile'.";
             }
