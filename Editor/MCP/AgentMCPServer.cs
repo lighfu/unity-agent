@@ -605,11 +605,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         {
                             AgentLogger.Warning(LogTag.MCP, $"tools/call REJECTED (main thread stalled) tool={toolName}");
                             TraceLog($"  tools/call rejected tool={toolName} reason=main-thread-stalled");
+                            // 拒否も「失敗した呼び出し」として残す。ここを記録しないと、モーダルで
+                            // 数百件連続拒否されている最中だけ統計が空になり、成功率 100% に見えてしまう。
+                            RecordStallRejection(toolName, argsJson.Length, stallMsg);
                             WriteJsonRpcError(resp, idNode, -32002, "Unity main thread blocked", stallMsg);
                             return;
                         }
 
-                        var pending = new PendingCall(toolName, args ?? JNode.Obj());
+                        // argsJson は既に組み立て済みなので、長さを渡して PendingCall 側の再シリアライズを省く。
+                        var pending = new PendingCall(toolName, args ?? JNode.Obj(), argsJson.Length);
                         int qdepth;
                         EnqueueCall(pending);
                         lock (_queueLock) { qdepth = _pendingCalls.Count; }
@@ -746,28 +750,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             _pumpRegistered = false;
         }
 
-        double _lastAutoRefreshSample;
-
         void PumpMainThread()
         {
             // update が回っている = メインスレッドは生きている。キューが空でも必ず記録する。
-            MainThreadWatchdog.NotePump();
-
-            // GetEditorState はリスナースレッドで応答するため、Unity 側の状態をここで写し取る。
-            // EditorApplication.* はメインスレッド専用で、詰まっている時ほど読めなくなるため。
-            MainThreadWatchdog.NoteEditorState(
-                EditorApplication.isCompiling,
-                EditorApplication.isUpdating,
-                EditorApplication.isPlaying,
-                EditorApplication.isPaused);
-
-            // Auto Refresh は EditorPrefs (レジストリ読み) なので毎 tick は避け、1 秒に 1 回だけ。
-            double now = EditorApplication.timeSinceStartup;
-            if (now - _lastAutoRefreshSample > 1.0)
-            {
-                _lastAutoRefreshSample = now;
-                MainThreadWatchdog.NoteAutoRefresh(Tools.EditorStateTools.SampleAutoRefresh());
-            }
+            // GetEditorState はリスナースレッドで応答するため、Unity 側の状態もここで写し取る
+            // (EditorApplication.* はメインスレッド専用で、詰まっている時ほど読めなくなる)。
+            // Bridge 側の pump と同じ処理なので MainThreadWatchdog 側に集約してある。
+            MainThreadWatchdog.NoteMainThreadTick();
 
             // 1 フレームで最大 N 件処理 (Editor UI を塞がないため)
             const int MaxPerFrame = 4;
@@ -795,6 +784,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 RaiseCallStart(call.ToolName, call.Arguments?.ToJson() ?? "{}");
 
                 MainThreadWatchdog.NoteToolStart(call.ToolName);
+                // 統計の所要時間は「実行に要した時間」に統一する。キュー待ちはここまでで、
+                // 計測はこの行から始まる (Bridge 側の pump も同じ位置で印を付けている)。
+                call.MarkExecutionStart();
                 try
                 {
                     Invoker.Invoke(call);
@@ -818,6 +810,25 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 _pendingCalls.Enqueue(call);
             }
+        }
+
+        /// <summary>
+        /// メインスレッド停止 (モーダルダイアログ等) を理由にキューへ積まずに拒否した呼び出しを、
+        /// 失敗 1 件として統計に記録する。InProc / Bridge の両方の拒否経路から呼ぶ。
+        ///
+        /// リスナースレッド・ブリッジ読み取りスレッドから呼ばれるため、
+        /// <see cref="ToolCallStats.Record"/> 以外 (Unity API / UI イベント) には触れない。
+        /// <see cref="PendingCall.SetError"/> を使わないのはそのため — あちらは
+        /// <see cref="RaiseCallFinish"/> を同期発火し、UI Toolkit をワーカースレッドから触ってしまう。
+        ///
+        /// 所要時間は 0 (一度も実行していないため)。<see cref="ToolStatsRecord"/> に失敗理由の
+        /// フィールドが無いので、統計上は「durationMs=0 かつ resultChars=拒否メッセージ長」の
+        /// 失敗として残る。理由の文言そのものは -32002 のレスポンスと直前の警告ログに出る。
+        /// </summary>
+        internal static void RecordStallRejection(string toolName, int argChars, string stallMsg)
+        {
+            ToolCallStats.Record(toolName, ToolCallRoute.Mcp, false, 0.0,
+                argChars, stallMsg?.Length ?? 0);
         }
 
         // ─── Helpers ───
@@ -1105,7 +1116,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public string ToolName { get; private set; }
         public JNode Arguments { get; private set; }
 
-        /// <summary>ExecuteUnityTool が target ツールに再ディスパッチするために name/args を差し替える。</summary>
+        /// <summary>
+        /// ExecuteUnityTool が target ツールに再ディスパッチするために name/args を差し替える。
+        ///
+        /// 統計の argChars は意図的に更新しない。ここで数え直すと、RunEditorScript のように
+        /// 本文を引数で渡すツールで数百 KB の JSON を 1 呼び出しにつきもう一度シリアライズする
+        /// ことになる。argChars は受信した引数 JSON の文字数 (= 実際に運んだ量) という定義なので、
+        /// ExecuteUnityTool 経由では外側のラッパ ({"name":...,"arguments":{...}}) を含んだ値になる。
+        /// </summary>
         public void Rewrite(string newName, JNode newArgs)
         {
             ToolName = newName ?? "";
@@ -1143,14 +1161,54 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         readonly ManualResetEventSlim _done = new ManualResetEventSlim(false);
 
-        public PendingCall(string toolName, JNode arguments)
+        // ── ツール呼び出し統計 ──
+        // SetResult / SetError は HTTP リスナースレッドからも呼ばれ得るため、記録側では
+        // Unity API / UI Toolkit に触れない。タイムアウト Cancel() と遅延完了 SetResult() が
+        // 競合して 2 回発火し得るので Interlocked で単発を保証する。
+
+        /// <summary>
+        /// 実行時間の計測。生成時点では止まっており、メインスレッドの pump が
+        /// <see cref="MarkExecutionStart"/> を呼んだ時点から動き出す。
+        /// </summary>
+        readonly System.Diagnostics.Stopwatch _statsSw = new System.Diagnostics.Stopwatch();
+        int _statsRecorded;
+
+        /// <summary>
+        /// 受信した引数 JSON の文字数。呼び出し元が既に持っている文字列の長さを渡す想定で、
+        /// 負値なら「未知」を意味し、記録時に 1 度だけ数える。
+        /// </summary>
+        int _statsArgChars;
+
+        /// <param name="argChars">
+        /// 呼び出し元が既にシリアライズ済みの引数 JSON の文字数。省略すると記録時に
+        /// もう一度シリアライズして数えることになるので、分かるなら必ず渡すこと。
+        /// </param>
+        public PendingCall(string toolName, JNode arguments, int argChars = -1)
         {
             ToolName = toolName ?? "";
             Arguments = arguments ?? JNode.Obj();
+            _statsArgChars = argChars;
+        }
+
+        /// <summary>
+        /// 実行時間の計測を開始する。メインスレッドの pump が <c>Invoker.Invoke</c> に渡す
+        /// 直前に呼ぶ。統計の durationMs は「実行に要した時間」であり、キュー待ちは含めない。
+        ///
+        /// 以前は InProc がリスナースレッドの enqueue 時点、Bridge がメインスレッドの dispatch
+        /// 時点から計っており、同じ <see cref="ToolCallRoute.Mcp"/> なのに意味が違っていた。
+        /// キュー待ちを含めた値が要るなら、この計測に混ぜずに別フィールドを足すこと。
+        ///
+        /// 一度も dispatch されないまま終わった呼び出し (キューで待っている間にタイムアウト、
+        /// キャンセル済みで pump にスキップされた等) は実行時間 0 として記録される。
+        /// </summary>
+        public void MarkExecutionStart()
+        {
+            _statsSw.Start();
         }
 
         public void SetResult(string text)
         {
+            RecordStats(text?.Length ?? 0, false);
             ResultText = text ?? "";
             AgentMCPServer.RaiseCallFinish(ToolName, ResultText, false);
             _done.Set();
@@ -1170,6 +1228,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         public void SetError(string message, string data = null, int code = -32000)
         {
+            RecordStats(0, true);
             Error = message ?? "Unknown error";
             ErrorData = data ?? "";
             ErrorCode = code;
@@ -1185,6 +1244,25 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             Cancelled = true;
             if (!_done.IsSet)
                 SetError("Cancelled");
+        }
+
+        /// <summary>
+        /// ツール呼び出し統計へ 1 回だけ記録する。SetResult / SetError の双方から呼ばれ、
+        /// タイムアウト Cancel() 後の遅延完了と競合しても二重記録しない。
+        /// ワーカースレッドから呼ばれ得るので Unity API には触れない。
+        /// 所要時間の定義は <see cref="MarkExecutionStart"/> を参照。
+        /// </summary>
+        void RecordStats(int resultChars, bool isError)
+        {
+            if (System.Threading.Interlocked.Exchange(ref _statsRecorded, 1) != 0) return;
+            _statsSw.Stop();
+
+            int argChars = _statsArgChars;
+            // 呼び出し元が長さを渡さなかった場合の保険。通常は通らない経路。
+            if (argChars < 0) argChars = Arguments?.ToJson()?.Length ?? 0;
+
+            ToolCallStats.Record(ToolName, ToolCallRoute.Mcp, !isError,
+                _statsSw.Elapsed.TotalMilliseconds, argChars, resultChars);
         }
     }
 }

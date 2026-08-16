@@ -128,7 +128,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 _running = false;
                 _connected = false;
                 CleanupSocket();
-                AgentLogger.Error(LogTag.MCP, $"[BridgeClient] connect failed: {ex.Message}");
+                // Warning 止まりにする。接続は監視 tick から無限に再試行されるので、Error にすると
+                // bridge バイナリ未ビルドのようなケースで 30 秒ごとに赤エラーが永久に積もる。
+                // 例外はそのまま投げるので、手動トグルなど「1 回だけ試す」呼び出し元は従来どおり扱える。
+                AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] connect failed: {ex.Message}");
                 throw;
             }
         }
@@ -263,12 +266,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         Tool = msg["tool"].AsString ?? "",
                         Args = msg["args"] ?? JNode.Obj(),
                     };
+                    // ログ・RaiseCallStart・統計の 3 箇所で使うので、ここで 1 度だけ作る。
+                    call.ArgsJson = call.Args.ToJson() ?? "{}";
 
                     // メインスレッドが詰まっているなら即座に原因を返す。キューに積むと
                     // タイムアウトまで待たされたうえ "Timeout" としか分からない。
                     if (MainThreadWatchdog.TryDescribeStall(MainThreadStallThresholdMs, out string stallMsg))
                     {
                         AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] REJECTED (main thread stalled) id={call.ID} tool={call.Tool}");
+                        // 拒否も失敗 1 件として統計に残す。ここを落とすと、モーダルで拒否され
+                        // 続けている間だけ統計が空になり、成功率 100% に見えてしまう。
+                        // 記録は UI イベントを発火しないので reader スレッドから呼んで安全。
+                        AgentMCPServer.RecordStallRejection(call.Tool, call.ArgsJson.Length, stallMsg);
                         // Write the error frame directly. PendingCall.SetError fires
                         // AgentMCPServer.RaiseCallFinish synchronously, and the in-editor chat window
                         // subscribes to that — touching UI Toolkit and mutating its history list.
@@ -283,7 +292,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         _pending.Enqueue(call);
                         qdepth = _pending.Count;
                     }
-                    AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] recv call id={call.ID} tool={call.Tool} argsBytes={call.Args.ToJson().Length} qdepth={qdepth}");
+                    AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] recv call id={call.ID} tool={call.Tool} argsBytes={call.ArgsJson.Length} qdepth={qdepth}");
                 }
             }
             catch (IOException ex)
@@ -319,7 +328,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         void PumpMainThread()
         {
-            MainThreadWatchdog.NotePump();
+            // NotePump だけでは compiling / importing / autoRefresh が初期値のまま固定され、
+            // GetEditorState が「snapshotAge 0.00s / compiling False」と新鮮な計測値のように
+            // 嘘をつく。InProc 側と同じ集約入口を通す。
+            MainThreadWatchdog.NoteMainThreadTick();
 
             const int MaxPerFrame = 4;
             for (int i = 0; i < MaxPerFrame; i++)
@@ -338,14 +350,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 // Forward to existing Invoker via a shim PendingCall.
                 // The bridge call's id is bridge-internal; we keep it in BridgePendingId so we
                 // can tag the response message back to the bridge.
-                var inner = new PendingCall(call.Tool, call.Args);
+                // argsJson は reader スレッドで組み立て済み。長さを渡して再シリアライズを省く。
+                var inner = new PendingCall(call.Tool, call.Args, call.ArgsJson?.Length ?? -1);
                 inner.BridgePendingId = call.ID;
                 inner.OnComplete = (resultCall) => SendResultBack(resultCall);
 
                 // RaiseCallStart so UnityAgentWindow can show it in chat (same as InProc path)
-                AgentMCPServer.RaiseCallStart(call.Tool, call.Args.ToJson());
+                AgentMCPServer.RaiseCallStart(call.Tool, call.ArgsJson ?? "{}");
 
                 MainThreadWatchdog.NoteToolStart(call.Tool);
+                // 統計の所要時間は「実行に要した時間」に統一する。キュー待ちはここまで
+                // (InProc 側の pump も同じ位置で印を付けている)。
+                inner.MarkExecutionStart();
                 try
                 {
                     Invoker.Invoke(inner);
@@ -466,5 +482,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public string ID;
         public string Tool;
         public JNode Args;
+
+        /// <summary>
+        /// 受信フレームの args をシリアライズし直した文字列。ログ・RaiseCallStart・統計の
+        /// 文字数で 3 回使うので、reader スレッドで 1 度だけ作って持ち回る。
+        /// </summary>
+        public string ArgsJson;
     }
 }

@@ -62,6 +62,20 @@ imported and contains only the prebuilt binaries.
 
 Unity will then connect over TCP and HTTP MCP clients can hit `http://127.0.0.1:17800/mcp`.
 
+### Flags
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--token` | *(required)* | Shared secret for both the MCP Bearer auth and the Unity hello |
+| `--public-port` | `17800` | HTTP port for MCP clients |
+| `--internal-port` | `17801` | TCP port where Unity connects |
+| `--idle-quit` | `5m` | Exit after this long with no Unity connection **and** no MCP client activity. `0` (or any negative value) disables the idle quit, so the bridge runs until killed |
+| `--log` | *(none)* | Log file path. Empty = stderr only |
+| `--verbose` | `false` | Verbose logging |
+
+Durations accept Go syntax (`30s`, `5m`, `1h30m`). UnityAgent's auto-spawn does not pass
+`--idle-quit`, so a bridge started from Unity uses the 5-minute default.
+
 ## Run (via UnityAgent)
 
 In Unity:
@@ -107,7 +121,20 @@ Each direction is line-delimited JSON. One object per line.
 - **Domain reload**: Unity sends `shutdown`, closes TCP, restarts itself. Bridge keeps running,
   queues any in-flight tool calls.
 - **Unity reconnect**: After reload, Unity reconnects, sends `hello` again, queue is flushed.
-- **Idle quit**: Bridge exits after 5 minutes with no Unity connection AND no MCP client activity.
+  Queued calls older than the 120 s per-call timeout are **dropped instead of dispatched** — the
+  HTTP side already gave up and answered its client, so running them would execute a tool nobody
+  is waiting for. Dropped calls are logged (`dropping stale queued call ...`). The same prune runs
+  every 30 s while Unity is away, so the queue cannot grow without bound.
+- **Bridge death**: Unity's `AgentMCPServerBootstrap` keeps a supervisor on `EditorApplication.update`
+  for the whole session, not just at startup. At startup it polls every 200 ms for ~5 s (the bridge
+  is still coming up). If the connection is later lost — bridge killed, crashed, or idle-quit — it
+  retries from 1 s with exponential backoff capped at 30 s, re-checking the lockfile and respawning
+  the binary before each attempt. It never gives up permanently; recovery no longer needs a domain
+  reload or a manual settings toggle.
+- **Idle quit**: Bridge exits after `--idle-quit` (default 5 m) with no Unity connection AND no MCP
+  client activity. Every authenticated `/mcp` request refreshes that timer, and a request still in
+  flight blocks the quit outright, so a bridge being actively used never exits while Unity is down.
+  Pass `--idle-quit 0` to disable it.
 
 ## Limitations (P1)
 

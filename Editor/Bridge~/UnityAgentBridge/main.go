@@ -53,16 +53,19 @@ const (
 	latestProtocolVersion                   = "2025-06-18"
 	defaultProtocolVersionWhenHeaderMissing = "2025-03-26"
 	headerProtocolVersion                   = "MCP-Protocol-Version"
-	idleQuitGrace                           = 5 * time.Minute   // Quit after both sides are gone for this long.
+	defaultIdleQuitGrace                    = 5 * time.Minute   // Quit after both sides are gone for this long.
 	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
+	maintenanceInterval                     = 30 * time.Second  // How often the watchdog prunes and checks for idleness.
 )
 
 var (
-	publicPort   = flag.Int("public-port", defaultPublicPort, "HTTP port for MCP clients")
-	internalPort = flag.Int("internal-port", defaultInternalPort, "TCP port where Unity connects")
-	authToken    = flag.String("token", "", "Shared secret for both MCP Bearer auth and Unity hello (REQUIRED)")
-	logFile      = flag.String("log", "", "Optional log file path. Empty = stderr only.")
-	verbose      = flag.Bool("verbose", false, "Verbose logging")
+	publicPort    = flag.Int("public-port", defaultPublicPort, "HTTP port for MCP clients")
+	internalPort  = flag.Int("internal-port", defaultInternalPort, "TCP port where Unity connects")
+	authToken     = flag.String("token", "", "Shared secret for both MCP Bearer auth and Unity hello (REQUIRED)")
+	logFile       = flag.String("log", "", "Optional log file path. Empty = stderr only.")
+	verbose       = flag.Bool("verbose", false, "Verbose logging")
+	idleQuitGrace = flag.Duration("idle-quit", defaultIdleQuitGrace,
+		"Exit after this long with no Unity connection AND no MCP client activity (e.g. 5m, 30s). Zero or negative disables the idle quit entirely.")
 )
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -93,8 +96,8 @@ type Bridge struct {
 	unityWriter    *bufio.Writer
 	pending        map[string]*pendingCall // bridge-id → call
 	queueWhenDown  []*pendingCall          // calls received while Unity was disconnected
-	mcpClientCount int                     // number of active MCP HTTP requests in flight
-	lastActivity   time.Time
+	mcpClientCount int                     // MCP HTTP requests currently being served (idle-quit guard)
+	lastActivity   time.Time               // last Unity message OR MCP HTTP request; drives the idle quit
 
 	// Atomic counters for diagnostics
 	callsServed atomic.Uint64
@@ -269,8 +272,39 @@ func (b *Bridge) writeUnityMsg(conn net.Conn, msg wireMsg) error {
 	return err
 }
 
+// pruneStaleQueuedCalls drops queued calls older than callTimeout and returns how many went.
+//
+// The HTTP handler gives up on a call after callTimeout and has already answered its client by
+// then, but it only removes the call from `pending` — never from `queueWhenDown`. Without this
+// prune, a call nobody is waiting for any more would still be dispatched to Unity on reconnect
+// and actually run, which is dangerous for destructive tools.
+func (b *Bridge) pruneStaleQueuedCalls(now time.Time) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	kept := b.queueWhenDown[:0]
+	dropped := 0
+	for _, call := range b.queueWhenDown {
+		if age := now.Sub(call.Created); age > callTimeout {
+			delete(b.pending, call.ID)
+			log.Printf("[bridge] dropping stale queued call id=%s tool=%s age=%s (over %s, caller already gave up)",
+				call.ID, call.Tool, age.Round(time.Second), callTimeout)
+			dropped++
+			continue
+		}
+		kept = append(kept, call)
+	}
+	b.queueWhenDown = kept
+	return dropped
+}
+
 // flushQueuedCalls re-dispatches calls that arrived while Unity was disconnected.
+// Calls that outlived callTimeout are discarded first — see pruneStaleQueuedCalls.
 func (b *Bridge) flushQueuedCalls() {
+	if dropped := b.pruneStaleQueuedCalls(time.Now()); dropped > 0 {
+		log.Printf("[bridge] discarded %d stale queued call(s) on reconnect", dropped)
+	}
+
 	b.mu.Lock()
 	queue := b.queueWhenDown
 	b.queueWhenDown = nil
@@ -352,6 +386,28 @@ type rpcError struct {
 	Data    string `json:"data,omitempty"`
 }
 
+// beginMCPRequest / endMCPRequest bracket one authenticated MCP HTTP request.
+//
+// They keep both idle-quit inputs honest: lastActivity marks the traffic itself (Unity messages
+// alone used to be the only thing that counted, so a busy MCP client could not stop the bridge
+// from quitting while Unity was down), and mcpClientCount keeps a call that runs longer than the
+// grace period from being cut off mid-flight.
+func (b *Bridge) beginMCPRequest() {
+	b.mu.Lock()
+	b.mcpClientCount++
+	b.lastActivity = time.Now()
+	b.mu.Unlock()
+}
+
+func (b *Bridge) endMCPRequest() {
+	b.mu.Lock()
+	if b.mcpClientCount > 0 {
+		b.mcpClientCount--
+	}
+	b.lastActivity = time.Now()
+	b.mu.Unlock()
+}
+
 func (b *Bridge) startMCPHTTPServer(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", b.handleRoot)
@@ -428,6 +484,11 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 		writeJSONRPCError(w, json.RawMessage("null"), -32001, "Unauthorized", "Missing or invalid Authorization header.")
 		return
 	}
+
+	// From here on the caller is a legitimate MCP client, so its traffic counts as activity and
+	// postpones the idle quit. Unauthenticated noise deliberately does not.
+	b.beginMCPRequest()
+	defer b.endMCPRequest()
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 2*1024*1024))
 	if err != nil {
@@ -824,18 +885,33 @@ func main() {
 		log.Fatalf("[bridge] mcp HTTP server failed: %v", err)
 	}
 
-	// Idle quit watchdog: shut down if both Unity and any MCP client have been gone
-	// for idleQuitGrace continuously. P1 only checks Unity presence.
+	grace := *idleQuitGrace
+	if grace > 0 {
+		log.Printf("[bridge] idle quit after %s with no Unity and no MCP activity", grace)
+	} else {
+		log.Printf("[bridge] idle quit disabled (--idle-quit=%s)", grace)
+	}
+
+	// Maintenance loop: expire queued calls nobody waits for any more, and — unless the idle quit
+	// is disabled — shut down once Unity has been gone AND no MCP client has touched us for the
+	// whole grace period. Both an in-flight MCP request and a completed one keep the bridge alive.
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(maintenanceInterval)
 		defer ticker.Stop()
 		for range ticker.C {
+			if dropped := b.pruneStaleQueuedCalls(time.Now()); dropped > 0 {
+				log.Printf("[bridge] discarded %d stale queued call(s) while Unity was away", dropped)
+			}
+			if grace <= 0 {
+				continue
+			}
 			b.mu.Lock()
 			idleSince := time.Since(b.lastActivity)
 			hasUnity := b.unityConn != nil
+			inFlight := b.mcpClientCount
 			b.mu.Unlock()
-			if !hasUnity && idleSince > idleQuitGrace {
-				log.Printf("[bridge] idle for %s with no Unity — exiting", idleSince)
+			if !hasUnity && inFlight == 0 && idleSince > grace {
+				log.Printf("[bridge] idle for %s with no Unity and no MCP activity — exiting", idleSince)
 				os.Exit(0)
 			}
 		}

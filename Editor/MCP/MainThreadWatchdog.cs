@@ -125,6 +125,40 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// <summary>Caches the Auto Refresh setting sampled on the main thread.</summary>
         public static void NoteAutoRefresh(string description) => _autoRefresh = description;
 
+        static double _lastAutoRefreshSample;
+
+        /// <summary>
+        /// メインスレッドの tick から 1 回だけ呼ぶ集約入口。pump 記録・状態スナップショット・
+        /// Auto Refresh サンプリングをまとめて行う。<b>メインスレッド専用</b>
+        /// (EditorApplication / EditorPrefs を読むため)。
+        ///
+        /// 集約する理由: pump は InProc (<see cref="AgentMCPServer"/>) と Bridge
+        /// (<see cref="AgentMCPBridgeClient"/>) に 1 つずつあり、個別に呼び分けていた結果
+        /// Bridge 側は <see cref="NotePump"/> しか呼んでおらず、compiling / importing /
+        /// autoRefresh が初期値のまま固定されていた。しかも <see cref="StalledMilliseconds"/> は
+        /// pump 由来なので新鮮なままで、GetEditorState が「snapshotAge 0.00s / compiling False」と
+        /// measured したかのように答えてしまう — 最も誤解を招く壊れ方だった。
+        /// 入口を 1 つにして、pump が増えても二度と枝分かれしないようにする。
+        /// </summary>
+        public static void NoteMainThreadTick()
+        {
+            NotePump();
+
+            NoteEditorState(
+                UnityEditor.EditorApplication.isCompiling,
+                UnityEditor.EditorApplication.isUpdating,
+                UnityEditor.EditorApplication.isPlaying,
+                UnityEditor.EditorApplication.isPaused);
+
+            // Auto Refresh は EditorPrefs (レジストリ読み) なので毎 tick は避け、1 秒に 1 回だけ。
+            double now = UnityEditor.EditorApplication.timeSinceStartup;
+            if (now - _lastAutoRefreshSample > 1.0)
+            {
+                _lastAutoRefreshSample = now;
+                _autoRefresh = Tools.EditorStateTools.SampleAutoRefresh();
+            }
+        }
+
         /// <summary>
         /// Live OS-level check for a modal window, independent of the stall threshold.
         /// Accurate even while the editor is frozen, because it asks Windows, not Unity.
@@ -145,6 +179,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             _mainWindowResolved = false;
             _compiling = _importing = _playing = _paused = false;
             _autoRefresh = null;
+            _lastAutoRefreshSample = 0;
         }
 
         /// <summary>Milliseconds since the main thread last pumped. 0 before the first tick.</summary>
