@@ -7,7 +7,7 @@ using static AjisaiFlow.UnityAgent.Editor.L10n;
 
 namespace AjisaiFlow.UnityAgent.Editor.UI
 {
-    /// <summary>ヘッダーツールバー: 設定、Undo、新規チャット、履歴、Web、セーフ、スキル。</summary>
+    /// <summary>ヘッダーツールバー: 設定、統計、スキル、安全、Web、Ko-fi、履歴、新規チャット、Undo。</summary>
     internal class ToolbarPanel : VisualElement
     {
         readonly MD3Theme _theme;
@@ -28,6 +28,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         public Action OnWebToggled;
         public Action OnSafetyClicked;
         public Action OnSkillsClicked;
+        public Action OnStatsClicked;
 
         public ToolbarPanel(MD3Theme theme)
         {
@@ -55,6 +56,11 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
             // Spacer pushes remaining buttons to the right
             Add(new MD3Spacer());
+
+            // ツール呼び出し統計
+            var statsBtn = CreateToolbarButton(MD3Icon.BarChart, M("ツール統計"));
+            statsBtn.clicked += () => OnStatsClicked?.Invoke();
+            Add(statsBtn);
 
             // Skills
             var skillsBtn = CreateToolbarButton(MD3Icon.Star, M("スキル"));

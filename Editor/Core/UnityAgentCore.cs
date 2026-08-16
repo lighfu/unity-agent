@@ -103,14 +103,27 @@ namespace AjisaiFlow.UnityAgent.Editor
             /// <summary>XML 構文の名前付き引数 (arg 名 → 値, OrdinalIgnoreCase)。ブラケットの場合は null。</summary>
             public Dictionary<string, string> NamedArgs;
 
-            /// <summary>確認ダイアログ等の表示用に引数を 1 行へ整形する。</summary>
+            /// <summary>ParamsDisplay の結果キャッシュ。フィールドは生成後に書き換えないので使い回せる。</summary>
+            private string _paramsDisplay;
+
+            /// <summary>
+            /// 確認ダイアログ等の表示用に引数を 1 行へ整形する。
+            /// 1 回の実行で実行ログ・確認ダイアログ・統計の文字数と 3 回以上呼ばれるため、
+            /// 結果をキャッシュする。RunEditorScript のように本文を引数で渡すツールだと
+            /// 毎回の連結が数百 KB のアロケーションになる。
+            /// </summary>
             public string ParamsDisplay()
             {
+                if (_paramsDisplay != null) return _paramsDisplay;
+
                 if (NamedArgs != null)
-                    return string.Join(", ", NamedArgs.Select(kv => $"{kv.Key}={kv.Value}"));
-                if (PositionalArgs != null)
-                    return string.Join(", ", PositionalArgs.Select(a => a.Trim()));
-                return "";
+                    _paramsDisplay = string.Join(", ", NamedArgs.Select(kv => $"{kv.Key}={kv.Value}"));
+                else if (PositionalArgs != null)
+                    _paramsDisplay = string.Join(", ", PositionalArgs.Select(a => a.Trim()));
+                else
+                    _paramsDisplay = "";
+
+                return _paramsDisplay;
             }
         }
 
@@ -960,6 +973,19 @@ namespace AjisaiFlow.UnityAgent.Editor
             {
                 if (!_isProcessing) yield break;
 
+                // ツール呼び出し統計: 1 match につき 1 件を NextMatch ラベルで確定させる。
+                // ラベルは if (!string.IsNullOrEmpty(match.Name)) の外なので、変数はここで宣言する。
+                //
+                // 停止状態で作り、Phase 3 の直前で Start する。durationMs の定義は MCP 経路と同じ
+                // 「実行に要した時間」で、引数パース・有効化判定・**ユーザーの確認ダイアログ待ち**は
+                // 含めない。ここで StartNew すると、確認を 60 秒放置しただけで 1ms のツールが
+                // durationMs=60000 として記録され、平均所要時間と散布図の Y 軸が壊れる。
+                // 実行に至らず離脱した分岐 (キャンセル・無効化・バインド失敗) は 0ms で残る。
+                var statsSw = new System.Diagnostics.Stopwatch();
+                int statsResultsBefore = results.Count;
+                bool statsIsAgentTool = false;
+                bool statsSuccess = false;
+
                 if (!string.IsNullOrEmpty(match.Name))
                 {
                     var methodName = match.Name;
@@ -971,6 +997,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                         string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase));
                     if (method != null)
                     {
+                        // 統計対象は UnityAgent の [AgentTool] のみ。外部 MCP ツール・組み込み MCP ツール・
+                        // 未検出ツールは ToolRegistry に無くカテゴリも解決できないので記録しない。
+                        statsIsAgentTool = true;
+
                         // Invoke tool — split into arg parsing, confirmation, and invocation.
                         // Confirmation and async tools use yield, which C# forbids inside
                         // try-catch (CS1626), so they run outside try-catch blocks.
@@ -1187,7 +1217,14 @@ namespace AjisaiFlow.UnityAgent.Editor
                             // Wait for user selection via in-chat buttons
                             while (ToolConfirmState.SelectedIndex < 0)
                             {
-                                if (!_isProcessing) yield break;
+                                if (!_isProcessing)
+                                {
+                                    // NextMatch ラベルを通らない離脱なのでここで記録する。
+                                    statsSw.Stop();
+                                    ToolCallStats.Record(match.Name, ToolCallRoute.Chat, false,
+                                        statsSw.Elapsed.TotalMilliseconds, match.ParamsDisplay().Length, 0);
+                                    yield break;
+                                }
                                 yield return null;
                             }
 
@@ -1211,6 +1248,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                         }
 
                         // --- Phase 3: Invocation (in try-catch) ---
+                        statsSw.Start();
                         try
                         {
                             groupBefore = Undo.GetCurrentGroup();
@@ -1238,12 +1276,34 @@ namespace AjisaiFlow.UnityAgent.Editor
                             {
                                 // Async tool: run as coroutine, collect last string yield as result
                                 string asyncResult = null;
-                                while (enumerator.MoveNext())
+                                while (true)
                                 {
+                                    // yield を含むメソッドでは MoveNext を try-catch で囲えない (CS1626) ため、
+                                    // 捕捉はヘルパーに任せる。ここで捕まえないと最初の yield 以降で投げられた
+                                    // 例外が ExecuteToolsAsync の外へ抜け、NextMatch ラベルに到達しないまま
+                                    // 記録がゼロになる (同期ツールだけが失敗率の分母に残ってしまう)。
+                                    bool moved = TryMoveNext(enumerator, out Exception asyncEx);
+                                    if (asyncEx != null)
+                                    {
+                                        (enumerator as IDisposable)?.Dispose();
+                                        ToolProgress.Clear();
+                                        string asyncErrorMsg = GenerateUsageError(method,
+                                            $"Error executing tool {methodName}: {asyncEx.Message}");
+                                        results.Add(asyncErrorMsg);
+                                        onStatus?.Invoke($"[Tool Error] {asyncEx.Message}");
+                                        // statsSuccess は false のまま。NextMatch で失敗 1 件として記録される。
+                                        goto NextMatch;
+                                    }
+                                    if (!moved) break;
+
                                     if (!_isProcessing)
                                     {
                                         (enumerator as IDisposable)?.Dispose();
                                         ToolProgress.Clear();
+                                        // NextMatch ラベルを通らない離脱なのでここで記録する。
+                                        statsSw.Stop();
+                                        ToolCallStats.Record(match.Name, ToolCallRoute.Chat, false,
+                                            statsSw.Elapsed.TotalMilliseconds, match.ParamsDisplay().Length, 0);
                                         yield break;
                                     }
                                     if (enumerator.Current is string str)
@@ -1272,6 +1332,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                                 onStatus?.Invoke($"[Tool Result] {resStr}");
                             }
                         }
+
+                        // 統計の成否は「例外・キャンセル・引数エラーなく完走したか」で判定する。
+                        // ツールが返した文字列の内容 (Error: で始まる等) は判定に使わない。
+                        statsSuccess = invokeOk;
                     }
                     else if (BuiltinMCPToolNames.Contains(methodName))
                     {
@@ -1440,9 +1504,48 @@ namespace AjisaiFlow.UnityAgent.Editor
                     }
                 }
                 
+                // 計測はここで打ち切る。この下の yield は「エディタを固めないための 1 フレーム待ち」で
+                // ツールの実行時間ではない。含めると、正常完了した同期ツールにだけ 1 フレーム
+                // (負荷時 10〜100ms) が上乗せされ、goto で抜ける失敗系には乗らないので
+                // 「成功のほうが遅い」という系統誤差になる。Stop は非稼働でも安全。
+                statsSw.Stop();
+
                 // Yield between tool executions to prevent editor from freezing
                 yield return null;
-                NextMatch:;
+                NextMatch:
+                if (statsIsAgentTool)
+                {
+                    // 引数バインド失敗・無効化・確認キャンセル・例外・正常完了の全分岐がここに合流する。
+                    statsSw.Stop();
+                    string statsLast = results.Count > statsResultsBefore
+                        ? results[results.Count - 1] : null;
+                    ToolCallStats.Record(match.Name, ToolCallRoute.Chat, statsSuccess,
+                        statsSw.Elapsed.TotalMilliseconds,
+                        match.ParamsDisplay().Length, statsLast?.Length ?? 0);
+                }
+            }
+        }
+
+        /// <summary>
+        /// <see cref="IEnumerator.MoveNext"/> を例外ごと包んで進める。
+        /// 呼び出し元 (<see cref="ExecuteToolsAsync"/>) は yield を含むイテレータなので
+        /// MoveNext を直接 try-catch で囲めない (CS1626)。その制約を回避するためだけのヘルパー。
+        /// </summary>
+        /// <param name="error">
+        /// 送出された例外。無ければ null。例外が出た場合の戻り値は false だが、
+        /// 「正常に終わった (false / error=null)」と区別できるよう必ず error を先に見ること。
+        /// </param>
+        private static bool TryMoveNext(IEnumerator enumerator, out Exception error)
+        {
+            error = null;
+            try
+            {
+                return enumerator.MoveNext();
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+                return false;
             }
         }
 

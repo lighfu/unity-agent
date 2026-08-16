@@ -331,6 +331,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             // Toolbar
             _toolbarPanel.OnSettingsClicked = () => UnityAgentSettingsWindow.Open();
+            _toolbarPanel.OnStatsClicked = () => ToolStatsWindow.Open();
             _toolbarPanel.OnUndoAllClicked = () =>
             {
                 int undoCount = _agent?.SessionUndoCount ?? 0;

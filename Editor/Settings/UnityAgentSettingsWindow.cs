@@ -497,6 +497,47 @@ namespace AjisaiFlow.UnityAgent.Editor
             logBtn.style.marginTop = 8;
             logBtn.clicked += () => AgentLogWindow.Open();
             parent.Add(logBtn);
+
+            AddDivider(parent);
+            BuildToolStatsSection(parent);
+        }
+
+        // ─── ツール呼び出し統計 ───
+
+        private void BuildToolStatsSection(VisualElement parent)
+        {
+            AddSectionLabel(parent, M("ツール呼び出し統計"),
+                M("ツールの実行回数・成功率・所要時間を記録し、統計ウィンドウでグラフ表示します。無効にすると記録も保存も止まります（保存済みのデータは消えません）。"));
+
+            AddSwitchRow(parent, AgentSettings.ToolStatsEnabled,
+                enabled => enabled ? M("有効 — ツールの実行を記録します") : M("無効 — 記録しません"),
+                newVal =>
+                {
+                    AgentSettings.ToolStatsEnabled = newVal;
+                    // 記録側は設定をキャッシュしているので、即座に反映させる。
+                    ToolCallStats.RefreshSettingsCache();
+                    return newVal;
+                });
+
+            AddSectionLabel(parent, M("明細の保持件数"),
+                string.Format(
+                    M("1 件ごとの明細（文字数・所要時間）を何件まで残すかです。{0}〜{1} の範囲に丸められます。上限を超えた古い明細は捨てられますが、日別の集計（呼び出し数・成功率・ツール別）はそのまま残ります。"),
+                    ToolCallStats.MinMaxRecords, ToolCallStats.MaxMaxRecords));
+
+            AddTextField(parent, M("件数"), AgentSettings.ToolStatsMaxRecords.ToString(), v =>
+            {
+                if (!int.TryParse(v, out int n)) return;
+                // 範囲外は AgentSettings 側で丸められる。表示は次回のタブ再構築で追随する。
+                AgentSettings.ToolStatsMaxRecords = n;
+                ToolCallStats.RefreshSettingsCache();
+            });
+
+            var statsBtn = new MD3Button(M("統計ウィンドウを開く"), MD3ButtonStyle.Outlined);
+            statsBtn.style.marginLeft = 12;
+            statsBtn.style.marginRight = 12;
+            statsBtn.style.marginTop = 8;
+            statsBtn.clicked += () => ToolStatsWindow.Open();
+            parent.Add(statsBtn);
         }
 
         private void BuildThinkingModeSection(VisualElement parent)

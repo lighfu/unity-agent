@@ -45,6 +45,9 @@ namespace AjisaiFlow.UnityAgent.Editor
         private const string ThemeModeKey = "UnityAgent_ThemeMode";
         private const string ThemeColorPrefix = "UnityAgent_ThemeColor_";
         private const string SeedColorKey = "UnityAgent_SeedColor";
+        private const string ToolStatsEnabledKey = "UnityAgent_ToolStatsEnabled";
+        private const string ToolStatsMaxRecordsKey = "UnityAgent_ToolStatsMaxRecords";
+        private const int DefaultToolStatsMaxRecords = 5000;
 
         public static readonly string[] PaletteColorNames =
         {
@@ -302,6 +305,28 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (configValue > 0) return configValue;
             if (modelInputLimit > 0) return modelInputLimit;
             return DefaultMaxContextTokens;
+        }
+
+        /// <summary>
+        /// ツール呼び出し統計を記録するか。false にすると記録も永続化も止まる (既存データは消さない)。
+        /// </summary>
+        public static bool ToolStatsEnabled
+        {
+            get => SettingsStore.GetBool(ToolStatsEnabledKey, true);
+            set => SettingsStore.SetBool(ToolStatsEnabledKey, value);
+        }
+
+        /// <summary>
+        /// 明細として保持する最大件数。超えた分は古いものから捨てる (日別集計には残る)。
+        /// 保存時に <see cref="ToolCallStats.MinMaxRecords"/>〜<see cref="ToolCallStats.MaxMaxRecords"/>
+        /// に収める。読み出し側 (ToolCallStats) も同じ範囲に丸めるので、
+        /// 範囲外の値が手書きで設定ファイルに入っていても安全。
+        /// </summary>
+        public static int ToolStatsMaxRecords
+        {
+            get => SettingsStore.GetInt(ToolStatsMaxRecordsKey, DefaultToolStatsMaxRecords);
+            set => SettingsStore.SetInt(ToolStatsMaxRecordsKey,
+                Mathf.Clamp(value, ToolCallStats.MinMaxRecords, ToolCallStats.MaxMaxRecords));
         }
 
         public static int WebServerPort

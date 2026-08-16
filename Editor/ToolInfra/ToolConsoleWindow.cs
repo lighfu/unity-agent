@@ -55,6 +55,13 @@ namespace AjisaiFlow.UnityAgent.Editor
         private bool _isExecuting;
         private IEnumerator _runningCoroutine;
 
+        // ── ツール呼び出し統計 ──
+        // 同期終端 (ExecuteTool)・コルーチン終端 (Update)・実行中の破棄 (OnDisable) の
+        // 3 箇所で確定するため、記録後に _statsSw を null にして二重記録を防ぐ。
+        private System.Diagnostics.Stopwatch _statsSw;
+        private string _statsToolName;
+        private int _statsArgChars;
+
         // ─── Styles ───
         private GUIStyle _descStyle;
         private GUIStyle _descBoldStyle;
@@ -100,6 +107,23 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void OnDisable()
         {
             TranslationManagementWindow.OnTranslationsUpdated -= RebuildLocalizedDescriptions;
+
+            // 非同期ツールの実行中にウィンドウが閉じられる (またはドメインリロードが走る) と
+            // Update() が止まり、コルーチンの終端に到達しないまま記録が落ちる。
+            // 実行は完了していないので失敗として確定させる。
+            if (_runningCoroutine != null)
+            {
+                (_runningCoroutine as IDisposable)?.Dispose();
+                _runningCoroutine = null;
+                _isExecuting = false;
+                RecordConsoleStats(false);
+
+                // ドメインリロード時の順序は beforeAssemblyReload → EditorWindow.OnDisable →
+                // ドメイン破棄。ToolCallStats は beforeAssemblyReload で既に書き出し済みなので、
+                // ここで積んだ 1 件は明示的に flush しないとディスクに届かず消える。
+                // OnDisable はメインスレッドなので Flush をそのまま呼べる。
+                ToolCallStats.Flush();
+            }
         }
 
         private void Update()
@@ -112,6 +136,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                     {
                         _runningCoroutine = null;
                         _isExecuting = false;
+                        RecordConsoleStats(true);
                         Repaint();
                     }
                     else if (_runningCoroutine.Current is string str)
@@ -125,6 +150,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                     _lastResult = string.Format(M("エラー: {0}\n{1}"), ex.Message, ex.StackTrace);
                     _runningCoroutine = null;
                     _isExecuting = false;
+                    RecordConsoleStats(false);
                     Repaint();
                 }
             }
@@ -570,6 +596,13 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
             }
 
+            // 統計: 変換エラーはツール未実行なので記録対象外。ここから計測を始める。
+            _statsToolName = tool.name;
+            _statsArgChars = 0;
+            for (int i = 0; i < args.Length; i++)
+                _statsArgChars += args[i]?.ToString()?.Length ?? 0;
+            _statsSw = System.Diagnostics.Stopwatch.StartNew();
+
             try
             {
                 Undo.IncrementCurrentGroup();
@@ -586,18 +619,36 @@ namespace AjisaiFlow.UnityAgent.Editor
                 else
                 {
                     _lastResult = rawResult?.ToString() ?? M("(返り値なし)");
+                    RecordConsoleStats(true);
                 }
             }
             catch (TargetInvocationException ex)
             {
                 _lastResult = string.Format(M("エラー: {0}\n{1}"), ex.InnerException?.Message ?? ex.Message, ex.InnerException?.StackTrace ?? ex.StackTrace);
+                RecordConsoleStats(false);
             }
             catch (Exception ex)
             {
                 _lastResult = string.Format(M("エラー: {0}\n{1}"), ex.Message, ex.StackTrace);
+                RecordConsoleStats(false);
             }
 
             Repaint();
+        }
+
+        /// <summary>
+        /// ツールコンソール経由の実行を統計に記録する。同期終端・コルーチン終端・実行中の破棄
+        /// (OnDisable) から呼ばれるが、記録後に _statsSw を null にするので 1 実行につき 1 回しか
+        /// 記録されない。_statsSw は ExecuteTool が引数変換を終えた時点で開始するので、
+        /// 所要時間の意味は MCP 経路と同じ「実行に要した時間」。
+        /// </summary>
+        private void RecordConsoleStats(bool success)
+        {
+            if (_statsSw == null) return;
+            _statsSw.Stop();
+            ToolCallStats.Record(_statsToolName, ToolCallRoute.Console, success,
+                _statsSw.Elapsed.TotalMilliseconds, _statsArgChars, _lastResult?.Length ?? 0);
+            _statsSw = null;
         }
 
         private static object ConvertParam(string value, Type targetType)
