@@ -159,6 +159,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `clipRemap` はクリップの差し替え表 (`旧->新;旧2->新2`、左辺はパスでもクリップ名でも可) か、フォルダパスを 1 つ。フォルダ指定なら元クリップと同名のものをその中から探す。**差し替え先が見つからなかったクリップは元のまま残り、警告として名指しで列挙する** — 移植元アバターのクリップを指したままの Mode は、見た目は正しく作られたのに何も起きないので、件数だけでなくどのスロットかまで出す。
   - `dryRun` で書き込まずに計画だけ出せる (Mode の作成・ブランチの複製・差し替え解決まで実際に走らせ、`SaveMenu` だけ行わない)。
 - **アニメーションスロットの一括設定** `SetExpressionAnimations` (issue #8)。`Mode=パス` と `ブランチ番号:スロット=パス` を `;` 区切りで並べて 1 回で設定する。**全件を検証してから書く**ので、最後の 1 件の綴り間違いで Mode が半端に設定された状態で残ることがない。
+- **AnimationClip の binding path 一括付け替え** `RebindAnimationClipPaths` (issue #9)。メッシュの階層上の位置が変わると、それを参照するクリップの binding path が外れ、アニメーションは**エラーも警告も出さずに無反応になる**。頭部を別の胴体へ移植した、衣装をリネームした、Modular Avatar 導入でオブジェクトを動かした — いずれでも起きる。直すこと自体は「全カーブの path を書き換える」だけだが、`SetAnimationCurve` は 1 カーブずつなので 9 クリップ × 13 カーブでは現実的でなかった。
+  - `AnimationUtility` 経由で binding を読み直して書き戻すので、**バイナリシリアライズされた `.anim` でも動く**（FaceEmo が `Imported/<timestamp>/` に置くクリップはプロジェクトが Force Text でもバイナリで、テキスト置換が効かない）。`GetObjectReferenceCurveBindings` 側（マテリアル差し替え等）も同時に処理する — 片方だけ直すと、見た目は直ったのにマテリアルだけ動かないクリップができる。
+  - `matchMode` は `exact`（既定）と `prefix`。prefix はパス区切りで切るので `Body` が `BodyExtra` に当たることはない。`fromPath='*'` で全 binding を `toPath` の下へ移す（ルート直下のカーブもまとめて動かせる）。
+  - `verifyAgainst` に GameObject 名を渡すと、**書き換え後のパスが実際に解決するか**と **`blendShape.*` のシェイプが移植先メッシュに実在するか**を照合して報告する。「直したのに無反応」の原因はほぼここで、報告者も「いちばん最初に知りたい情報」と書いていた。
+  - `outputFolder` を指定すると複製側を書き換え、元クリップは触らない。出力先に同名ファイルがあれば**書き込む前にエラー**にする（黙って上書きや自動リネームをすると、どちらの複製を参照しているのか後から判断できなくなる）。`dryRun` で差分だけ見られる。
+  - 書き換えの結果 2 本のカーブが同じ binding に載る場合は、**1 本も書かずにエラー**にする。後から入れた方が前のカーブを黙って上書きして消すため。
+  - `fromPath` がどのクリップにも当たらなかった場合も**エラー**にし、実際に存在するパスを列挙する。「0 件書き換えて成功」はこの作業でいちばん危険な返答で、綴り違いと区別が付かないまま「直したつもり」で先へ進んでしまう。
 - **FaceEmo の条件操作ツール** `RemoveGestureCondition` / `ModifyGestureCondition` (issue #8)。`AddGestureCondition` はあるのに対になる削除・変更が無く、ドメイン層 (`FaceEmoAPI.RemoveCondition` / `ModifyCondition`) には揃っているのにツールとして公開されていなかった。そのため「ダミー条件つきでブランチを足してから `RunEditorScript` でドメイン API を直接叩いて条件を消す」という回り道が必要だった。どちらも `conditionIndex` を取るので、`InspectExpressionDetail` が条件に添字を出すようにした。
 
 ### Changed
