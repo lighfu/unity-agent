@@ -693,7 +693,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     int gesture = condElem.FindPropertyRelative("HandGesture")?.enumValueIndex ?? 0;
                     int op = condElem.FindPropertyRelative("ComparisonOperator")?.enumValueIndex ?? 0;
 
-                    string handStr = hand == 0 ? "L" : "R";
+                    string handStr = GetHandName(hand);
                     string gestureStr = GetGestureName(gesture);
                     string opStr = GetComparisonOp(op);
                     parts.Add($"{handStr}{opStr}{gestureStr}");
@@ -709,6 +709,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             sb.Append($"      Branch[{branchIndex}]");
             if (!string.IsNullOrEmpty(condStr)) sb.Append($" ({condStr})");
+            else sb.Append(" (no conditions — matches any gesture)");
             sb.Append($": base={baseAnim}");
             if (!string.IsNullOrEmpty(leftAnim) && leftAnim != "None") sb.Append($", left={leftAnim}");
             if (!string.IsNullOrEmpty(rightAnim) && rightAnim != "None") sb.Append($", right={rightAnim}");
@@ -872,20 +873,31 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         var ct = cond.GetType();
                         int hand = Convert.ToInt32(ct.GetProperty("Hand")?.GetValue(cond) ?? 0);
                         int gesture = Convert.ToInt32(ct.GetProperty("HandGesture")?.GetValue(cond) ?? 0);
-                        string handStr = hand == 0 ? "L" : "R";
-                        string gestureStr = GetGestureName(gesture);
-                        parts.Add($"{handStr}={gestureStr}");
+                        // ComparisonOperator を読んでいなかったため、NotEqual の条件が Equals として
+                        // 表示されていた。条件の意味が逆に読める最悪の壊れ方なので必ず反映する。
+                        int op = Convert.ToInt32(ct.GetProperty("ComparisonOperator")?.GetValue(cond) ?? 0);
+                        parts.Add($"{GetHandName(hand)}{GetComparisonOp(op)}{GetGestureName(gesture)}");
                     }
                     condStr = string.Join(", ", parts);
                 }
             }
 
             // Animations
+            // こちらは Strategy 0 (live data) の経路で、実際にいちばん使われる。にもかかわらず
+            // BaseAnimation しか出しておらず、左右・両手のクリップが設定されていても
+            // 出力からは「未設定」と区別が付かなかった。SerializedObject 経路 (DumpBranch) と揃える。
             string baseAnim = ReadDomainAnimGuid(branch, "BaseAnimation");
+            string leftAnim = ReadDomainAnimGuid(branch, "LeftHandAnimation");
+            string rightAnim = ReadDomainAnimGuid(branch, "RightHandAnimation");
+            string bothAnim = ReadDomainAnimGuid(branch, "BothHandsAnimation");
 
             sb.Append($"      Branch[{branchIndex}]");
             if (!string.IsNullOrEmpty(condStr)) sb.Append($" ({condStr})");
+            else sb.Append(" (no conditions — matches any gesture)");
             sb.Append($": base={baseAnim}");
+            if (leftAnim != "None") sb.Append($", left={leftAnim}");
+            if (rightAnim != "None") sb.Append($", right={rightAnim}");
+            if (bothAnim != "None") sb.Append($", both={bothAnim}");
             sb.AppendLine();
         }
 
@@ -1055,12 +1067,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return GuidToAnimationName(guid);
         }
 
+        /// <summary>
+        /// GUID → 表示名。<b>常に GUID の先頭 8 桁を併記する</b>。
+        ///
+        /// FaceEmo は取り込んだクリップを <c>Imported/&lt;timestamp&gt;/</c> に同名でコピーするため、
+        /// 表示名だけでは実質的に識別子にならない。同名クリップが複数ある状態では
+        /// 「直したはずの方を参照できているか」が出力から判断できず、検証のためだけに
+        /// GUID を引く RunEditorScript を書く羽目になっていた (issue #8)。
+        /// </summary>
         private static string GuidToAnimationName(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return "None";
             string path = AssetDatabase.GUIDToAssetPath(guid);
             if (string.IsNullOrEmpty(path)) return $"(GUID:{guid.Substring(0, Mathf.Min(8, guid.Length))})";
-            return System.IO.Path.GetFileNameWithoutExtension(path);
+            return System.IO.Path.GetFileNameWithoutExtension(path)
+                   + " [" + guid.Substring(0, Mathf.Min(8, guid.Length)) + "]";
         }
 
         private static readonly string[] GestureNames =
@@ -1074,16 +1095,32 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return index >= 0 && index < GestureNames.Length ? GestureNames[index] : index.ToString();
         }
 
+        /// <summary>
+        /// Suzuryg.FaceEmo.Domain.Hand の表示名。列挙は Left(0), Right(1), OneSide(2),
+        /// Either(3), Both(4)。以前は <c>hand == 0 ? "L" : "R"</c> だったため、
+        /// OneSide / Either / Both がすべて "R" と表示され、条件を読み違えさせていた。
+        /// </summary>
+        private static readonly string[] HandNames = { "L", "R", "OneSide", "Either", "Both" };
+
+        private static string GetHandName(int index)
+        {
+            return index >= 0 && index < HandNames.Length ? HandNames[index] : index.ToString();
+        }
+
+        /// <summary>
+        /// Suzuryg.FaceEmo.Domain.ComparisonOperator の表示名。列挙は Equals(0), NotEqual(1)。
+        ///
+        /// 以前はここが VRChat の AnimatorCondition 相当の表 (0=">=", 1=">", 2="=", …) に
+        /// なっており、FaceEmo とは別物だった。結果として Equals が ">="、NotEqual が ">" と
+        /// 表示され、<b>条件の意味が読み取れないどころか逆に読める</b>状態だった。
+        /// </summary>
         private static string GetComparisonOp(int index)
         {
             switch (index)
             {
-                case 0: return ">=";
-                case 1: return ">";
-                case 2: return "=";
-                case 3: return "<";
-                case 4: return "<=";
-                default: return "?";
+                case 0: return "=";
+                case 1: return "!=";
+                default: return "?" + index;
             }
         }
     }

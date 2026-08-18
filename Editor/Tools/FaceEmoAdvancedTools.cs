@@ -228,7 +228,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             sb.AppendLine($"  MouthMorphCanceler: {mode.MouthMorphCancelerEnabled}");
 
             // Mode animation
-            string modeAnim = mode.Animation != null ? FaceEmoAPI.GuidToAnimName(mode.Animation.GUID) : "None";
+            string modeAnim = mode.Animation != null ? FaceEmoAPI.GuidToAnimPath(mode.Animation.GUID) : "None";
             sb.AppendLine($"  Animation: {modeAnim}");
 
             // Branches
@@ -244,9 +244,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     if (branch.Conditions != null && branch.Conditions.Count > 0)
                     {
                         var condParts = new List<string>();
-                        foreach (var cond in branch.Conditions)
-                            condParts.Add($"{cond.Hand}{(cond.ComparisonOperator == ComparisonOperator.NotEqual ? "!=" : "=")}{cond.HandGesture}");
+                        for (int c = 0; c < branch.Conditions.Count; c++)
+                        {
+                            var cond = branch.Conditions[c];
+                            string op = cond.ComparisonOperator == ComparisonOperator.NotEqual ? "!=" : "=";
+                            // 添字を出すのは RemoveGestureCondition / ModifyGestureCondition が
+                            // conditionIndex を要求するため。出さないと数え直させることになる。
+                            condParts.Add($"[{c}] {cond.Hand}{op}{cond.HandGesture}");
+                        }
                         sb.AppendLine($"      Conditions: {string.Join(", ", condParts)}");
+                    }
+                    else
+                    {
+                        sb.AppendLine("      Conditions: (none — matches any gesture, acts as a fallback)");
                     }
 
                     sb.AppendLine($"      EyeTracking: {branch.EyeTrackingControl}");
@@ -254,10 +264,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     sb.AppendLine($"      Blink: {branch.BlinkEnabled}, MouthMorphCanceler: {branch.MouthMorphCancelerEnabled}");
                     sb.AppendLine($"      LeftTrigger: {branch.IsLeftTriggerUsed}, RightTrigger: {branch.IsRightTriggerUsed}");
 
-                    string baseAnim = branch.BaseAnimation != null ? FaceEmoAPI.GuidToAnimName(branch.BaseAnimation.GUID) : "None";
-                    string leftAnim = branch.LeftHandAnimation != null ? FaceEmoAPI.GuidToAnimName(branch.LeftHandAnimation.GUID) : "None";
-                    string rightAnim = branch.RightHandAnimation != null ? FaceEmoAPI.GuidToAnimName(branch.RightHandAnimation.GUID) : "None";
-                    string bothAnim = branch.BothHandsAnimation != null ? FaceEmoAPI.GuidToAnimName(branch.BothHandsAnimation.GUID) : "None";
+                    string baseAnim = branch.BaseAnimation != null ? FaceEmoAPI.GuidToAnimPath(branch.BaseAnimation.GUID) : "None";
+                    string leftAnim = branch.LeftHandAnimation != null ? FaceEmoAPI.GuidToAnimPath(branch.LeftHandAnimation.GUID) : "None";
+                    string rightAnim = branch.RightHandAnimation != null ? FaceEmoAPI.GuidToAnimPath(branch.RightHandAnimation.GUID) : "None";
+                    string bothAnim = branch.BothHandsAnimation != null ? FaceEmoAPI.GuidToAnimPath(branch.BothHandsAnimation.GUID) : "None";
 
                     sb.AppendLine($"      Base: {baseAnim}");
                     if (leftAnim != "None") sb.AppendLine($"      Left: {leftAnim}");
@@ -277,8 +287,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         //  B. Branch / Gesture Management (4 tools)
         // ═══════════════════════════════════════════
 
-        [AgentTool("Add a gesture branch to a FaceEmo expression. conditions format: 'Left=Fist;Right=Victory' or 'Either!=Neutral'. hand: Left/Right/Either/Both/OneSide. gesture: Neutral/Fist/HandOpen/Fingerpoint/Victory/RockNRoll/HandGun/ThumbsUp. Operator: = (Equals) or != (NotEqual).")]
-        public static string AddGestureBranch(string expressionName, string conditions,
+        [AgentTool("Add a gesture branch to a FaceEmo expression. conditions format: 'Left=Fist;Right=Victory' or 'Either!=Neutral'. " +
+                   "hand: Left/Right/Either/Both/OneSide. gesture: Neutral/Fist/HandOpen/Fingerpoint/Victory/RockNRoll/HandGun/ThumbsUp. " +
+                   "Operator: = (Equals) or != (NotEqual). " +
+                   "conditions may be omitted to create a condition-less fallback branch that matches any gesture " +
+                   "(this is what FaceEmo's own UI produces when you add a branch without adding conditions). " +
+                   "FaceEmo evaluates branches top-down, so a fallback branch shadows every branch added after it.")]
+        public static string AddGestureBranch(string expressionName, string conditions = "",
             string baseAnimationPath = "", string gameObjectName = "")
         {
             var launcher = FaceEmoAPI.FindLauncher(gameObjectName);
@@ -301,9 +316,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return $"Error: {ex.Message}";
             }
 
-            if (condList.Count == 0)
-                return "Error: At least one condition is required.";
-
+            // 条件 0 個は「どのブランチにもマッチしなかったときに効くフォールバック」で、
+            // FaceEmo 本体の UI でも条件を足さなければそうなる。以前はここで弾いていたため、
+            // ダミー条件を付けて追加してから RunEditorScript でドメイン API を直接叩いて
+            // 条件を消す、という回り道が必要だった (issue #8)。
             FaceEmoAPI.AddBranch(menu, modeId, condList);
 
             // Set base animation if provided
@@ -318,9 +334,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
 
             FaceEmoAPI.SaveMenu(launcher, menu);
+            int newIndex = mode.Branches != null ? mode.Branches.Count - 1 : -1;
+
+            if (condList.Count == 0)
+                return $"Success: Added branch[{newIndex}] to '{expressionName}' with NO conditions — "
+                     + "it matches any gesture and acts as a fallback. FaceEmo evaluates branches top-down, "
+                     + $"so any branch added to '{expressionName}' after this one will never fire."
+                     + FaceEmoAPI.WindowWarning();
+
             var condStr = string.Join(", ", condList.Select(c =>
                 $"{c.Hand}{(c.ComparisonOperator == ComparisonOperator.NotEqual ? "!=" : "=")}{c.HandGesture}"));
-            return $"Success: Added branch to '{expressionName}' with conditions: {condStr}.{FaceEmoAPI.WindowWarning()}";
+            return $"Success: Added branch[{newIndex}] to '{expressionName}' with conditions: {condStr}.{FaceEmoAPI.WindowWarning()}";
         }
 
         [AgentTool("Remove a gesture branch from a FaceEmo expression by index. Requires confirmation.")]
@@ -380,6 +404,87 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             FaceEmoAPI.SaveMenu(launcher, menu);
             return $"Success: Added condition {hand}{(comparisonOperator == "NotEqual" ? "!=" : "=")}{gesture} to '{expressionName}' branch[{branchIndex}].{FaceEmoAPI.WindowWarning()}";
+        }
+
+        [AgentTool("Remove a gesture condition from a branch by index. " +
+                   "Removing every condition turns the branch into a fallback that matches any gesture " +
+                   "(FaceEmo evaluates branches top-down, so it shadows every branch after it). " +
+                   "Use InspectExpressionDetail to see the current condition indices.")]
+        public static string RemoveGestureCondition(string expressionName, int branchIndex, int conditionIndex,
+            string gameObjectName = "")
+        {
+            var launcher = FaceEmoAPI.FindLauncher(gameObjectName);
+            if (launcher == null) return "Error: FaceEmo launcher not found." + FaceEmoAPI.GetLauncherHint();
+
+            var menu = FaceEmoAPI.LoadMenu(launcher);
+            if (menu == null) return "Error: Could not load FaceEmo menu from scene.";
+
+            var (modeId, mode) = FaceEmoAPI.FindExpression(menu, expressionName);
+            if (modeId == null) return $"Error: Expression '{expressionName}' not found.";
+
+            if (!FaceEmoAPI.CanRemoveCondition(menu, modeId, branchIndex, conditionIndex))
+                return $"Error: Cannot remove condition[{conditionIndex}] from branch[{branchIndex}] of '{expressionName}'. "
+                     + "Index may be out of range — check InspectExpressionDetail.";
+
+            FaceEmoAPI.RemoveCondition(menu, modeId, branchIndex, conditionIndex);
+            int remaining = CountConditions(mode, branchIndex);
+            FaceEmoAPI.SaveMenu(launcher, menu);
+
+            string tail = remaining == 0
+                ? " Branch now has NO conditions — it matches any gesture and acts as a fallback."
+                : $" {remaining} condition(s) remain.";
+            return $"Success: Removed condition[{conditionIndex}] from branch[{branchIndex}] of '{expressionName}'."
+                 + tail + FaceEmoAPI.WindowWarning();
+        }
+
+        [AgentTool("Replace an existing gesture condition on a branch. hand: Left/Right/Either/Both/OneSide. " +
+                   "gesture: Neutral/Fist/HandOpen/Fingerpoint/Victory/RockNRoll/HandGun/ThumbsUp. " +
+                   "comparisonOperator: 'Equals' or 'NotEqual'. " +
+                   "Use InspectExpressionDetail to see the current condition indices.")]
+        public static string ModifyGestureCondition(string expressionName, int branchIndex, int conditionIndex,
+            string hand, string gesture, string comparisonOperator = "Equals", string gameObjectName = "")
+        {
+            var launcher = FaceEmoAPI.FindLauncher(gameObjectName);
+            if (launcher == null) return "Error: FaceEmo launcher not found." + FaceEmoAPI.GetLauncherHint();
+
+            var menu = FaceEmoAPI.LoadMenu(launcher);
+            if (menu == null) return "Error: Could not load FaceEmo menu from scene.";
+
+            var (modeId, mode) = FaceEmoAPI.FindExpression(menu, expressionName);
+            if (modeId == null) return $"Error: Expression '{expressionName}' not found.";
+
+            if (!FaceEmoAPI.CanModifyCondition(menu, modeId, branchIndex, conditionIndex))
+                return $"Error: Cannot modify condition[{conditionIndex}] on branch[{branchIndex}] of '{expressionName}'. "
+                     + "Index may be out of range — check InspectExpressionDetail.";
+
+            Condition cond;
+            try
+            {
+                Hand h = FaceEmoAPI.ParseHand(hand);
+                HandGesture g = FaceEmoAPI.ParseGesture(gesture);
+                ComparisonOperator op = comparisonOperator.Equals("NotEqual", StringComparison.OrdinalIgnoreCase)
+                    ? ComparisonOperator.NotEqual : ComparisonOperator.Equals;
+                cond = new Condition(h, g, op);
+            }
+            catch (ArgumentException ex)
+            {
+                return $"Error: {ex.Message}";
+            }
+
+            FaceEmoAPI.ModifyCondition(menu, modeId, branchIndex, conditionIndex, cond);
+            FaceEmoAPI.SaveMenu(launcher, menu);
+
+            string opStr = cond.ComparisonOperator == ComparisonOperator.NotEqual ? "!=" : "=";
+            return $"Success: condition[{conditionIndex}] on branch[{branchIndex}] of '{expressionName}' "
+                 + $"is now {cond.Hand}{opStr}{cond.HandGesture}.{FaceEmoAPI.WindowWarning()}";
+        }
+
+        /// <summary>指定ブランチの現在の条件数。範囲外なら -1。</summary>
+        private static int CountConditions(IMode mode, int branchIndex)
+        {
+            if (mode?.Branches == null) return -1;
+            if (branchIndex < 0 || branchIndex >= mode.Branches.Count) return -1;
+            return mode.Branches[branchIndex].Conditions?.Count ?? 0;
         }
 
         [AgentTool("Modify tracking and trigger properties of a gesture branch. eyeTracking/mouthTracking: 'Tracking' or 'Animation'. Other params: 'true' or 'false'.")]

@@ -834,6 +834,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         /// <summary>
+        /// GUID → "名前  (アセットパス)"。詳細表示用。
+        ///
+        /// FaceEmo は取り込んだクリップを <c>Imported/&lt;timestamp&gt;/</c> に<b>同名で</b>コピーするため、
+        /// 表示名は実質的に識別子にならない。複製元と複製先が同名になった状態では
+        /// 「直した方のクリップを参照できているか」が出力から判断できず、確認のためだけに
+        /// GUID → パスを引くスクリプトを書く必要があった (issue #8)。
+        /// アセットが見つからない場合は GUID を丸ごと出す (切り詰めると照合に使えない)。
+        /// </summary>
+        public static string GuidToAnimPath(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return "None";
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (string.IsNullOrEmpty(path)) return $"(missing asset, GUID:{guid})";
+            return $"{System.IO.Path.GetFileNameWithoutExtension(path)}  ({path})";
+        }
+
+        /// <summary>
         /// AnimationClip → アセット GUID。clip が null なら null を返す。
         /// </summary>
         public static string ClipToGuid(AnimationClip clip)

@@ -154,7 +154,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `TriggerDomainReload` の `mode:'recompile'` が `AssetDatabase.Refresh()` を先に呼ぶようになった（`refreshFirst`、既定 true）。前置しないと、バックグラウンドの Unity は編集を import しておらず dirty なファイルがゼロなので、`RequestScriptCompilation` は**何もコンパイルしないまま成功を返す**。`Refresh()` 自体がコンパイルを始めた場合は `RequestScriptCompilation` を呼ばず、その旨を返す。`refreshFirst=false` のときは「リフレッシュしていないので、この成功は『要求をキューに積んだ』であって『コンパイルが起きる』ではない」と戻り値に書く。この呼び出しでは結果を観測できない（コンパイルとドメインリロードが接続より長生きする）ことも明記し、`RecordAssemblyBaseline` / `CompareAssemblyBaseline` で挟むよう案内する。`mode:'reload'` は dirty なものが無くても必ず効く点も docstring に足した。
 - ブリッジに `--idle-quit` フラグを追加（既定 5 分。`0` 以下で自死を無効化）。README に全フラグの表と、再接続・キュー破棄・idle 自死・ブリッジ死亡時の再接続の挙動を追記した。UnityAgent の自動 spawn はこのフラグを渡さないので、Unity から起動したブリッジは既定の 5 分で動く。
 
+### Added
+- **FaceEmo の条件操作ツール** `RemoveGestureCondition` / `ModifyGestureCondition` (issue #8)。`AddGestureCondition` はあるのに対になる削除・変更が無く、ドメイン層 (`FaceEmoAPI.RemoveCondition` / `ModifyCondition`) には揃っているのにツールとして公開されていなかった。そのため「ダミー条件つきでブランチを足してから `RunEditorScript` でドメイン API を直接叩いて条件を消す」という回り道が必要だった。どちらも `conditionIndex` を取るので、`InspectExpressionDetail` が条件に添字を出すようにした。
+
+### Changed
+- **`AddGestureBranch` の `conditions` を省略可にした** (issue #8)。条件を 1 つも持たないブランチは「上のどのブランチにもマッチしなかったときに効くフォールバック」で、FaceEmo 本体の UI でも条件を追加しなければそうなる。にもかかわらず `conditions` が必須で `Required parameter 'conditions' cannot be empty.` になり、作れなかった。FaceEmo のドメインが条件 0 個の `AddBranch` を受け付けることは Unity 上で確認済み。成功メッセージには「どのジェスチャーにもマッチする」「FaceEmo は上から評価するので、この後に足したブランチは発火しない」ことを明記する。
+- **FaceEmo の一覧・詳細がクリップを識別できるようになった** (issue #8)。`ListFaceEmoExpressions` はクリップ名に GUID 先頭 8 桁を併記し、`InspectExpressionDetail` はアセットパスを併記する。FaceEmo は取り込んだクリップを `Imported/<timestamp>/` に**同名で**コピーするため、表示名は実質的に識別子にならず、複製元と複製先が同名になった状態では「直した方のクリップを参照できているか」が出力から判断できなかった（確認のためだけに GUID を引くスクリプトを書く必要があった）。
+
 ### Fixed
+- **`ListFaceEmoExpressions` が条件の意味を取り違えて表示していた**（issue #8 の調査中に発見）。`GetComparisonOp` が VRChat の AnimatorCondition 相当の表（0=">=", 1=">", 2="=", …）になっていたが、FaceEmo の `ComparisonOperator` は `Equals(0)` / `NotEqual(1)` の 2 値。その結果 **`Equals` が `>=`、`NotEqual` が `>` と表示され**、条件が読めないどころか逆に読める状態だった。あわせて `Hand` の表示が `hand == 0 ? "L" : "R"` だったため、`OneSide(2)` / `Either(3)` / `Both(4)` がすべて `R` になっていたのも直した（列挙の実値は Unity 上で確認）。
+- **`ListFaceEmoExpressions` が左手・右手・両手のクリップを表示していなかった**（issue #8 の調査中に発見）。実際に使われる live data 経路 (`DumpDomainBranch`) が `BaseAnimation` しか出しておらず、`SerializedObject` 経路 (`DumpBranch`) とも食い違っていたため、ハンド別クリップが設定されていても出力からは未設定と区別が付かなかった。条件を持たないブランチも `(no conditions — matches any gesture)` と明示するようにした（従来は条件欄が消えるだけで、フォールバックなのか読み取れなかった）。
 - **スキーマにない引数が MCP 経由で黙って捨てられていた** (issue #7)。引数バインドはメソッド側のパラメータを走査して JSON から引く片方向で、JSON 側に余ったキーを検査する処理が無かった。存在しない引数名を渡してもエラーにも警告にもならず、ツールは既定の自動探索にフォールバックする。**対象を選ぶ引数がこれに当たると、まったく別のオブジェクトを操作したうえで成功を返す**（`RefreshFaceEmoMainView` が別ランチャーに対して `Success: MainView refreshed` と答えた実例がある）。未知のキーがあれば結果の先頭に `Warning: <tool> ignored an unknown argument 'x' (did you mean 'y'?). Accepted: ...` を差し込むようにした。
   - **エラーにせず警告にした**のは、既存クライアントが送っている余分なキーで呼び出しが一斉に失敗するのを避けるため。なおチャット経路（XML の `<arg>` バインド）は元から未知の引数をエラーで弾いており、そちらは変えていない。
   - 警告は成功・失敗の**どちらの本文にも**前置する。無視された引数が原因でエラーになるケース（別ランチャーを見に行って「Mode not found」）こそ、この情報が要るため。結果を確定させる経路が同期・非同期コルーチン・ユーザー選択待ちの 3 つあるので、`PendingCall.SetResult` / `SetError` の側で一元化した。
