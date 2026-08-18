@@ -102,7 +102,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             // 引数バインド
             object[] typedArgs;
-            string bindError = BindArguments(method, call.Arguments, out typedArgs);
+            string argWarning;
+            string bindError = BindArguments(method, call.Arguments, out typedArgs, out argWarning);
+            if (argWarning != null)
+            {
+                // PendingCall が結果 / エラーの先頭に差し込む。ここで直接前置しないのは、
+                // 結果を確定させる箇所が同期・非同期・ユーザー選択待ちの 3 経路あるため。
+                call.ArgumentWarning = argWarning;
+                AgentLogger.Warning(LogTag.MCP, $"tool={method.Name}: {argWarning}");
+            }
             if (bindError != null)
             {
                 AgentLogger.Warning(LogTag.MCP, $"Bind error tool={method.Name}: {bindError}");
@@ -262,16 +270,30 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         // ─── Argument binding ───
 
         /// <summary>JSON object → 型変換済み引数配列。</summary>
+        /// <param name="warning">
+        /// スキーマにない引数が渡されていた場合の警告文 (無ければ null)。バインド自体は成功させ、
+        /// 結果の先頭にこれを差し込む。<b>捨てたことを黙っていてはいけない</b>のが要点で、
+        /// 実際に「別のツールでは有効な引数名を渡したが、このツールには無かったので無視され、
+        /// 既定の自動探索でまったく別のオブジェクトが操作されたのに Success が返った」という
+        /// 事故が起きている (issue #7)。エラーで返さないのは、既存のクライアントが送っている
+        /// 余分なキーで呼び出しが一斉に失敗するのを避けるため。
+        /// </param>
         /// <returns>成功時 null。失敗時はエラーメッセージ。</returns>
-        static string BindArguments(MethodInfo method, JNode args, out object[] typedArgs)
+        static string BindArguments(MethodInfo method, JNode args, out object[] typedArgs, out string warning)
         {
             var parameters = method.GetParameters();
             typedArgs = new object[parameters.Length];
 
+            // 未知キーの検出はバインドより先に行う。必須引数の欠落で早期 return する場合でも
+            // 警告は返したい — 「name が必須」と「gameObjectName は無視した」は同時に起きる
+            // (issue #7 の GetHierarchyTree がまさにこれ)。
+            warning = BuildUnknownArgumentWarning(method, parameters, args);
+
             for (int i = 0; i < parameters.Length; i++)
             {
                 var p = parameters[i];
-                JNode raw = args.Has(p.Name) ? args[p.Name] : JNode.NullNode;
+                string key = ResolveArgKey(args, p.Name);
+                JNode raw = key != null ? args[key] : JNode.NullNode;
 
                 if (raw.IsNull)
                 {
@@ -303,6 +325,96 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 typedArgs[i] = converted;
             }
 
+            return null;
+        }
+
+        /// <summary>
+        /// 引数キーに対応する JSON のキー名を返す (無ければ null)。完全一致を優先し、
+        /// 無ければ大文字小文字を無視して<b>一意に決まる場合だけ</b>採用する。
+        ///
+        /// MCP 側の JSON オブジェクトは序数比較の Dictionary なので、以前は綴りが同じでも
+        /// 大小が違うだけで「渡していない」扱いになり、既定値のまま黙って実行されていた。
+        /// チャット経路 (<c>UnityAgentCore</c> の XML <c>&lt;arg&gt;</c> バインド) は元から
+        /// 大文字小文字を無視するので、経路によって通ったり通らなかったりしていた。
+        /// 複数候補があるときに勝手に選ばないのは、どちらを使ったか呼び出し側に見えないため。
+        /// </summary>
+        static string ResolveArgKey(JNode args, string paramName)
+        {
+            if (args == null || paramName == null) return null;
+            if (args.Has(paramName)) return paramName;
+
+            string found = null;
+            foreach (var key in args.Keys)
+            {
+                if (!string.Equals(key, paramName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (found != null) return null;   // 大小違いが複数 — 曖昧なので採用しない
+                found = key;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// どのパラメータにも対応しない引数キーを集めて警告文を作る (無ければ null)。
+        /// </summary>
+        static string BuildUnknownArgumentWarning(MethodInfo method, ParameterInfo[] parameters, JNode args)
+        {
+            if (args == null || args.Type != JNode.JType.Object) return null;
+
+            var unknown = new List<string>();
+            foreach (var key in args.Keys)
+            {
+                bool known = false;
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    if (string.Equals(parameters[i].Name, key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        known = true;
+                        break;
+                    }
+                }
+                if (!known) unknown.Add(key);
+            }
+            if (unknown.Count == 0) return null;
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("Warning: ").Append(method.Name).Append(" ignored ");
+            sb.Append(unknown.Count == 1 ? "an unknown argument " : "unknown arguments ");
+            for (int i = 0; i < unknown.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append('\'').Append(unknown[i]).Append('\'');
+                string hint = SuggestParameter(parameters, unknown[i]);
+                if (hint != null) sb.Append(" (did you mean '").Append(hint).Append("'?)");
+            }
+            sb.Append('.');
+
+            sb.Append(parameters.Length == 0
+                ? " This tool takes no arguments."
+                : " Accepted: " + string.Join(", ", parameters.Select(p => p.Name)) + ".");
+
+            // 「無視された」だけでは足りない。無視されたのが対象を選ぶ引数だった場合、
+            // ツールは既定の探索にフォールバックして別のオブジェクトを操作し、しかも成功を返す。
+            // 成功・失敗のどちらの本文にも前置されるので、「下の結果」のような書き方はしない。
+            sb.Append(" Unknown arguments are dropped, so the tool used its default instead —"
+                      + " if that argument was selecting the target, this call may have acted"
+                      + " on a different object than you intended.");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 未知の引数名に近いパラメータ名を 1 つ返す (無ければ null)。大文字小文字違いは
+        /// <see cref="ResolveArgKey"/> が吸収済みなので、ここでは部分一致だけを見る。
+        /// </summary>
+        static string SuggestParameter(ParameterInfo[] parameters, string unknownKey)
+        {
+            if (string.IsNullOrEmpty(unknownKey)) return null;
+            foreach (var p in parameters)
+            {
+                if (p.Name == null) continue;
+                if (p.Name.IndexOf(unknownKey, StringComparison.OrdinalIgnoreCase) >= 0
+                    || unknownKey.IndexOf(p.Name, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return p.Name;
+            }
             return null;
         }
 

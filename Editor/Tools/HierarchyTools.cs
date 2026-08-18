@@ -61,14 +61,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Get a hierarchy tree view of a GameObject with indentation. maxDepth limits recursion (default 3).")]
-        public static string GetHierarchyTree(string name, int maxDepth = 3)
+        [AgentTool("Get a hierarchy tree view of a GameObject with indentation. " +
+                   "gameObjectName: the GameObject to start from ('name' is accepted as a legacy alias). " +
+                   "maxDepth limits recursion (default 3).")]
+        // gameObjectName を後ろに足しているのは、位置引数で呼ぶ既存の書き方
+        // (GetHierarchyTree[Foo, 2]) を壊さないため。GameObject を対象に取るツールは
+        // ほぼ全て gameObjectName なのに、このツールだけ name だった (issue #7)。
+        // どちらでも通るようにし、name は互換のために残す。
+        public static string GetHierarchyTree(string name = "", int maxDepth = 3, string gameObjectName = "")
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found. Use FindObjectsByName to search.";
+            string target = !string.IsNullOrEmpty(name) ? name : gameObjectName;
+            if (string.IsNullOrEmpty(target))
+                return "Error: GameObject name is required. Pass 'gameObjectName' (or the legacy alias 'name').";
+
+            var go = FindGO(target);
+            if (go == null) return $"Error: GameObject '{target}' not found. Use FindObjectsByName to search.";
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Hierarchy tree for '{name}' (maxDepth={maxDepth}):");
+            sb.AppendLine($"Hierarchy tree for '{target}' (maxDepth={maxDepth}):");
             BuildTree(sb, go.transform, 0, maxDepth);
 
             return sb.ToString().TrimEnd();

@@ -1206,10 +1206,29 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             _statsSw.Start();
         }
 
+        /// <summary>
+        /// スキーマにない引数が渡されていた場合の警告文 (<see cref="Invoker"/> が設定)。
+        /// <see cref="SetResult"/> / <see cref="SetError"/> が本文の先頭に差し込む。
+        ///
+        /// 結果を確定させる経路が同期・非同期コルーチン・ユーザー選択待ちの 3 つあり、
+        /// どこを通っても必ず付くようにここで一元化している。エラー側にも付けるのは、
+        /// 無視された引数が原因でエラーになるケース (別ランチャーを見に行って
+        /// 「Mode not found」) こそ、この情報が要るため。
+        /// </summary>
+        public string ArgumentWarning { get; set; }
+
+        /// <summary>警告があれば本文の先頭に差し込む。</summary>
+        string WithArgumentWarning(string body)
+        {
+            if (string.IsNullOrEmpty(ArgumentWarning)) return body ?? "";
+            return ArgumentWarning + "\n\n" + (body ?? "");
+        }
+
         public void SetResult(string text)
         {
-            RecordStats(text?.Length ?? 0, false);
-            ResultText = text ?? "";
+            string body = WithArgumentWarning(text);
+            RecordStats(body.Length, false);
+            ResultText = body;
             AgentMCPServer.RaiseCallFinish(ToolName, ResultText, false);
             _done.Set();
             try { OnComplete?.Invoke(this); } catch { }
@@ -1229,7 +1248,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public void SetError(string message, string data = null, int code = -32000)
         {
             RecordStats(0, true);
-            Error = message ?? "Unknown error";
+            Error = WithArgumentWarning(message ?? "Unknown error");
             ErrorData = data ?? "";
             ErrorCode = code;
             AgentMCPServer.RaiseCallFinish(ToolName, Error, true);
