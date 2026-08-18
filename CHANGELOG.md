@@ -155,9 +155,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - ブリッジに `--idle-quit` フラグを追加（既定 5 分。`0` 以下で自死を無効化）。README に全フラグの表と、再接続・キュー破棄・idle 自死・ブリッジ死亡時の再接続の挙動を追記した。UnityAgent の自動 spawn はこのフラグを渡さないので、Unity から起動したブリッジは既定の 5 分で動く。
 
 ### Added
+- **ランチャーをまたいだ Mode の複製** `CopyFaceEmoMode` (issue #8)。ブランチ・条件・視線/口/まばたき/マウスモーフキャンセラー/トリガーの設定をまとめて宛先のランチャーへ移す。「頭部を別アバターへ移植して表情一式を持っていく」「衣装違いの派生アバターを作る」ときに、15 ブランチの Mode を `SetExpressionAnimation` ×16 と `ModifyBranchProperties` ×14 で組み直す必要が無くなる。既存の `CopyExpression` が使う `Menu.CopyMode` は<b>同一メニュー内</b>の複製しかできず、ランチャーが違えば Menu インスタンスも別なので使えなかった。
+  - `clipRemap` はクリップの差し替え表 (`旧->新;旧2->新2`、左辺はパスでもクリップ名でも可) か、フォルダパスを 1 つ。フォルダ指定なら元クリップと同名のものをその中から探す。**差し替え先が見つからなかったクリップは元のまま残り、警告として名指しで列挙する** — 移植元アバターのクリップを指したままの Mode は、見た目は正しく作られたのに何も起きないので、件数だけでなくどのスロットかまで出す。
+  - `dryRun` で書き込まずに計画だけ出せる (Mode の作成・ブランチの複製・差し替え解決まで実際に走らせ、`SaveMenu` だけ行わない)。
+- **アニメーションスロットの一括設定** `SetExpressionAnimations` (issue #8)。`Mode=パス` と `ブランチ番号:スロット=パス` を `;` 区切りで並べて 1 回で設定する。**全件を検証してから書く**ので、最後の 1 件の綴り間違いで Mode が半端に設定された状態で残ることがない。
 - **FaceEmo の条件操作ツール** `RemoveGestureCondition` / `ModifyGestureCondition` (issue #8)。`AddGestureCondition` はあるのに対になる削除・変更が無く、ドメイン層 (`FaceEmoAPI.RemoveCondition` / `ModifyCondition`) には揃っているのにツールとして公開されていなかった。そのため「ダミー条件つきでブランチを足してから `RunEditorScript` でドメイン API を直接叩いて条件を消す」という回り道が必要だった。どちらも `conditionIndex` を取るので、`InspectExpressionDetail` が条件に添字を出すようにした。
 
 ### Changed
+- **`ModifyBranchProperties` が複数ブランチをまとめて処理できるようにした** (issue #8)。`branchIndices` に `all` / `0-13` / `0,2,4` / `0-6,9` を渡せる（指定時は `branchIndex` より優先）。同じ設定の繰り返しでブランチ数だけ呼び出す必要が無くなる。適用前に全対象を検証するので、途中で失敗して一部のブランチだけ設定が変わることはない。
 - **`AddGestureBranch` の `conditions` を省略可にした** (issue #8)。条件を 1 つも持たないブランチは「上のどのブランチにもマッチしなかったときに効くフォールバック」で、FaceEmo 本体の UI でも条件を追加しなければそうなる。にもかかわらず `conditions` が必須で `Required parameter 'conditions' cannot be empty.` になり、作れなかった。FaceEmo のドメインが条件 0 個の `AddBranch` を受け付けることは Unity 上で確認済み。成功メッセージには「どのジェスチャーにもマッチする」「FaceEmo は上から評価するので、この後に足したブランチは発火しない」ことを明記する。
 - **FaceEmo の一覧・詳細がクリップを識別できるようになった** (issue #8)。`ListFaceEmoExpressions` はクリップ名に GUID 先頭 8 桁を併記し、`InspectExpressionDetail` はアセットパスを併記する。FaceEmo は取り込んだクリップを `Imported/<timestamp>/` に**同名で**コピーするため、表示名は実質的に識別子にならず、複製元と複製先が同名になった状態では「直した方のクリップを参照できているか」が出力から判断できなかった（確認のためだけに GUID を引くスクリプトを書く必要があった）。
 

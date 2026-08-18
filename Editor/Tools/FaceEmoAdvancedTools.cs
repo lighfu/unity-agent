@@ -406,6 +406,99 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return $"Success: Added condition {hand}{(comparisonOperator == "NotEqual" ? "!=" : "=")}{gesture} to '{expressionName}' branch[{branchIndex}].{FaceEmoAPI.WindowWarning()}";
         }
 
+        [AgentTool("Set several FaceEmo animation slots in one call. " +
+                   "assignments: ';'-separated entries, each 'branch:slot=assetPath' or 'Mode=assetPath'. " +
+                   "slot: Base/Left/Right/Both. Example: " +
+                   "'Mode=Assets/a.anim;0:Base=Assets/b.anim;0:Right=Assets/c.anim;1:Base=Assets/d.anim'. " +
+                   "Every entry is validated (branch range, slot name, clip existence) BEFORE anything is written, " +
+                   "so a typo in the last entry does not leave the Mode half-assigned. " +
+                   "Use this instead of calling SetExpressionAnimation once per branch.")]
+        public static string SetExpressionAnimations(string expressionName, string assignments,
+            string gameObjectName = "")
+        {
+            var launcher = FaceEmoAPI.FindLauncher(gameObjectName);
+            if (launcher == null) return "Error: FaceEmo launcher not found." + FaceEmoAPI.GetLauncherHint();
+
+            var menu = FaceEmoAPI.LoadMenu(launcher);
+            if (menu == null) return "Error: Could not load FaceEmo menu from scene.";
+
+            var (modeId, mode) = FaceEmoAPI.FindExpression(menu, expressionName);
+            if (modeId == null) return $"Error: Expression '{expressionName}' not found.";
+
+            int branchCount = mode.Branches?.Count ?? 0;
+
+            // ── 先に全件を検証してから 1 件も書かない / 全件書く ──
+            // 途中で失敗すると「どこまで通ったか」が呼び出し側から分からず、
+            // 半端に設定された Mode が残る。まとめて渡す意味が無くなるので必ず前検証する。
+            var planned = new List<(int branch, BranchAnimationType? slot, string path, string guid)>();
+            var entries = assignments == null ? new string[0] : assignments.Split(';');
+
+            foreach (string rawEntry in entries)
+            {
+                string entry = rawEntry.Trim();
+                if (entry.Length == 0) continue;
+
+                int eq = entry.IndexOf('=');
+                if (eq <= 0)
+                    return $"Error: bad assignment '{entry}'. Expected 'branch:slot=assetPath' or 'Mode=assetPath'.";
+
+                string target = entry.Substring(0, eq).Trim();
+                string path = entry.Substring(eq + 1).Trim();
+
+                string guid = AssetDatabase.AssetPathToGUID(path);
+                if (string.IsNullOrEmpty(guid))
+                    return $"Error: no asset at '{path}' (from '{entry}'). Nothing was written.";
+
+                if (target.Equals("Mode", StringComparison.OrdinalIgnoreCase))
+                {
+                    planned.Add((-1, null, path, guid));
+                    continue;
+                }
+
+                int colon = target.IndexOf(':');
+                if (colon <= 0)
+                    return $"Error: bad target '{target}' in '{entry}'. Expected 'branchIndex:slot' or 'Mode'.";
+
+                if (!int.TryParse(target.Substring(0, colon).Trim(), out int bi))
+                    return $"Error: '{target.Substring(0, colon)}' in '{entry}' is not a branch index.";
+                if (bi < 0 || bi >= branchCount)
+                    return $"Error: branch index {bi} in '{entry}' is out of range — "
+                         + $"'{expressionName}' has {branchCount} branch(es). Nothing was written.";
+
+                string slotStr = target.Substring(colon + 1).Trim();
+                var slot = FaceEmoAPI.ParseBranchSlot(slotStr);
+                if (slot == null)
+                    return $"Error: unknown slot '{slotStr}' in '{entry}'. Use Base, Left, Right or Both.";
+
+                planned.Add((bi, slot, path, guid));
+            }
+
+            if (planned.Count == 0)
+                return "Error: assignments contained no usable entries. "
+                     + "Expected 'branch:slot=assetPath' entries separated by ';'.";
+
+            // ── 適用 ──
+            var sb = new StringBuilder();
+            foreach (var p in planned)
+            {
+                var anim = new FaceEmoAnimation(p.guid);
+                if (p.slot == null)
+                {
+                    FaceEmoAPI.SetModeAnimation(menu, anim, modeId);
+                    sb.AppendLine($"  Mode = {System.IO.Path.GetFileNameWithoutExtension(p.path)}");
+                }
+                else
+                {
+                    FaceEmoAPI.SetBranchAnimation(menu, modeId, p.branch, p.slot.Value, anim);
+                    sb.AppendLine($"  Branch[{p.branch}].{p.slot.Value} = {System.IO.Path.GetFileNameWithoutExtension(p.path)}");
+                }
+            }
+
+            FaceEmoAPI.SaveMenu(launcher, menu);
+            return $"Success: set {planned.Count} animation slot(s) on '{expressionName}'.\n"
+                 + sb.ToString().TrimEnd() + FaceEmoAPI.WindowWarning();
+        }
+
         [AgentTool("Remove a gesture condition from a branch by index. " +
                    "Removing every condition turns the branch into a fallback that matches any gesture " +
                    "(FaceEmo evaluates branches top-down, so it shadows every branch after it). " +
@@ -487,11 +580,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return mode.Branches[branchIndex].Conditions?.Count ?? 0;
         }
 
-        [AgentTool("Modify tracking and trigger properties of a gesture branch. eyeTracking/mouthTracking: 'Tracking' or 'Animation'. Other params: 'true' or 'false'.")]
+        [AgentTool("Modify tracking and trigger properties of gesture branches. " +
+                   "eyeTracking/mouthTracking: 'Tracking' or 'Animation'. Other params: 'true' or 'false'. " +
+                   "branchIndices applies the same settings to several branches in one call: " +
+                   "'all', a range like '0-13', a list like '0,2,4', or a mix like '0-6,9'. " +
+                   "When branchIndices is given it replaces branchIndex. " +
+                   "Building a 15-branch Mode otherwise needs one call per branch with identical settings.")]
         public static string ModifyBranchProperties(string expressionName, int branchIndex,
             string eyeTracking = "", string mouthTracking = "", string blinkEnabled = "",
             string mouthMorphCancelerEnabled = "", string isLeftTriggerUsed = "",
-            string isRightTriggerUsed = "", string gameObjectName = "")
+            string isRightTriggerUsed = "", string gameObjectName = "", string branchIndices = "")
         {
             var launcher = FaceEmoAPI.FindLauncher(gameObjectName);
             if (launcher == null) return "Error: FaceEmo launcher not found." + FaceEmoAPI.GetLauncherHint();
@@ -502,8 +600,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var (modeId, mode) = FaceEmoAPI.FindExpression(menu, expressionName);
             if (modeId == null) return $"Error: Expression '{expressionName}' not found.";
 
-            if (!FaceEmoAPI.CanModifyBranchProperties(menu, modeId, branchIndex))
-                return $"Error: Cannot modify branch[{branchIndex}] of '{expressionName}'.";
+            int branchCount = mode.Branches?.Count ?? 0;
+            List<int> targets;
+            if (!string.IsNullOrWhiteSpace(branchIndices))
+            {
+                string selErr = ParseBranchSelector(branchIndices, branchCount, out targets);
+                if (selErr != null) return selErr;
+            }
+            else
+            {
+                targets = new List<int> { branchIndex };
+            }
+
+            // 適用前に全対象を検証する。途中で失敗すると一部のブランチだけ設定が変わり、
+            // 呼び出し側からはどこまで通ったか分からない。
+            foreach (int t in targets)
+            {
+                if (!FaceEmoAPI.CanModifyBranchProperties(menu, modeId, t))
+                    return $"Error: Cannot modify branch[{t}] of '{expressionName}' "
+                         + $"(the Mode has {branchCount} branch(es)). Nothing was written.";
+            }
 
             EyeTrackingControl? eye = null;
             if (!string.IsNullOrEmpty(eyeTracking))
@@ -520,16 +636,79 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (!TryParseOptionalBool(isLeftTriggerUsed, nameof(isLeftTriggerUsed), out bool? leftTrigger, out string leftErr)) return leftErr;
             if (!TryParseOptionalBool(isRightTriggerUsed, nameof(isRightTriggerUsed), out bool? rightTrigger, out string rightErr)) return rightErr;
 
-            FaceEmoAPI.ModifyBranchProperties(menu, modeId, branchIndex,
-                eyeTrackingControl: eye,
-                mouthTrackingControl: mouth,
-                blinkEnabled: blink,
-                mouthMorphCancelerEnabled: mouthCancel,
-                isLeftTriggerUsed: leftTrigger,
-                isRightTriggerUsed: rightTrigger);
+            foreach (int t in targets)
+            {
+                FaceEmoAPI.ModifyBranchProperties(menu, modeId, t,
+                    eyeTrackingControl: eye,
+                    mouthTrackingControl: mouth,
+                    blinkEnabled: blink,
+                    mouthMorphCancelerEnabled: mouthCancel,
+                    isLeftTriggerUsed: leftTrigger,
+                    isRightTriggerUsed: rightTrigger);
+            }
 
             FaceEmoAPI.SaveMenu(launcher, menu);
-            return $"Success: Modified branch[{branchIndex}] properties on '{expressionName}'.{FaceEmoAPI.WindowWarning()}";
+            string which = targets.Count == 1
+                ? $"branch[{targets[0]}]"
+                : $"{targets.Count} branches ({string.Join(", ", targets)})";
+            return $"Success: Modified {which} properties on '{expressionName}'.{FaceEmoAPI.WindowWarning()}";
+        }
+
+        /// <summary>
+        /// ブランチ選択子を解釈する。'all' / '0-13' / '0,2,4' / '0-6,9' を受け付ける。
+        /// 戻り値はエラーメッセージ (成功なら null)。重複は取り除き、昇順に並べる。
+        /// </summary>
+        private static string ParseBranchSelector(string selector, int branchCount, out List<int> result)
+        {
+            result = new List<int>();
+            if (branchCount <= 0)
+                return "Error: the expression has no branches to modify.";
+
+            string s = selector.Trim();
+            if (s.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                for (int i = 0; i < branchCount; i++) result.Add(i);
+                return null;
+            }
+
+            var seen = new HashSet<int>();
+            foreach (string rawPart in s.Split(','))
+            {
+                string part = rawPart.Trim();
+                if (part.Length == 0) continue;
+
+                int dash = part.IndexOf('-');
+                if (dash > 0)
+                {
+                    if (!int.TryParse(part.Substring(0, dash).Trim(), out int from)
+                        || !int.TryParse(part.Substring(dash + 1).Trim(), out int to))
+                        return $"Error: bad range '{part}' in branchIndices. Expected 'from-to', e.g. '0-13'.";
+                    if (from > to)
+                        return $"Error: range '{part}' in branchIndices counts down. Write it as '{to}-{from}'.";
+                    for (int i = from; i <= to; i++)
+                    {
+                        if (i < 0 || i >= branchCount)
+                            return $"Error: branch index {i} (from '{part}') is out of range — "
+                                 + $"the expression has {branchCount} branch(es).";
+                        if (seen.Add(i)) result.Add(i);
+                    }
+                    continue;
+                }
+
+                if (!int.TryParse(part, out int single))
+                    return $"Error: '{part}' in branchIndices is not a branch index. "
+                         + "Use 'all', '0-13', '0,2,4' or a mix like '0-6,9'.";
+                if (single < 0 || single >= branchCount)
+                    return $"Error: branch index {single} is out of range — "
+                         + $"the expression has {branchCount} branch(es).";
+                if (seen.Add(single)) result.Add(single);
+            }
+
+            if (result.Count == 0)
+                return "Error: branchIndices selected no branches.";
+
+            result.Sort();
+            return null;
         }
 
         // ═══════════════════════════════════════════
