@@ -466,22 +466,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 while (i < json.Length)
                 {
                     char c = json[i];
-                    if (c == '\\' && i + 1 < json.Length)
+                    if (c == '\\')
                     {
-                        char next = json[i + 1];
-                        switch (next)
-                        {
-                            case '"':  sb.Append('"');  break;
-                            case '\\': sb.Append('\\'); break;
-                            case '/':  sb.Append('/');  break;
-                            case 'n':  sb.Append('\n'); break;
-                            case 'r':  sb.Append('\r'); break;
-                            case 't':  sb.Append('\t'); break;
-                            case 'b':  sb.Append('\b'); break;
-                            case 'f':  sb.Append('\f'); break;
-                            default:   sb.Append('\\'); sb.Append(next); break;
-                        }
-                        i += 2;
+                        i = JsonStringUnescape.AppendEscape(json, i, sb);
                     }
                     else if (c == '"')
                     {
