@@ -268,6 +268,352 @@ can reach. Same risk tier as RunEditorScript.",
             }
         }
 
+        [AgentTool(@"List the members of a type — the half of reflection that InvokeMember does not cover.
+
+InvokeMember needs a member NAME and a matching argument list before it can do anything. This is where
+those come from. Reach for it the moment a reflection call fails with 'Ambiguous match found' or
+'cannot be converted to type X': both mean there are overloads you cannot see.
+
+typeName: full name ('UnityEditor.SceneView') or a plain class name searched across loaded assemblies —
+  the same resolution InvokeMember uses, so a name that works here works there.
+memberFilter: '' or 'all' (default) | 'methods' | 'properties' | 'fields' | 'events'.
+nameContains: case-insensitive substring filter on the member name. A type like GameObject runs to
+  hundreds of members, so filter before reading.
+maxMembers: cap on printed members (default 150). Truncation is always stated, never silent.
+
+WHAT YOU GET: full name, assembly, kind, the base chain, and every member grouped by the type that
+DECLARED it, with visibility, static-ness, return type, and parameter types AND names.
+
+ALL OVERLOADS ARE LISTED, and when a name has more than one, its parameter types are printed as FULL
+names. That is the case this tool exists for: two overloads that both read 'Foo(Material m)' in short
+form, where one takes UnityEngine.Material and the other a same-named type from another namespace, are
+indistinguishable until the full name is shown.
+
+Searches Instance|Static|Public|NonPublic at every level of the inheritance chain, exactly like
+InvokeMember — so a member listed here is a member InvokeMember can reach. Property and event accessors
+(get_/set_/add_/remove_) are folded into their property or event instead of being listed as methods.
+Constructors are not listed: InvokeMember cannot call them. The walk stops short of System.Object and
+System.ValueType, whose members (ToString, Equals, GetHashCode, GetType) sit on every type and would pad
+every listing — InvokeMember can still call those, they are simply not repeated here.
+
+For an enum, the members ARE the values, so they are printed as 'name = value' ready to paste into
+InvokeMember's enum:Full.Type.Value argument form.
+
+Note for lookups by name: InvokeMember resolves a name as property, then field, then method. If this
+listing shows the same name as more than one kind, that is the order it will be taken in.",
+            Risk = ToolRisk.Safe)]
+        public static string DescribeType(string typeName, string memberFilter = "",
+                                          string nameContains = "", int maxMembers = 150)
+        {
+            if (string.IsNullOrWhiteSpace(typeName)) return "Error: typeName is required.";
+            if (maxMembers <= 0) return $"Error: maxMembers must be positive (got {maxMembers}).";
+
+            string filter = (memberFilter ?? "").Trim().ToLowerInvariant();
+            if (filter.Length == 0) filter = "all";
+            if (filter != "all" && filter != "methods" && filter != "properties"
+                && filter != "fields" && filter != "events")
+                return $"Error: unknown memberFilter '{memberFilter}'. " +
+                       "Use '' or 'all' | 'methods' | 'properties' | 'fields' | 'events'.";
+
+            if (!TryResolveType(typeName, out Type type, out string typeErr)) return typeErr;
+
+            string needle = (nameContains ?? "").Trim();
+            var entries = CollectTypeMembers(type, filter, needle);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"=== {type.FullName} ===");
+            sb.AppendLine($"assembly   : {SafeAssemblyName(type)}");
+            sb.AppendLine($"kind       : {DescribeTypeKind(type)}");
+            sb.AppendLine($"base chain : {string.Join(" -> ", BaseChain(type))}");
+
+            if (type.IsEnum)
+            {
+                AppendEnumValues(sb, type, needle, maxMembers);
+                return sb.ToString().TrimEnd();
+            }
+
+            string scope = filter == "all" ? "" : $", memberFilter='{filter}'";
+            string filtered = needle.Length > 0 ? $", nameContains='{needle}'" : "";
+            int shown = Mathf.Min(entries.Count, maxMembers);
+            sb.AppendLine($"members    : {entries.Count} matched{scope}{filtered}, showing {shown}");
+
+            if (entries.Count == 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine(needle.Length > 0
+                    ? $"No member of {type.Name} matches '{needle}'. Drop nameContains to see everything."
+                    : $"{type.Name} exposes no member of that kind.");
+                return sb.ToString().TrimEnd();
+            }
+
+            // A short parameter type name is only a problem when two overloads collide under it, so pay
+            // the width cost of full names exactly where it buys disambiguation.
+            var overloaded = new HashSet<string>(
+                entries.GroupBy(e => e.Name, StringComparer.Ordinal)
+                       .Where(g => g.Count() > 1)
+                       .Select(g => g.Key),
+                StringComparer.Ordinal);
+
+            string currentOwner = null;
+            for (int i = 0; i < shown; i++)
+            {
+                var entry = entries[i];
+                if (entry.Owner != currentOwner)
+                {
+                    currentOwner = entry.Owner;
+                    sb.AppendLine();
+                    sb.AppendLine($"--- declared on {currentOwner} ---");
+                }
+                sb.AppendLine("  " + entry.Render(overloaded.Contains(entry.Name)));
+            }
+
+            if (entries.Count > shown)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"... {entries.Count - shown} more member(s) not shown. Narrow with " +
+                              "nameContains, or raise maxMembers.");
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        // ── type description helpers ─────────────────────────────────────────
+
+        /// <summary>One listed member, kept in a form that can be rendered short or fully qualified.</summary>
+        private sealed class MemberEntry
+        {
+            public string Owner;
+            public string Kind;
+            public string Name;
+            public string Modifiers;
+            public Func<bool, string> Signature;
+
+            public string Render(bool useFullTypeNames) =>
+                $"[{Kind}]".PadRight(12) + Modifiers.PadRight(24) + Signature(useFullTypeNames);
+        }
+
+        /// <summary>
+        /// Walks the inheritance chain and collects the members of each level separately. NonPublic does
+        /// not cross the chain and FlattenHierarchy only surfaces statics, so a per-level walk is the only
+        /// way a private instance member of a base class shows up — the same walk InvokeMember does.
+        /// </summary>
+        private static List<MemberEntry> CollectTypeMembers(Type type, string filter, string nameContains)
+        {
+            var entries = new List<MemberEntry>();
+            bool Wanted(string name) =>
+                nameContains.Length == 0 ||
+                name.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0;
+
+            // Stops short of System.Object / System.ValueType. Their members (ToString, GetHashCode,
+            // Equals, GetType) are on literally every type and would pad every single listing; they are
+            // still reachable through InvokeMember, which is why the docstring says so out loud.
+            for (var t = type; t != null && t != typeof(object) && t != typeof(ValueType); t = t.BaseType)
+            {
+                string owner = t.FullName ?? t.Name;
+                var level = new List<MemberEntry>();
+
+                if (filter == "all" || filter == "properties")
+                {
+                    foreach (var p in t.GetProperties(DeclaredFlags))
+                    {
+                        if (!Wanted(p.Name)) continue;
+                        var accessor = p.GetMethod ?? p.SetMethod;
+                        string access = (p.CanRead ? "get" : "") + (p.CanWrite ? (p.CanRead ? "/set" : "set") : "");
+                        var captured = p;
+                        level.Add(new MemberEntry
+                        {
+                            Owner = owner,
+                            Kind = "property",
+                            Name = p.Name,
+                            Modifiers = $"{Visibility(accessor)}{(accessor != null && accessor.IsStatic ? " static" : "")} [{access}]",
+                            Signature = full => $"{TypeLabel(captured.PropertyType, full)} {captured.Name}",
+                        });
+                    }
+                }
+
+                if (filter == "all" || filter == "fields")
+                {
+                    foreach (var f in t.GetFields(DeclaredFlags))
+                    {
+                        if (!Wanted(f.Name)) continue;
+                        var captured = f;
+                        string extra = f.IsLiteral ? " const" : (f.IsInitOnly ? " readonly" : (f.IsStatic ? " static" : ""));
+                        level.Add(new MemberEntry
+                        {
+                            Owner = owner,
+                            Kind = "field",
+                            Name = f.Name,
+                            Modifiers = Visibility(f) + extra,
+                            Signature = full => $"{TypeLabel(captured.FieldType, full)} {captured.Name}",
+                        });
+                    }
+                }
+
+                if (filter == "all" || filter == "events")
+                {
+                    foreach (var e in t.GetEvents(DeclaredFlags))
+                    {
+                        if (!Wanted(e.Name)) continue;
+                        var captured = e;
+                        var adder = e.AddMethod;
+                        level.Add(new MemberEntry
+                        {
+                            Owner = owner,
+                            Kind = "event",
+                            Name = e.Name,
+                            Modifiers = $"{Visibility(adder)}{(adder != null && adder.IsStatic ? " static" : "")}",
+                            Signature = full => $"{TypeLabel(captured.EventHandlerType, full)} {captured.Name}",
+                        });
+                    }
+                }
+
+                if (filter == "all" || filter == "methods")
+                {
+                    foreach (var m in t.GetMethods(DeclaredFlags))
+                    {
+                        if (IsAccessor(m)) continue;
+                        if (!Wanted(m.Name)) continue;
+                        var captured = m;
+                        level.Add(new MemberEntry
+                        {
+                            Owner = owner,
+                            Kind = "method",
+                            Name = m.Name,
+                            Modifiers = Visibility(m) + (m.IsStatic ? " static" : "") + (m.IsAbstract ? " abstract" : ""),
+                            Signature = full =>
+                                $"{TypeLabel(captured.ReturnType, full)} {captured.Name}(" +
+                                string.Join(", ", captured.GetParameters().Select(p => ParameterLabel(p, full))) + ")",
+                        });
+                    }
+                }
+
+                entries.AddRange(level.OrderBy(e => e.Kind, StringComparer.Ordinal)
+                                      .ThenBy(e => e.Name, StringComparer.Ordinal));
+            }
+            return entries;
+        }
+
+        /// <summary>get_/set_/add_/remove_ belong to their property or event, not to the method list.
+        /// Operators keep their IsSpecialName flag but are real call targets, so they stay.</summary>
+        private static bool IsAccessor(MethodInfo m) =>
+            m.IsSpecialName &&
+            (m.Name.StartsWith("get_", StringComparison.Ordinal) ||
+             m.Name.StartsWith("set_", StringComparison.Ordinal) ||
+             m.Name.StartsWith("add_", StringComparison.Ordinal) ||
+             m.Name.StartsWith("remove_", StringComparison.Ordinal));
+
+        private static void AppendEnumValues(StringBuilder sb, Type type, string nameContains, int maxMembers)
+        {
+            string underlying = TypeLabel(Enum.GetUnderlyingType(type), false);
+            var names = Enum.GetNames(type)
+                            .Where(n => nameContains.Length == 0 ||
+                                        n.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0)
+                            .ToList();
+            sb.AppendLine($"underlying : {underlying}{(type.IsDefined(typeof(FlagsAttribute), false) ? " [Flags]" : "")}");
+            sb.AppendLine($"values     : {names.Count} matched, showing {Mathf.Min(names.Count, maxMembers)}");
+            sb.AppendLine();
+            foreach (string name in names.Take(maxMembers))
+            {
+                object value = Enum.Parse(type, name);
+                sb.AppendLine($"  {name} = {Convert.ChangeType(value, Enum.GetUnderlyingType(type), CultureInfo.InvariantCulture)}" +
+                              $"   (enum:{type.FullName}.{name})");
+            }
+            if (names.Count > maxMembers)
+                sb.AppendLine($"  ... {names.Count - maxMembers} more value(s) not shown.");
+        }
+
+        private static string SafeAssemblyName(Type type)
+        {
+            try { return type.Assembly.GetName().Name; }
+            catch (Exception ex) { return $"unknown ({ex.Message})"; }
+        }
+
+        private static string DescribeTypeKind(Type type)
+        {
+            if (type.IsEnum) return "enum";
+            if (type.IsInterface) return "interface";
+            if (type.IsValueType) return "struct";
+            string modifiers = type.IsAbstract && type.IsSealed ? " (static)"
+                             : type.IsAbstract ? " (abstract)"
+                             : type.IsSealed ? " (sealed)"
+                             : "";
+            return "class" + modifiers;
+        }
+
+        private static List<string> BaseChain(Type type)
+        {
+            var chain = new List<string>();
+            for (var t = type; t != null; t = t.BaseType)
+            {
+                chain.Add(t.Name);
+                if (chain.Count > 12) { chain.Add("..."); break; }
+            }
+            return chain;
+        }
+
+        private static readonly Dictionary<Type, string> PrimitiveTypeNames = new Dictionary<Type, string>
+        {
+            { typeof(void), "void" },     { typeof(bool), "bool" },     { typeof(byte), "byte" },
+            { typeof(sbyte), "sbyte" },   { typeof(char), "char" },     { typeof(decimal), "decimal" },
+            { typeof(double), "double" }, { typeof(float), "float" },   { typeof(int), "int" },
+            { typeof(uint), "uint" },     { typeof(long), "long" },     { typeof(ulong), "ulong" },
+            { typeof(short), "short" },   { typeof(ushort), "ushort" }, { typeof(object), "object" },
+            { typeof(string), "string" },
+        };
+
+        /// <summary>
+        /// Renders a type for a signature line. <paramref name="full"/> switches between the readable
+        /// short name and the fully qualified one that tells two same-named types apart.
+        /// </summary>
+        private static string TypeLabel(Type t, bool full)
+        {
+            if (t == null) return "?";
+            if (PrimitiveTypeNames.TryGetValue(t, out string primitive)) return primitive;
+            if (t.IsByRef) return "ref " + TypeLabel(t.GetElementType(), full);
+            if (t.IsArray) return TypeLabel(t.GetElementType(), full) + "[]";
+            if (t.IsGenericType)
+            {
+                string raw = full ? (t.GetGenericTypeDefinition().FullName ?? t.Name) : t.Name;
+                int tick = raw.IndexOf('`');
+                if (tick > 0) raw = raw.Substring(0, tick);
+                return $"{raw}<{string.Join(", ", t.GetGenericArguments().Select(a => TypeLabel(a, full)))}>";
+            }
+            return full ? (t.FullName ?? t.Name) : t.Name;
+        }
+
+        private static string ParameterLabel(ParameterInfo p, bool full)
+        {
+            bool byRef = p.ParameterType.IsByRef;
+            string prefix = p.IsOut ? "out " : (byRef ? "ref " : "");
+            Type bare = byRef ? p.ParameterType.GetElementType() : p.ParameterType;
+            string label = $"{prefix}{TypeLabel(bare, full)} {p.Name}";
+            if (!p.IsOptional) return label;
+            string fallback;
+            try { fallback = p.DefaultValue == null ? "null" : p.DefaultValue.ToString(); }
+            catch (Exception) { fallback = "?"; }
+            return $"{label} = {fallback}";
+        }
+
+        private static string Visibility(MethodBase m)
+        {
+            if (m == null) return "?";
+            if (m.IsPublic) return "public";
+            if (m.IsFamilyOrAssembly) return "protected internal";
+            if (m.IsFamilyAndAssembly) return "private protected";
+            if (m.IsFamily) return "protected";
+            if (m.IsAssembly) return "internal";
+            return "private";
+        }
+
+        private static string Visibility(FieldInfo f)
+        {
+            if (f.IsPublic) return "public";
+            if (f.IsFamilyOrAssembly) return "protected internal";
+            if (f.IsFamilyAndAssembly) return "private protected";
+            if (f.IsFamily) return "protected";
+            if (f.IsAssembly) return "internal";
+            return "private";
+        }
+
         // ── reflection helpers ───────────────────────────────────────────────
 
         /// <summary>

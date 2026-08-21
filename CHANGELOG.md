@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `positionFromBone` でボーン位置から、`lookAt` で注視点から指定可能
   - `stereoSeparation` で左右 2 枚を 1 枚に並べて出力。片目だけ壊れる不具合の突き合わせ用
   - 使い捨てカメラは `HideAndDontSave` で作って必ず破棄する。シーンは汚れず dirty にもならない
+- 型のメンバを一覧する `DescribeType`。`InvokeMember` の「呼ぶ」に対する「見る」側で、難読化 DLL でも使える (#14)
+  - 同名オーバーロードを全部並べ、複数あるものは引数型を完全修飾名で出す。`Ambiguous match found` の原因が一目で分かる
+  - 宣言元の型ごとに区切って出力。`memberFilter` と `nameContains` で絞り込める
+  - enum は `name = value` と `enum:Full.Type.Value` 形式を併記し、そのまま `InvokeMember` に貼れる
 
 ### Changed
 - `RunEditorScript` の既定 usings に `using Object = UnityEngine.Object;` を追加。`System` と `UnityEngine` が同居していて `Object.FindObjectsOfType` が曖昧参照になっていたのを解消 (#13)
