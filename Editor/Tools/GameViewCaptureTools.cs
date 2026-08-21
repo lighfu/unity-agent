@@ -408,6 +408,43 @@ The result says so when that applies. Use CaptureGameView for the composited sta
         // CaptureFromPose
         // ─────────────────────────────────────────────────────────────────────────
 
+        /// <summary>Default near plane: VRChat's range, not Unity's 0.3. See the CaptureFromPose docstring.</summary>
+        private const float DefaultPoseNear = 0.01f;
+
+        /// <summary>Default far plane.</summary>
+        private const float DefaultPoseFar = 1000f;
+
+        /// <summary>
+        /// Smallest far/near ratio worth mentioning. The value is derived from this tool's OWN defaults on
+        /// purpose: a note that also fires at <see cref="DefaultPoseNear"/> / <see cref="DefaultPoseFar"/>
+        /// fires on every single call, and a note that is always there is a note nobody reads. The 1.05
+        /// leaves slack for the float error in 1000f/0.01f, which lands a hair above 100000.
+        /// </summary>
+        private const float DepthRatioNoteFloor = (DefaultPoseFar / DefaultPoseNear) * 1.05f;
+
+        /// <summary>
+        /// Width of the divider drawn between the two eyes of a stereo pair.
+        ///
+        /// The pre-flight size check and <see cref="ComposeSideBySide"/> MUST agree on this number. A check
+        /// that forgets the gutter lets through a width whose composite is then too large, and the caller
+        /// gets Unity's "invalid parameters" instead of the size advice the check exists to give.
+        /// </summary>
+        private static int StereoGutter(int eyeWidth) => Mathf.Max(2, eyeWidth / 128);
+
+        /// <summary>Width of the finished side-by-side pair for a given per-eye width.</summary>
+        private static int StereoCompositeWidth(int eyeWidth) => eyeWidth * 2 + StereoGutter(eyeWidth);
+
+        /// <summary>
+        /// Largest per-eye width whose composite still fits. Searched rather than solved so it stays correct
+        /// if the gutter ever stops being a simple fraction of the width.
+        /// </summary>
+        private static int MaxStereoEyeWidth()
+        {
+            int w = MaxDimension / 2;
+            while (w > 1 && StereoCompositeWidth(w) > MaxDimension) w--;
+            return w;
+        }
+
         [AgentTool(@"Put a THROW-AWAY camera at an exact world pose and render one frame from it — the only
 capture tool that looks at the scene from INSIDE the subject instead of orbiting it from outside.
 
@@ -443,8 +480,10 @@ cullingMask: '' (default) renders every layer. 'Default,UI' or '0,5' renders onl
 invert, so '~Water' is everything except Water. An unknown layer name is an error, not a dropped layer.
 
 fov / near / far are handed to Unity as given and READ BACK: if Unity clamps one, the result says so
-instead of describing a picture taken with different values. A far/near ratio above 10000 costs depth
-precision and is reported — distant z-fighting in that image is the ratio, not a capture bug.
+instead of describing a picture taken with different values. A far/near ratio well past the default
+0.01/1000 costs depth precision and is reported — distant z-fighting in that image is the ratio, not a
+capture bug. The default pairing itself is not reported: it is the ratio this tool chose for you, and a
+note on every single capture is a note nobody reads.
 
 The camera is created for this call and DestroyImmediate'd in a finally, on a HideAndDontSave GameObject.
 It is never saved, never selected, never left behind, and the scene is NOT marked dirty. No existing
@@ -464,8 +503,8 @@ stack is absent by design. Use CaptureFromCamera when you need that stack.",
             string offset = "",
             bool offsetInBoneSpace = true,
             float fov = 60f,
-            float near = 0.01f,
-            float far = 1000f,
+            float near = DefaultPoseNear,
+            float far = DefaultPoseFar,
             float stereoSeparation = 0f,
             string cullingMask = "",
             int width = 1024,
@@ -494,11 +533,14 @@ stack is absent by design. Use CaptureFromCamera when you need that stack.",
                 return $"Error: stereoSeparation must not be negative (got {F(stereoSeparation)}). Use 0 for a " +
                        "single frame, or a positive distance such as 0.065 for a left/right pair.";
 
-            // The pair is composed into ONE Texture2D, so the pair — not the eye — is what has to fit.
-            if (stereoSeparation > 0f && width * 2 > MaxDimension)
-                return $"Error: stereoSeparation>0 pairs two {width}-wide frames side by side, which " +
-                       $"exceeds the maximum texture dimension ({MaxDimension}). Use width <= " +
-                       $"{MaxDimension / 2} for a stereo pair.";
+            // The pair is composed into ONE Texture2D, so the pair — not the eye — is what has to fit. The
+            // divider between the eyes counts: leaving it out passes a width that fails later inside the
+            // composer, where Unity can only say "invalid parameters".
+            if (stereoSeparation > 0f && StereoCompositeWidth(width) > MaxDimension)
+                return $"Error: stereoSeparation>0 pairs two {width}-wide frames side by side with a " +
+                       $"{StereoGutter(width)}px divider between them, {StereoCompositeWidth(width)}px in " +
+                       $"total, which exceeds the maximum texture dimension ({MaxDimension}). Use width <= " +
+                       $"{MaxStereoEyeWidth()} for a stereo pair.";
 
             var opt = CaptureOptions.Create(maxWidth, format, jpgQuality, saveToPath, cropRegion,
                                             background, antiAliasing);
@@ -554,11 +596,12 @@ stack is absent by design. Use CaptureFromCamera when you need that stack.",
                 notes.Append(DescribeClamp("far", far, cam.farClipPlane));
 
                 float ratio = cam.nearClipPlane > 0f ? cam.farClipPlane / cam.nearClipPlane : 0f;
-                if (ratio > 10000f)
+                if (ratio > DepthRatioNoteFloor)
                     notes.Append($" NOTE: far/near is {F(ratio)} (near {F(cam.nearClipPlane)}, far " +
-                                 $"{F(cam.farClipPlane)}). Above about 10000 the depth buffer loses precision " +
-                                 "and distant surfaces z-fight. That is the price of a tiny near plane, not a " +
-                                 "fault in this capture — lower far if the background flickers.");
+                                 $"{F(cam.farClipPlane)}), well past the {F(DefaultPoseFar / DefaultPoseNear)} " +
+                                 "this tool defaults to. The depth buffer loses precision at that ratio and " +
+                                 "distant surfaces z-fight — lower far if the background flickers. That is the " +
+                                 "ratio, not a fault in this capture.");
 
                 switch (bgMode)
                 {
@@ -1031,8 +1074,8 @@ stack is absent by design. Use CaptureFromCamera when you need that stack.",
                 return null;
             }
 
-            int gutter = Mathf.Max(2, left.width / 128);
-            int w = left.width * 2 + gutter;
+            int gutter = StereoGutter(left.width);
+            int w = StereoCompositeWidth(left.width);
             int h = left.height;
             Texture2D composite = null;
             try
