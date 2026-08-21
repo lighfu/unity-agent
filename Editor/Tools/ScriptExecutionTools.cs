@@ -33,6 +33,13 @@ usings: ';' separated extra namespaces to add on top of the defaults
   plus 'using Object = UnityEngine.Object' so that Object.FindObjectsOfType / Object.DestroyImmediate
   compile — System and UnityEngine both define Object, and without the alias they are ambiguous here
   even though the same line is fine in a normal Unity script).
+members: extra declarations placed at CLASS scope, beside the generated Execute() — helper methods,
+  iterators, nested types. The compiler used here does not accept local functions, so a method cannot be
+  declared inside `code`; this is where one goes. `code` calls it as a plain static method:
+    code    = ""return Collect();""
+    members = ""static string Collect() { return GameObject.FindObjectsOfType<GameObject>().Length + "" objects""; }""
+  Compile errors inside it are reported as 'members line N', numbered from the start of your members text.
+
 additionalReferences: ';' separated assembly names to add to the compiler's reference set.
   The default set is a whitelist (see ToolUtility.IsScriptReference) because referencing all
   300+ loaded assemblies overflows the Windows command-line limit. If a BCL type fails to
@@ -43,7 +50,8 @@ additionalReferences: ';' separated assembly names to add to the compiler's refe
 Reflection tip: prefer InvokeMember for one-off internal API calls. It always uses
 BindingFlags.Instance|Static|Public|NonPublic, so the classic 'forgot Instance, silently got null,
 then NullReferenceException' failure cannot happen.")]
-        public static string RunEditorScript(string code, string usings = "", string additionalReferences = "")
+        public static string RunEditorScript(string code, string usings = "", string additionalReferences = "",
+                                             string members = "")
         {
             if (string.IsNullOrWhiteSpace(code))
                 return "Error: No code provided.";
@@ -56,7 +64,8 @@ then NullReferenceException' failure cannot happen.")]
 
             Debug.Log($"[UnityAgent] RunEditorScript executing:\n{code}");
 
-            if (!TryCompileScript(code, usings, additionalReferences, out var method, out string compileError))
+            if (!TryCompileScript(code, usings, additionalReferences, members, out var method,
+                                  out string compileError))
                 return compileError + DescribeToolOverlap(code);
 
             // Execute. The capture starts here, after the log above, so this tool's own banner is not
@@ -1240,13 +1249,14 @@ listing shows the same name as more than one kind, that is the order it will be 
         /// what they accept, nor in how they explain an unresolved type.
         /// </summary>
         internal static bool TryCompileScript(string code, string usings, string additionalReferences,
-                                              out MethodInfo entryPoint, out string error)
+                                              string members, out MethodInfo entryPoint, out string error)
         {
             entryPoint = null;
             error = null;
 
             var extraUsings = SplitList(usings);
-            string fullSource = BuildSource(code, extraUsings, out int lineOffset);
+            string fullSource = BuildSource(code, extraUsings, members, out int lineOffset,
+                                            out int membersOffset);
 
             var provider = new CSharpCodeProvider();
             var compilerParams = new CompilerParameters
@@ -1266,7 +1276,10 @@ listing shows the same name as more than one kind, that is the order it will be 
                 {
                     if (err.IsWarning) continue;
                     int line = err.Line - lineOffset;
-                    if (line > 0)
+                    // members sits after everything else, so its lines are the largest — test it first.
+                    if (membersOffset >= 0 && err.Line > membersOffset)
+                        sb.AppendLine($"  members line {err.Line - membersOffset}: {err.ErrorText}");
+                    else if (line > 0)
                         sb.AppendLine($"  Line {line}: {err.ErrorText}");
                     else
                         // The error sits in the generated wrapper, which the caller never wrote. A zero or
@@ -1353,7 +1366,8 @@ listing shows the same name as more than one kind, that is the order it will be 
         /// the first time somebody adds a using to the preamble, and a line number that is quietly off by
         /// one is far harder to notice than one that is obviously wrong.
         /// </summary>
-        private static string BuildSource(string code, List<string> extraUsings, out int lineOffset)
+        private static string BuildSource(string code, List<string> extraUsings, string members,
+                                          out int lineOffset, out int membersOffset)
         {
             var preamble = new List<string>
             {
@@ -1387,12 +1401,32 @@ listing shows the same name as more than one kind, that is the order it will be 
             }
 
             sb.AppendLine(code);
+            int emitted = lineOffset + 1 + code.Count(c => c == '\n');
 
             // If code doesn't contain a return statement, add a default return
             if (!code.Contains("return "))
+            {
                 sb.AppendLine("      return null;");
+                emitted++;
+            }
 
-            sb.AppendLine("    }");
+            sb.AppendLine("    }");   // end Execute
+            emitted++;
+
+            // members goes at CLASS scope, after Execute. The compiler this tool uses does not accept
+            // local functions, so an iterator — the shape RunEditorScriptAsync tells callers to prefer —
+            // has nowhere to live inside the method body. Placing it after Execute also keeps every line
+            // number in `code` exactly where the caller wrote it.
+            if (string.IsNullOrWhiteSpace(members))
+            {
+                membersOffset = -1;
+            }
+            else
+            {
+                membersOffset = emitted;
+                sb.AppendLine(members);
+            }
+
             sb.AppendLine("  }");
             sb.AppendLine("}");
             return sb.ToString();

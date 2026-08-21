@@ -75,7 +75,17 @@ Shape of the script matters:
                                get no progress and Unity looks hung.
   return <IEnumerator>;        pumped one step per editor tick. The editor stays responsive and
                                GetJobResult can report how many steps have run. Prefer this.
-                               e.g.  return Steps(); ... static IEnumerator Steps() { ...; yield return null; ... }
+
+The iterator goes in `members`, NOT in `code`: the compiler used here rejects local functions, so a
+method cannot be declared inside the script body. Write bare 'IEnumerator' nowhere — the default usings
+open System.Collections.Generic but not System.Collections, so an unqualified IEnumerator binds to the
+generic one and fails. Spell it in full:
+
+  code    = ""return Steps();""
+  members = ""static System.Collections.IEnumerator Steps() {
+                 for (int i = 0; i < 100; i++) { DoOne(i); yield return null; }
+                 yield return ""done: 100 items"";   // a yielded string finishes the job with that value
+               }""
 
 timeoutSeconds: abandon the job after this long (default 600, max 3600). A synchronous script
   cannot be interrupted mid-call — the timeout is only observed between ticks.
@@ -86,7 +96,8 @@ Same risk tier as RunEditorScript: this is arbitrary code execution.",
             Risk = ToolRisk.Dangerous)]
         public static string RunEditorScriptAsync(string code, string usings = "",
                                                   string additionalReferences = "",
-                                                  int timeoutSeconds = DefaultTimeoutSeconds)
+                                                  int timeoutSeconds = DefaultTimeoutSeconds,
+                                                  string members = "")
         {
             if (string.IsNullOrWhiteSpace(code))
                 return "Error: No code provided.";
@@ -101,7 +112,7 @@ Same risk tier as RunEditorScript: this is arbitrary code execution.",
 
             // Compile before handing back an id. A job id for code that never compiled would force
             // the caller into a poll just to be told about a typo.
-            if (!ScriptExecutionTools.TryCompileScript(code, usings, additionalReferences,
+            if (!ScriptExecutionTools.TryCompileScript(code, usings, additionalReferences, members,
                                                        out var entry, out string compileError))
                 return compileError + ScriptExecutionTools.DescribeToolOverlap(code);
 

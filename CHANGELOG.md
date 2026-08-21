@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `positionFromBone` でボーン位置から、`lookAt` で注視点から指定可能
   - `stereoSeparation` で左右 2 枚を 1 枚に並べて出力。片目だけ壊れる不具合の突き合わせ用
   - 使い捨てカメラは `HideAndDontSave` で作って必ず破棄する。シーンは汚れず dirty にもならない
+- `RunEditorScript` / `RunEditorScriptAsync` に `members` 引数。クラススコープにヘルパーメソッドやイテレータを宣言できる。動的コンパイラはローカル関数を受け付けないため、これが無いと `RunEditorScriptAsync` が推奨するコルーチン形状をそもそも書けなかった
 - 型のメンバを一覧する `DescribeType`。`InvokeMember` の「呼ぶ」に対する「見る」側で、難読化 DLL でも使える (#14)
   - 同名オーバーロードを全部並べ、複数あるものは引数型を完全修飾名で出す。`Ambiguous match found` の原因が一目で分かる
   - 宣言元の型ごとに区切って出力。`memberFilter` と `nameContains` で絞り込める
@@ -23,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)
+- `RunEditorScriptAsync` の説明が、書けないコルーチン形状を「Prefer this」として勧めていた問題。`members` で宣言できるようにしたうえで、実際にコンパイルできる例に差し替えた
 
 ## [0.15.0] - 2026-08-19
 
