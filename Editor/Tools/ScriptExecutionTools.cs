@@ -71,11 +71,12 @@ then NullReferenceException' failure cannot happen.")]
             catch (TargetInvocationException tex)
             {
                 var inner = tex.InnerException;
-                outcome = $"Runtime Error: {inner?.Message ?? tex.Message}\n{inner?.StackTrace ?? tex.StackTrace}";
+                outcome = $"Runtime Error: {inner?.Message ?? tex.Message}\n{inner?.StackTrace ?? tex.StackTrace}"
+                          + console.DescribeForFailure();
             }
             catch (Exception ex)
             {
-                outcome = $"Runtime Error: {ex.Message}\n{ex.StackTrace}";
+                outcome = $"Runtime Error: {ex.Message}\n{ex.StackTrace}" + console.DescribeForFailure();
             }
             finally
             {
@@ -140,13 +141,29 @@ then NullReferenceException' failure cannot happen.")]
             /// </summary>
             public string DescribeForEmptyResult()
             {
+                return Describe($"Note: {Count} console line(s) were written while this ran. Console output " +
+                                "is NOT the return channel — use `return <string>` to get a value back " +
+                                "through this tool. The lines are repeated here so this run does not have " +
+                                "to be redone:");
+            }
+
+            /// <summary>
+            /// What to append to a script that threw. The lines written before the throw are the state the
+            /// script had reached, which is the most useful thing there is when diagnosing the exception —
+            /// dropping them here would mean re-running to learn what it had already printed.
+            /// </summary>
+            public string DescribeForFailure()
+            {
+                return Describe($"Note: {Count} console line(s) were written before this failed:");
+            }
+
+            private string Describe(string lead)
+            {
                 if (Count == 0) return "";
 
                 var sb = new StringBuilder();
                 sb.AppendLine();
-                sb.AppendLine($"Note: {Count} console line(s) were written while this ran. Console output is " +
-                              "NOT the return channel — use `return <string>` to get a value back through " +
-                              "this tool. The lines are repeated here so this run does not have to be redone:");
+                sb.AppendLine(lead);
                 foreach (var line in _lines) sb.AppendLine("  " + line);
                 if (Count > _lines.Count)
                     sb.AppendLine($"  ... and {Count - _lines.Count} more line(s); see the Unity console.");
@@ -223,27 +240,20 @@ then NullReferenceException' failure cannot happen.")]
         /// operation". That warning is correct and unusable: it cannot be acted on by a caller who does
         /// not know what six hundred tools are named. This turns the warning into names.
         ///
-        /// Tool names are checked against the live registry before being printed, so a renamed or
-        /// deleted tool quietly drops out of the hint rather than being recommended into the void.
+        /// Tool names are checked against the live registry AND the enable list before being printed, so a
+        /// renamed, deleted or switched-off tool quietly drops out of the hint rather than being
+        /// recommended into the void.
         /// </summary>
         internal static string DescribeToolOverlap(string code)
         {
             if (string.IsNullOrEmpty(code)) return "";
 
-            HashSet<string> known;
-            try
-            {
-                known = new HashSet<string>(ToolRegistry.GetAllTools().Select(t => t.method.Name),
-                                            StringComparer.Ordinal);
-            }
-            catch (Exception ex)
-            {
-                // A hint is a nicety. It must never be the reason a real result fails to come back.
-                AgentLogger.Debug(LogTag.Tool, $"RunEditorScript: tool-overlap hints skipped ({ex.Message}).");
-                return "";
-            }
-
+            // Built on the first marker hit, not up front: the overwhelmingly common case is that nothing
+            // matches, and enumerating six hundred tools to throw the set away is a cost every single
+            // script execution would otherwise pay.
+            HashSet<string> callable = null;
             var lines = new List<string>();
+
             foreach (var hint in OverlapHints)
             {
                 if (lines.Count >= MaxOverlapHints) break;
@@ -251,7 +261,13 @@ then NullReferenceException' failure cannot happen.")]
                 string marker = hint.Markers.FirstOrDefault(m => code.IndexOf(m, StringComparison.Ordinal) >= 0);
                 if (marker == null) continue;
 
-                var live = hint.Tools.Where(known.Contains).ToArray();
+                if (callable == null)
+                {
+                    callable = CollectCallableToolNames();
+                    if (callable == null) return "";   // registry unreadable; a hint is not worth failing over
+                }
+
+                var live = hint.Tools.Where(callable.Contains).ToArray();
                 if (live.Length == 0) continue;
 
                 lines.Add($"Hint: this script contains '{marker}'. Already available: " +
@@ -259,7 +275,35 @@ then NullReferenceException' failure cannot happen.")]
             }
 
             if (lines.Count == 0) return "";
-            return Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, lines);
+            return "\n\n" + string.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// Names of the tools the caller could actually invoke right now, or null if that cannot be
+        /// determined.
+        ///
+        /// Registered is not the same as callable: a tool the user has switched off is filtered out of
+        /// tools/list and refused by the invoker, so naming it would send the reader after something that
+        /// does not answer. Recommending a tool that cannot be called is worse than saying nothing.
+        /// </summary>
+        private static HashSet<string> CollectCallableToolNames()
+        {
+            try
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var info in ToolRegistry.GetAllTools())
+                {
+                    string name = info.method.Name;
+                    if (AgentSettings.IsToolEnabled(name, info.isExternal)) names.Add(name);
+                }
+                return names;
+            }
+            catch (Exception ex)
+            {
+                // A hint is a nicety. It must never be the reason a real result fails to come back.
+                AgentLogger.Debug(LogTag.Tool, $"RunEditorScript: tool-overlap hints skipped ({ex.Message}).");
+                return null;
+            }
         }
 
         [AgentTool(@"Call a method, or read/write a property or field, by reflection — including internal
@@ -425,19 +469,31 @@ listing shows the same name as more than one kind, that is the order it will be 
             if (!TryResolveType(typeName, out Type type, out string typeErr)) return typeErr;
 
             string needle = (nameContains ?? "").Trim();
-            var entries = CollectTypeMembers(type, filter, needle);
 
             var sb = new StringBuilder();
             sb.AppendLine($"=== {type.FullName} ===");
             sb.AppendLine($"assembly   : {SafeAssemblyName(type)}");
             sb.AppendLine($"kind       : {DescribeTypeKind(type)}");
             sb.AppendLine($"base chain : {string.Join(" -> ", BaseChain(type))}");
+            if (type.IsInterface)
+            {
+                // An interface's "base chain" is one entry long, which would read as "this inherits
+                // nothing" while its members are listed under the interfaces it extends.
+                string[] inherited;
+                try { inherited = type.GetInterfaces().Select(i => i.FullName ?? i.Name).ToArray(); }
+                catch (Exception) { inherited = Array.Empty<string>(); }
+                sb.AppendLine($"extends    : {(inherited.Length == 0 ? "(nothing)" : string.Join(", ", inherited))}");
+            }
 
+            // Before collecting anything: for an enum the values ARE the members, and walking its member
+            // table only to throw the result away is pure waste.
             if (type.IsEnum)
             {
                 AppendEnumValues(sb, type, needle, maxMembers);
                 return sb.ToString().TrimEnd();
             }
+
+            var entries = CollectTypeMembers(type, filter, needle);
 
             string scope = filter == "all" ? "" : $", memberFilter='{filter}'";
             string filtered = needle.Length > 0 ? $", nameContains='{needle}'" : "";
@@ -453,13 +509,23 @@ listing shows the same name as more than one kind, that is the order it will be 
                 return sb.ToString().TrimEnd();
             }
 
-            // A short parameter type name is only a problem when two overloads collide under it, so pay
-            // the width cost of full names exactly where it buys disambiguation.
-            var overloaded = new HashSet<string>(
-                entries.GroupBy(e => e.Name, StringComparer.Ordinal)
-                       .Where(g => g.Count() > 1)
-                       .Select(g => g.Key),
-                StringComparer.Ordinal);
+            // Full type names are paid for exactly where they buy something: when two entries render to
+            // the SAME short line. Keying off "this name has more than one entry" over-qualifies an
+            // override (one signature declared at two levels) and a field that shares a name with a
+            // property — neither is ambiguous, and both would just get wider.
+            // Counted per declaring type, not globally: an override declared at two levels renders
+            // identically at both, and qualifying it would add width without adding information — the
+            // '--- declared on ---' header already tells those two apart.
+            var shortForm = new string[entries.Count];
+            var key = new string[entries.Count];
+            var collisions = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                shortForm[i] = SafeRender(entries[i], false);
+                key[i] = entries[i].Owner + "\0" + shortForm[i];
+                collisions.TryGetValue(key[i], out int seen);
+                collisions[key[i]] = seen + 1;
+            }
 
             string currentOwner = null;
             for (int i = 0; i < shown; i++)
@@ -471,7 +537,7 @@ listing shows the same name as more than one kind, that is the order it will be 
                     sb.AppendLine();
                     sb.AppendLine($"--- declared on {currentOwner} ---");
                 }
-                sb.AppendLine("  " + entry.Render(overloaded.Contains(entry.Name)));
+                sb.AppendLine("  " + (collisions[key[i]] > 1 ? SafeRender(entry, true) : shortForm[i]));
             }
 
             if (entries.Count > shown)
@@ -499,6 +565,24 @@ listing shows the same name as more than one kind, that is the order it will be 
         }
 
         /// <summary>
+        /// Renders one entry, degrading to a name-only line instead of throwing.
+        ///
+        /// The signature is built lazily from ParameterInfo / PropertyType, which resolve types on
+        /// demand: a parameter whose type lives in an assembly that is not loaded throws right here, at
+        /// render time. Losing the whole listing to one unresolvable member is a far worse answer than
+        /// losing that member's argument list.
+        /// </summary>
+        private static string SafeRender(MemberEntry entry, bool useFullTypeNames)
+        {
+            try { return entry.Render(useFullTypeNames); }
+            catch (Exception ex)
+            {
+                return $"[{entry.Kind}]".PadRight(12) + entry.Modifiers.PadRight(24) +
+                       $"{entry.Name}  (signature unavailable: {ex.GetType().Name})";
+            }
+        }
+
+        /// <summary>
         /// Walks the inheritance chain and collects the members of each level separately. NonPublic does
         /// not cross the chain and FlattenHierarchy only surfaces statics, so a per-level walk is the only
         /// way a private instance member of a base class shows up — the same walk InvokeMember does.
@@ -510,13 +594,12 @@ listing shows the same name as more than one kind, that is the order it will be 
                 nameContains.Length == 0 ||
                 name.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0;
 
-            // Stops short of System.Object / System.ValueType. Their members (ToString, GetHashCode,
-            // Equals, GetType) are on literally every type and would pad every single listing; they are
-            // still reachable through InvokeMember, which is why the docstring says so out loud.
-            for (var t = type; t != null && t != typeof(object) && t != typeof(ValueType); t = t.BaseType)
+            foreach (var t in MemberLevels(type))
             {
                 string owner = t.FullName ?? t.Name;
                 var level = new List<MemberEntry>();
+                try
+                {
 
                 if (filter == "all" || filter == "properties")
                 {
@@ -543,7 +626,13 @@ listing shows the same name as more than one kind, that is the order it will be 
                     {
                         if (!Wanted(f.Name)) continue;
                         var captured = f;
-                        string extra = f.IsLiteral ? " const" : (f.IsInitOnly ? " readonly" : (f.IsStatic ? " static" : ""));
+                        // Additive, not a chain of alternatives: a 'static readonly' field that prints as
+                        // just 'readonly' reads as an instance field, and the reader then hands
+                        // InvokeMember a target it does not want. const is static by definition, so it is
+                        // the one case that says everything on its own.
+                        string extra = f.IsLiteral
+                            ? " const"
+                            : (f.IsStatic ? " static" : "") + (f.IsInitOnly ? " readonly" : "");
                         level.Add(new MemberEntry
                         {
                             Owner = owner,
@@ -593,10 +682,51 @@ listing shows the same name as more than one kind, that is the order it will be 
                     }
                 }
 
+                }
+                catch (Exception ex)
+                {
+                    // A type from an assembly that is not loaded makes its member table unreadable. Say
+                    // which level was lost and keep the rest: a partial listing is useful, and a listing
+                    // that silently skipped a level would be read as "that member does not exist".
+                    AgentLogger.Debug(LogTag.Tool, $"DescribeType: members of {owner} unreadable ({ex.Message}).");
+                    level.Add(new MemberEntry
+                    {
+                        Owner = owner,
+                        Kind = "note",
+                        Name = "",
+                        Modifiers = "",
+                        Signature = _ => $"(members of {owner} could not be read: {ex.GetType().Name})",
+                    });
+                }
+
                 entries.AddRange(level.OrderBy(e => e.Kind, StringComparer.Ordinal)
                                       .ThenBy(e => e.Name, StringComparer.Ordinal));
             }
             return entries;
+        }
+
+        /// <summary>
+        /// The types whose declared members make up one listing.
+        ///
+        /// Stops short of System.Object / System.ValueType: their members (ToString, GetHashCode, Equals,
+        /// GetType) sit on every type and would pad every listing. They stay reachable through
+        /// InvokeMember, which is why the docstring says so rather than leaving it to be discovered.
+        ///
+        /// An interface has no BaseType — everything it inherits hangs off GetInterfaces() instead.
+        /// Without that branch, IList&lt;T&gt; reports four members and silently omits Count / Add / Clear
+        /// from ICollection&lt;T&gt;, which reads as "that member does not exist".
+        /// </summary>
+        private static IEnumerable<Type> MemberLevels(Type type)
+        {
+            for (var t = type; t != null && t != typeof(object) && t != typeof(ValueType); t = t.BaseType)
+                yield return t;
+
+            if (!type.IsInterface) yield break;
+
+            Type[] inherited;
+            try { inherited = type.GetInterfaces(); }
+            catch (Exception) { yield break; }
+            foreach (var i in inherited) yield return i;
         }
 
         /// <summary>get_/set_/add_/remove_ belong to their property or event, not to the method list.
@@ -714,9 +844,12 @@ listing shows the same name as more than one kind, that is the order it will be 
             if (value == null) return "null";
             if (value is DBNull || value is Missing) return "default";
             if (value is bool b) return b ? "true" : "false";
-            if (value is string s) return $"\"{s}\"";
-            if (value is char c) return $"'{c}'";
+            // Escaped, because an unescaped backslash or quote turns the rendered signature into an
+            // unterminated string literal — and pasting the signature back is the point of rendering it.
+            if (value is string s) return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            if (value is char c) return c == '\'' ? "'\\''" : $"'{c}'";
             if (value is float f) return f.ToString(CultureInfo.InvariantCulture) + "f";
+            if (value is decimal m) return m.ToString(CultureInfo.InvariantCulture) + "m";
             if (value.GetType().IsEnum) return $"{value.GetType().Name}.{value}";
             return Convert.ToString(value, CultureInfo.InvariantCulture);
         }
@@ -1132,7 +1265,16 @@ listing shows the same name as more than one kind, that is the order it will be 
                 foreach (CompilerError err in results.Errors)
                 {
                     if (err.IsWarning) continue;
-                    sb.AppendLine($"  Line {err.Line - lineOffset}: {err.ErrorText}");
+                    int line = err.Line - lineOffset;
+                    if (line > 0)
+                        sb.AppendLine($"  Line {line}: {err.ErrorText}");
+                    else
+                        // The error sits in the generated wrapper, which the caller never wrote. A zero or
+                        // negative line number sends them hunting for a line that does not exist; the only
+                        // thing they can act on is the argument that produced it.
+                        sb.AppendLine($"  (in the generated preamble, not in your code): {err.ErrorText} " +
+                                      "— check `usings`: entries are ';' separated and each must be a bare " +
+                                      "namespace, with no newlines.");
                     // CS0246 (type not found) / CS0234 (namespace member missing) almost always
                     // mean a missing /reference:, not a typo in the user's code.
                     if (err.ErrorNumber == "CS0246" || err.ErrorNumber == "CS0234")
@@ -1234,8 +1376,15 @@ listing shows the same name as more than one kind, that is the order it will be 
             preamble.Add("    public static object Execute() {");
 
             var sb = new StringBuilder();
-            foreach (string line in preamble) sb.AppendLine(line);
-            lineOffset = preamble.Count;
+            lineOffset = 0;
+            foreach (string line in preamble)
+            {
+                sb.AppendLine(line);
+                // Counted per emitted LINE, not per entry: SplitList only breaks on ';' and ',', so a
+                // usings value containing a newline arrives as one entry and writes two source lines.
+                // Counting entries would put the off-by-N straight back.
+                lineOffset += 1 + line.Count(c => c == '\n');
+            }
 
             sb.AppendLine(code);
 

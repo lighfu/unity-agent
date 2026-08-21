@@ -281,22 +281,18 @@ Jobs do not survive a domain reload.")]
                 if (!job.Started)
                 {
                     job.Started = true;
-
-                    // Same console capture as the synchronous runner, for the same reason: a script whose
-                    // only output was Debug.Log must not come back as a bare success. It covers this one
-                    // invoke only — a coroutine runs across later ticks, and a listener left attached that
-                    // long would collect everything else the editor logs in between.
-                    object returned;
-                    var console = new ScriptExecutionTools.ScriptConsoleCapture();
-                    try { returned = job.Entry.Invoke(null, null); }
-                    finally { console.Dispose(); }
-
+                    object returned = job.Entry.Invoke(null, null);
                     if (returned is IEnumerator routine)
                     {
                         job.Routine = routine;   // pumped from the next tick on
                         return;
                     }
-                    Finish(job, ScriptExecutionTools.DescribeScriptResult(returned, console), null);
+
+                    // No console capture here on purpose: a job already reports what it logged, from
+                    // job.ConsoleBaseline in Describe(). Attaching the synchronous runner's capture as
+                    // well would print every line twice. Only the wording is shared, so a job and a
+                    // direct run do not describe the same outcome differently.
+                    Finish(job, ScriptExecutionTools.DescribeScriptResult(returned, null), null);
                     return;
                 }
 
@@ -305,7 +301,10 @@ Jobs do not survive a domain reload.")]
                     job.Steps++;
                     if (!job.Routine.MoveNext())
                     {
-                        Finish(job, "Script coroutine completed.", null);
+                        // Same trap as a script that forgets 'return': finishing quietly reads as "it ran
+                        // and found nothing" when it means "you never yielded a value".
+                        Finish(job, "Script coroutine completed. (no value was yielded — yield a string " +
+                                    "to return one; anything the script logged is below)", null);
                         return;
                     }
 
