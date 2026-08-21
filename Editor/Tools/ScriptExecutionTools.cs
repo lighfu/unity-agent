@@ -190,24 +190,26 @@ then NullReferenceException' failure cannot happen.")]
         /// re-implementation of something that shipped — capture-to-PNG written out four times, then a
         /// PNG decoder and a pixel diff, is what prompted this.
         /// </summary>
+        // What is phrased as a NOUN phrase so the sentence reads the same whether one tool or four are
+        // named — "WaitForCompilation already waits" and "A / B / C already wait" cannot share a verb.
         private static readonly OverlapHint[] OverlapHints =
         {
-            new OverlapHint("capture a frame to a file in one call",
+            new OverlapHint("a frame captured to a file in one call",
                 new[] { "CaptureFromCamera", "CaptureFromPose", "CaptureSceneView", "CaptureGameView" },
                 "EncodeToPNG", "EncodeToJPG", "ReadPixels"),
-            new OverlapHint("compare two images without decoding them by hand",
+            new OverlapHint("a pixel diff of two images, without a hand-written PNG decoder",
                 new[] { "DiffImages" },
                 "Inflate", "zlib", "Unfilter", "DecodePng", "DecodePNG"),
-            new OverlapHint("import outside edits and report whether a compile actually started",
+            new OverlapHint("an asset database refresh that also reports whether a compile actually started",
                 new[] { "RefreshAssetDatabase" },
                 "AssetDatabase.Refresh"),
-            new OverlapHint("wait for a compile instead of polling for it by hand",
+            new OverlapHint("a wait for compilation, without a hand-written poll loop",
                 new[] { "WaitForCompilation" },
                 "EditorApplication.isCompiling"),
-            new OverlapHint("call internal members declaratively, and list them before calling",
+            new OverlapHint("declarative access to internal members, and a listing of them to call from",
                 new[] { "InvokeMember", "DescribeType" },
                 "BindingFlags", "GetMethod(", "GetField(", "GetProperty("),
-            new OverlapHint("report avatar performance rank",
+            new OverlapHint("an avatar performance rank report",
                 new[] { "AnalyzeAvatarPerformance" },
                 "AvatarPerformance"),
         };
@@ -252,8 +254,8 @@ then NullReferenceException' failure cannot happen.")]
                 var live = hint.Tools.Where(known.Contains).ToArray();
                 if (live.Length == 0) continue;
 
-                lines.Add($"Hint: this script contains '{marker}'. " +
-                          $"{string.Join(" / ", live)} already {hint.What}.");
+                lines.Add($"Hint: this script contains '{marker}'. Already available: " +
+                          $"{string.Join(" / ", live)} — {hint.What}.");
             }
 
             if (lines.Count == 0) return "";
@@ -644,12 +646,17 @@ listing shows the same name as more than one kind, that is the order it will be 
             return "class" + modifiers;
         }
 
+        /// <summary>
+        /// The chain in FULL names. Short names make it unreadable at exactly the wrong moment:
+        /// UnityEngine.Object derives from System.Object, so every Unity type ends in "Object -> Object"
+        /// and looks like the chain itself is broken.
+        /// </summary>
         private static List<string> BaseChain(Type type)
         {
             var chain = new List<string>();
             for (var t = type; t != null; t = t.BaseType)
             {
-                chain.Add(t.Name);
+                chain.Add(t.FullName ?? t.Name);
                 if (chain.Count > 12) { chain.Add("..."); break; }
             }
             return chain;
@@ -691,11 +698,27 @@ listing shows the same name as more than one kind, that is the order it will be 
             string prefix = p.IsOut ? "out " : (byRef ? "ref " : "");
             Type bare = byRef ? p.ParameterType.GetElementType() : p.ParameterType;
             string label = $"{prefix}{TypeLabel(bare, full)} {p.Name}";
-            if (!p.IsOptional) return label;
-            string fallback;
-            try { fallback = p.DefaultValue == null ? "null" : p.DefaultValue.ToString(); }
-            catch (Exception) { fallback = "?"; }
-            return $"{label} = {fallback}";
+            return p.IsOptional ? $"{label} = {DefaultValueLabel(p)}" : label;
+        }
+
+        /// <summary>
+        /// A default value written the way C# writes it. ToString() would render a bool as "True", which
+        /// does not compile if pasted back — and pasting these signatures back is the whole point.
+        /// </summary>
+        private static string DefaultValueLabel(ParameterInfo p)
+        {
+            object value;
+            try { value = p.DefaultValue; }
+            catch (Exception) { return "?"; }
+
+            if (value == null) return "null";
+            if (value is DBNull || value is Missing) return "default";
+            if (value is bool b) return b ? "true" : "false";
+            if (value is string s) return $"\"{s}\"";
+            if (value is char c) return $"'{c}'";
+            if (value is float f) return f.ToString(CultureInfo.InvariantCulture) + "f";
+            if (value.GetType().IsEnum) return $"{value.GetType().Name}.{value}";
+            return Convert.ToString(value, CultureInfo.InvariantCulture);
         }
 
         private static string Visibility(MethodBase m)
