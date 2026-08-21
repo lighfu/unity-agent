@@ -24,7 +24,10 @@ lines it wrote are repeated back, so a forgotten 'return' costs no re-run — bu
 to get a value out.
 
 usings: ';' separated extra namespaces to add on top of the defaults
-  (System, System.Linq, System.Collections.Generic, System.Text, UnityEngine, UnityEditor).
+  (System, System.Linq, System.Collections.Generic, System.Text, UnityEngine, UnityEditor,
+  plus 'using Object = UnityEngine.Object' so that Object.FindObjectsOfType / Object.DestroyImmediate
+  compile — System and UnityEngine both define Object, and without the alias they are ambiguous here
+  even though the same line is fine in a normal Unity script).
 additionalReferences: ';' separated assembly names to add to the compiler's reference set.
   The default set is a whitelist (see ToolUtility.IsScriptReference) because referencing all
   300+ loaded assemblies overflows the Windows command-line limit. If a BCL type fails to
@@ -636,7 +639,7 @@ can reach. Same risk tier as RunEditorScript.",
             error = null;
 
             var extraUsings = SplitList(usings);
-            string fullSource = BuildSource(code, extraUsings);
+            string fullSource = BuildSource(code, extraUsings, out int lineOffset);
 
             var provider = new CSharpCodeProvider();
             var compilerParams = new CompilerParameters
@@ -655,7 +658,7 @@ can reach. Same risk tier as RunEditorScript.",
                 foreach (CompilerError err in results.Errors)
                 {
                     if (err.IsWarning) continue;
-                    sb.AppendLine($"  Line {err.Line - GetLineOffset(extraUsings.Count)}: {err.ErrorText}");
+                    sb.AppendLine($"  Line {err.Line - lineOffset}: {err.ErrorText}");
                     // CS0246 (type not found) / CS0234 (namespace member missing) almost always
                     // mean a missing /reference:, not a typo in the user's code.
                     if (err.ErrorNumber == "CS0246" || err.ErrorNumber == "CS0234")
@@ -726,20 +729,40 @@ can reach. Same risk tier as RunEditorScript.",
             return referenced;
         }
 
-        private static string BuildSource(string code, List<string> extraUsings)
+        /// <summary>
+        /// Wraps the submitted body in the shell that makes it compilable, and reports how many lines that
+        /// shell put in front of it so compile errors can be renumbered into the caller's own line numbers.
+        ///
+        /// The count is MEASURED, not hardcoded. A constant here shifts every reported error line by one
+        /// the first time somebody adds a using to the preamble, and a line number that is quietly off by
+        /// one is far harder to notice than one that is obviously wrong.
+        /// </summary>
+        private static string BuildSource(string code, List<string> extraUsings, out int lineOffset)
         {
+            var preamble = new List<string>
+            {
+                "using System;",
+                "using System.Linq;",
+                "using System.Collections.Generic;",
+                "using System.Text;",
+                "using UnityEngine;",
+                "using UnityEditor;",
+                // System.Object and UnityEngine.Object both exist, so the most common line in any editor
+                // script — Object.FindObjectsOfType<T>() — does not compile once both namespaces are open.
+                // A plain Unity project never hits this because it has no 'using System;' at the top; only
+                // scripts submitted here do. The alias does not shadow the 'object' keyword, and code that
+                // already writes UnityEngine.Object in full keeps working.
+                "using Object = UnityEngine.Object;",
+            };
+            preamble.AddRange(extraUsings.Select(ns => $"using {ns.TrimEnd(';')};"));
+            preamble.Add("namespace AgentScript {");
+            preamble.Add("  public static class DynamicScript {");
+            preamble.Add("    public static object Execute() {");
+
             var sb = new StringBuilder();
-            sb.AppendLine("using System;");
-            sb.AppendLine("using System.Linq;");
-            sb.AppendLine("using System.Collections.Generic;");
-            sb.AppendLine("using System.Text;");
-            sb.AppendLine("using UnityEngine;");
-            sb.AppendLine("using UnityEditor;");
-            foreach (var ns in extraUsings)
-                sb.AppendLine($"using {ns.TrimEnd(';')};");
-            sb.AppendLine("namespace AgentScript {");
-            sb.AppendLine("  public static class DynamicScript {");
-            sb.AppendLine("    public static object Execute() {");
+            foreach (string line in preamble) sb.AppendLine(line);
+            lineOffset = preamble.Count;
+
             sb.AppendLine(code);
 
             // If code doesn't contain a return statement, add a default return
@@ -752,11 +775,5 @@ can reach. Same risk tier as RunEditorScript.",
             return sb.ToString();
         }
 
-        // Number of lines before user code starts (for error line correction)
-        private static int GetLineOffset(int extraUsingCount)
-        {
-            // Lines: using (6) + extra usings + namespace (1) + class (1) + method (1) = 9 + extras
-            return 9 + extraUsingCount;
-        }
     }
 }
