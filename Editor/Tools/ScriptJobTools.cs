@@ -277,13 +277,22 @@ Jobs do not survive a domain reload.")]
                 if (!job.Started)
                 {
                     job.Started = true;
-                    object returned = job.Entry.Invoke(null, null);
+
+                    // Same console capture as the synchronous runner, for the same reason: a script whose
+                    // only output was Debug.Log must not come back as a bare success. It covers this one
+                    // invoke only — a coroutine runs across later ticks, and a listener left attached that
+                    // long would collect everything else the editor logs in between.
+                    object returned;
+                    var console = new ScriptExecutionTools.ScriptConsoleCapture();
+                    try { returned = job.Entry.Invoke(null, null); }
+                    finally { console.Dispose(); }
+
                     if (returned is IEnumerator routine)
                     {
                         job.Routine = routine;   // pumped from the next tick on
                         return;
                     }
-                    Finish(job, returned == null ? "Script executed successfully." : returned.ToString(), null);
+                    Finish(job, ScriptExecutionTools.DescribeScriptResult(returned, console), null);
                     return;
                 }
 

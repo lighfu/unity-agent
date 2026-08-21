@@ -19,6 +19,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 The code runs inside a static Execute() method. Use 'return' to return a result string.
 Always requires user confirmation.
 
+Debug.Log is NOT the return channel. A script that only logs is reported as '(no return value)' and the
+lines it wrote are repeated back, so a forgotten 'return' costs no re-run — but 'return' is still the way
+to get a value out.
+
 usings: ';' separated extra namespaces to add on top of the defaults
   (System, System.Linq, System.Collections.Generic, System.Text, UnityEngine, UnityEditor).
 additionalReferences: ';' separated assembly names to add to the compiler's reference set.
@@ -47,14 +51,13 @@ then NullReferenceException' failure cannot happen.")]
             if (!TryCompileScript(code, usings, additionalReferences, out var method, out string compileError))
                 return compileError;
 
-            // Execute
+            // Execute. The capture starts here, after the log above, so this tool's own banner is not
+            // reported back as if the script had written it.
+            var console = new ScriptConsoleCapture();
             try
             {
-                var result = method.Invoke(null, null);
-
-                if (result == null)
-                    return "Script executed successfully.";
-                return result.ToString();
+                object result = method.Invoke(null, null);
+                return DescribeScriptResult(result, console);
             }
             catch (TargetInvocationException tex)
             {
@@ -65,6 +68,88 @@ then NullReferenceException' failure cannot happen.")]
             {
                 return $"Runtime Error: {ex.Message}\n{ex.StackTrace}";
             }
+            finally
+            {
+                console.Dispose();
+            }
+        }
+
+        // ── console capture ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// Keeps the console lines a script writes while it runs.
+        ///
+        /// A script whose only output was Debug.Log used to come back as a bare "Script executed
+        /// successfully.", which reads as "it ran and matched nothing" rather than "you forgot to
+        /// return". The two look identical from the outside, and telling them apart costs one wasted
+        /// run plus one lookup.
+        ///
+        /// Attached for the duration of ONE invoke and detached in a finally: the handler is global, so
+        /// a listener left behind would file somebody else's logs under this script. Anything the editor
+        /// logs from the main thread while the script runs is captured too — a script is not the only
+        /// thing that can write to the console, and this makes no attempt to tell them apart.
+        /// </summary>
+        internal sealed class ScriptConsoleCapture : IDisposable
+        {
+            private const int MaxKeptLines = 20;
+            private const int MaxLineLength = 500;
+
+            private readonly List<string> _lines = new List<string>();
+            private bool _detached;
+
+            /// <summary>Every line seen, including the ones past <see cref="MaxKeptLines"/>.</summary>
+            public int Count { get; private set; }
+
+            public ScriptConsoleCapture()
+            {
+                Application.logMessageReceived += OnLog;
+            }
+
+            private void OnLog(string condition, string stackTrace, LogType type)
+            {
+                Count++;
+                if (_lines.Count >= MaxKeptLines) return;
+                string text = condition ?? "";
+                if (text.Length > MaxLineLength)
+                    text = text.Substring(0, MaxLineLength) + "... (line truncated)";
+                _lines.Add($"[{type}] {text}");
+            }
+
+            public void Dispose()
+            {
+                if (_detached) return;
+                _detached = true;
+                Application.logMessageReceived -= OnLog;
+            }
+
+            /// <summary>
+            /// What to append to a script that returned nothing, or "" when it wrote nothing either.
+            /// </summary>
+            public string DescribeForEmptyResult()
+            {
+                if (Count == 0) return "";
+
+                var sb = new StringBuilder();
+                sb.AppendLine();
+                sb.AppendLine($"Note: {Count} console line(s) were written while this ran. Console output is " +
+                              "NOT the return channel — use `return <string>` to get a value back through " +
+                              "this tool. The lines are repeated here so this run does not have to be redone:");
+                foreach (var line in _lines) sb.AppendLine("  " + line);
+                if (Count > _lines.Count)
+                    sb.AppendLine($"  ... and {Count - _lines.Count} more line(s); see the Unity console.");
+                return sb.ToString().TrimEnd();
+            }
+        }
+
+        /// <summary>
+        /// Turns what a script body produced into this tool's result. Shared by the synchronous runner
+        /// and the job runner so the two cannot drift in what "success" reads like.
+        /// </summary>
+        internal static string DescribeScriptResult(object returned, ScriptConsoleCapture console)
+        {
+            if (returned != null) return returned.ToString();
+            return "Script executed successfully. (no return value)" +
+                   (console != null ? console.DescribeForEmptyResult() : "");
         }
 
         [AgentTool(@"Call a method, or read/write a property or field, by reflection — including internal
