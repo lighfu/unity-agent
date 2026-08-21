@@ -103,7 +103,7 @@ Same risk tier as RunEditorScript: this is arbitrary code execution.",
             // the caller into a poll just to be told about a typo.
             if (!ScriptExecutionTools.TryCompileScript(code, usings, additionalReferences,
                                                        out var entry, out string compileError))
-                return compileError;
+                return compileError + ScriptExecutionTools.DescribeToolOverlap(code);
 
             EvictStaleJobs();
 
@@ -121,9 +121,13 @@ Same risk tier as RunEditorScript: this is arbitrary code execution.",
             EnsureDriver();
 
             Debug.Log($"[UnityAgent] RunEditorScriptAsync queued {job.Id}:\n{code}");
+
+            // Named here rather than at GetJobResult: the point of a hint is to arrive before the caller
+            // has spent the wait believing this was the only way to do it.
             return $"jobId: {job.Id}\nstate: queued (starts on the next editor tick)\n" +
                    $"timeoutSeconds: {timeoutSeconds}\n" +
-                   $"Poll with GetJobResult(jobId:'{job.Id}').";
+                   $"Poll with GetJobResult(jobId:'{job.Id}')." +
+                   ScriptExecutionTools.DescribeToolOverlap(code);
         }
 
         [AgentTool(@"Read the outcome of a RunEditorScriptAsync job.

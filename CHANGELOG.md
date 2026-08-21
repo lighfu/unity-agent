@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - enum は `name = value` と `enum:Full.Type.Value` 形式を併記し、そのまま `InvokeMember` に貼れる
 
 ### Changed
+- `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
 - `RunEditorScript` の既定 usings に `using Object = UnityEngine.Object;` を追加。`System` と `UnityEngine` が同居していて `Object.FindObjectsOfType` が曖昧参照になっていたのを解消 (#13)
 
 ### Fixed

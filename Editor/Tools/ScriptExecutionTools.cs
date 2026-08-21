@@ -23,6 +23,11 @@ Debug.Log is NOT the return channel. A script that only logs is reported as '(no
 lines it wrote are repeated back, so a forgotten 'return' costs no re-run — but 'return' is still the way
 to get a value out.
 
+If the submitted code contains something an existing tool already does — capturing a frame, refreshing
+the asset database, waiting on a compile, hand-written reflection — the result names that tool at the
+end. At most two such hints, and only for tools that exist in this project right now. The hint never
+blocks execution; by the time it is printed the script has already run.
+
 usings: ';' separated extra namespaces to add on top of the defaults
   (System, System.Linq, System.Collections.Generic, System.Text, UnityEngine, UnityEditor,
   plus 'using Object = UnityEngine.Object' so that Object.FindObjectsOfType / Object.DestroyImmediate
@@ -52,29 +57,34 @@ then NullReferenceException' failure cannot happen.")]
             Debug.Log($"[UnityAgent] RunEditorScript executing:\n{code}");
 
             if (!TryCompileScript(code, usings, additionalReferences, out var method, out string compileError))
-                return compileError;
+                return compileError + DescribeToolOverlap(code);
 
             // Execute. The capture starts here, after the log above, so this tool's own banner is not
             // reported back as if the script had written it.
+            string outcome;
             var console = new ScriptConsoleCapture();
             try
             {
                 object result = method.Invoke(null, null);
-                return DescribeScriptResult(result, console);
+                outcome = DescribeScriptResult(result, console);
             }
             catch (TargetInvocationException tex)
             {
                 var inner = tex.InnerException;
-                return $"Runtime Error: {inner?.Message ?? tex.Message}\n{inner?.StackTrace ?? tex.StackTrace}";
+                outcome = $"Runtime Error: {inner?.Message ?? tex.Message}\n{inner?.StackTrace ?? tex.StackTrace}";
             }
             catch (Exception ex)
             {
-                return $"Runtime Error: {ex.Message}\n{ex.StackTrace}";
+                outcome = $"Runtime Error: {ex.Message}\n{ex.StackTrace}";
             }
             finally
             {
                 console.Dispose();
             }
+
+            // Appended to every outcome, not just success: a compile error is the moment the caller is
+            // about to rewrite the same code by hand, which is precisely when the name is worth having.
+            return outcome + DescribeToolOverlap(code);
         }
 
         // ── console capture ──────────────────────────────────────────────────
@@ -153,6 +163,101 @@ then NullReferenceException' failure cannot happen.")]
             if (returned != null) return returned.ToString();
             return "Script executed successfully. (no return value)" +
                    (console != null ? console.DescribeForEmptyResult() : "");
+        }
+
+        // ── existing-tool hints ──────────────────────────────────────────────
+
+        /// <summary>One "this was hand-written but already exists" rule.</summary>
+        private sealed class OverlapHint
+        {
+            public readonly string What;
+            public readonly string[] Tools;
+            public readonly string[] Markers;
+
+            public OverlapHint(string what, string[] tools, params string[] markers)
+            {
+                What = what;
+                Tools = tools;
+                Markers = markers;
+            }
+        }
+
+        /// <summary>
+        /// Rules for naming the tool a submitted script duplicated.
+        ///
+        /// Deliberately a plain substring table. It runs AFTER the script has already executed, so a
+        /// false positive costs two lines of output, while a miss costs the caller a hand-written
+        /// re-implementation of something that shipped — capture-to-PNG written out four times, then a
+        /// PNG decoder and a pixel diff, is what prompted this.
+        /// </summary>
+        private static readonly OverlapHint[] OverlapHints =
+        {
+            new OverlapHint("capture a frame to a file in one call",
+                new[] { "CaptureFromCamera", "CaptureFromPose", "CaptureSceneView", "CaptureGameView" },
+                "EncodeToPNG", "EncodeToJPG", "ReadPixels"),
+            new OverlapHint("compare two images without decoding them by hand",
+                new[] { "DiffImages" },
+                "Inflate", "zlib", "Unfilter", "DecodePng", "DecodePNG"),
+            new OverlapHint("import outside edits and report whether a compile actually started",
+                new[] { "RefreshAssetDatabase" },
+                "AssetDatabase.Refresh"),
+            new OverlapHint("wait for a compile instead of polling for it by hand",
+                new[] { "WaitForCompilation" },
+                "EditorApplication.isCompiling"),
+            new OverlapHint("call internal members declaratively, and list them before calling",
+                new[] { "InvokeMember", "DescribeType" },
+                "BindingFlags", "GetMethod(", "GetField(", "GetProperty("),
+            new OverlapHint("report avatar performance rank",
+                new[] { "AnalyzeAvatarPerformance" },
+                "AvatarPerformance"),
+        };
+
+        private const int MaxOverlapHints = 2;
+
+        /// <summary>
+        /// Names the tools a submitted script duplicated, or "" when nothing matched.
+        ///
+        /// This tool's own docstring already says "as a last resort when no existing tool covers the
+        /// operation". That warning is correct and unusable: it cannot be acted on by a caller who does
+        /// not know what six hundred tools are named. This turns the warning into names.
+        ///
+        /// Tool names are checked against the live registry before being printed, so a renamed or
+        /// deleted tool quietly drops out of the hint rather than being recommended into the void.
+        /// </summary>
+        internal static string DescribeToolOverlap(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return "";
+
+            HashSet<string> known;
+            try
+            {
+                known = new HashSet<string>(ToolRegistry.GetAllTools().Select(t => t.method.Name),
+                                            StringComparer.Ordinal);
+            }
+            catch (Exception ex)
+            {
+                // A hint is a nicety. It must never be the reason a real result fails to come back.
+                AgentLogger.Debug(LogTag.Tool, $"RunEditorScript: tool-overlap hints skipped ({ex.Message}).");
+                return "";
+            }
+
+            var lines = new List<string>();
+            foreach (var hint in OverlapHints)
+            {
+                if (lines.Count >= MaxOverlapHints) break;
+
+                string marker = hint.Markers.FirstOrDefault(m => code.IndexOf(m, StringComparison.Ordinal) >= 0);
+                if (marker == null) continue;
+
+                var live = hint.Tools.Where(known.Contains).ToArray();
+                if (live.Length == 0) continue;
+
+                lines.Add($"Hint: this script contains '{marker}'. " +
+                          $"{string.Join(" / ", live)} already {hint.What}.");
+            }
+
+            if (lines.Count == 0) return "";
+            return Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, lines);
         }
 
         [AgentTool(@"Call a method, or read/write a property or field, by reflection — including internal
