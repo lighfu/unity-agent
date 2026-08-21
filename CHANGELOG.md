@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- 任意の位置・向きにカメラを置いて 1 枚撮る `CaptureFromPose`。被写体の内側から外を見る画が撮れる (#10)
+  - `near` を明示できる。VRChat 相当の 0.01 が既定で、Unity の 0.3 では発火しないニアクリップ由来の不具合を再現できる
+  - `positionFromBone` でボーン位置から、`lookAt` で注視点から指定可能
+  - `stereoSeparation` で左右 2 枚を 1 枚に並べて出力。片目だけ壊れる不具合の突き合わせ用
+  - 使い捨てカメラは `HideAndDontSave` で作って必ず破棄する。シーンは汚れず dirty にもならない
+
 ## [0.15.0] - 2026-08-19
 
 ### Added

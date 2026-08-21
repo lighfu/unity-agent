@@ -405,6 +405,711 @@ The result says so when that applies. Use CaptureGameView for the composited sta
         }
 
         // ─────────────────────────────────────────────────────────────────────────
+        // CaptureFromPose
+        // ─────────────────────────────────────────────────────────────────────────
+
+        [AgentTool(@"Put a THROW-AWAY camera at an exact world pose and render one frame from it — the only
+capture tool that looks at the scene from INSIDE the subject instead of orbiting it from outside.
+
+Use it when the picture you need is 'what does this point in space see': an avatar's eye position, a
+mirror's viewpoint, the inside of a helmet, a camera prop that does not exist yet. The alternatives cannot
+do this — CaptureFromCamera needs a Camera that is already in the scene, CaptureMultiAngle and
+CaptureMeshIsolated always circle the subject, CaptureSceneView returns the editor viewport.
+
+near IS THE POINT OF THIS TOOL. VRChat runs a near clip of roughly 0.01-0.05, Unity's camera default is
+0.3, and a whole class of shader bugs (anything keyed off _ProjectionParams.y, near-plane clipping,
+depth precision) NEVER FIRES at 0.3. The default here is therefore near=0.01, NOT Unity's 0.3.
+
+WHERE — exactly one of:
+  position='x,y,z' (world space), or
+  positionFromBone='Head' plus optional avatarName / offset='0,0.07,0.02'.
+  positionFromBone takes a humanoid bone name (Head, LeftEye, ...) resolved through the avatar's Animator
+  when the avatar is humanoid, otherwise a GameObject name or hierarchy path. avatarName limits the search
+  to one avatar; without it the name is resolved scene-wide and the result warns when it was ambiguous.
+  offsetInBoneSpace=true (default) rotates offset into the BONE's own axes; false adds it in world axes.
+
+WHERE IT LOOKS — at most one of rotation='x,y,z' (world euler) or lookAt='x,y,z' (world point to aim at).
+With NEITHER the camera keeps world identity, i.e. it looks along world +Z. That is not the bone's forward
+and not the avatar's forward; it merely coincides for an avatar standing unrotated facing +Z. Pass lookAt
+when the aim matters.
+
+stereoSeparation>0 renders TWO frames, offset half the separation each way along the camera's right axis,
+and returns them side by side in ONE image labelled L and R (0.065 is the usual human IPD). This is for
+chasing 'it is broken in one eye only'. It is a pair of mono renders, NOT a real VR stereo render: nothing
+the XR pipeline does per eye (single-pass instancing, per-eye projection matrices, per-eye post) is
+reproduced, so a bug that lives in that machinery will not show up here.
+
+cullingMask: '' (default) renders every layer. 'Default,UI' or '0,5' renders only those. Prefix ~ to
+invert, so '~Water' is everything except Water. An unknown layer name is an error, not a dropped layer.
+
+fov / near / far are handed to Unity as given and READ BACK: if Unity clamps one, the result says so
+instead of describing a picture taken with different values. A far/near ratio above 10000 costs depth
+precision and is reported — distant z-fighting in that image is the ratio, not a capture bug.
+
+The camera is created for this call and DestroyImmediate'd in a finally, on a HideAndDontSave GameObject.
+It is never saved, never selected, never left behind, and the scene is NOT marked dirty. No existing
+camera is touched, so an interrupted call cannot leave one of yours mis-configured.
+
+Route is always render: gizmos, the grid, selection outlines and editor overlays are NOT in this image
+(Camera.Render draws the scene, not the editor). Neither is per-camera post-processing — this is a bare
+Camera with no PostProcessLayer / Volume components of its own, so a scene camera's grading, bloom and AA
+stack is absent by design. Use CaptureFromCamera when you need that stack.",
+            Author = "ajisaiflow", Category = "GameViewCapture", Risk = ToolRisk.Safe)]
+        public static string CaptureFromPose(
+            string position = "",
+            string rotation = "",
+            string lookAt = "",
+            string positionFromBone = "",
+            string avatarName = "",
+            string offset = "",
+            bool offsetInBoneSpace = true,
+            float fov = 60f,
+            float near = 0.01f,
+            float far = 1000f,
+            float stereoSeparation = 0f,
+            string cullingMask = "",
+            int width = 1024,
+            int height = 1024,
+            bool includeSkybox = true,
+            string background = "scene",
+            int maxWidth = 0,
+            string format = "png",
+            int jpgQuality = 90,
+            string saveToPath = "",
+            string cropRegion = "",
+            int antiAliasing = 2)
+        {
+            if (width <= 0 || height <= 0)
+                return $"Error: width and height must be positive (got {width}x{height}).";
+            if (width > MaxDimension || height > MaxDimension)
+                return $"Error: {width}x{height} exceeds the maximum RenderTexture dimension ({MaxDimension}).";
+            if (fov <= 0f || fov >= 180f)
+                return $"Error: fov must be greater than 0 and less than 180 (got {F(fov)}).";
+            if (near <= 0f)
+                return $"Error: near must be greater than 0 (got {F(near)}); a near plane at or behind the " +
+                       "camera has no projection.";
+            if (far <= near)
+                return $"Error: far ({F(far)}) must be greater than near ({F(near)}).";
+            if (stereoSeparation < 0f)
+                return $"Error: stereoSeparation must not be negative (got {F(stereoSeparation)}). Use 0 for a " +
+                       "single frame, or a positive distance such as 0.065 for a left/right pair.";
+
+            // The pair is composed into ONE Texture2D, so the pair — not the eye — is what has to fit.
+            if (stereoSeparation > 0f && width * 2 > MaxDimension)
+                return $"Error: stereoSeparation>0 pairs two {width}-wide frames side by side, which " +
+                       $"exceeds the maximum texture dimension ({MaxDimension}). Use width <= " +
+                       $"{MaxDimension / 2} for a stereo pair.";
+
+            var opt = CaptureOptions.Create(maxWidth, format, jpgQuality, saveToPath, cropRegion,
+                                            background, antiAliasing);
+            if (!opt.Validate(out string optError)) return $"Error: {optError}";
+
+            if (!CaptureCommon.TryParseBackground(opt.Background, out CaptureBackgroundMode bgMode,
+                                                  out Color bgColor, out string bgError))
+                return $"Error: {bgError}";
+
+            var notes = new StringBuilder();
+
+            if (!TryResolvePosePosition(position, positionFromBone, avatarName, offset, offsetInBoneSpace,
+                                        notes, out Vector3 camPos, out string whereLabel, out string posError))
+                return $"Error: {posError}";
+
+            if (!TryResolvePoseRotation(rotation, lookAt, camPos, notes,
+                                        out Quaternion camRot, out string rotError))
+                return $"Error: {rotError}";
+
+            if (!TryParseCullingMask(cullingMask, out int mask, out string maskLabel, out string maskError))
+                return $"Error: {maskError}";
+
+            bool stereo = stereoSeparation > 0f;
+            bool keepAlpha = bgMode == CaptureBackgroundMode.Transparent;
+
+            GameObject camGo = null;
+            RenderTexture rt = null;
+            Texture2D left = null;
+            Texture2D right = null;
+            Texture2D composite = null;
+            try
+            {
+                // HideAndDontSave, not a scene object the user has to clean up: the GameObject still belongs
+                // to the active scene (that is what makes it renderable) but is never serialised, never shows
+                // up in the Hierarchy, and cannot be left behind by a save. An explicit Camera.Render draws it
+                // regardless of Camera.enabled, so the component stays disabled and Unity never draws this
+                // camera on its own into the Game view.
+                camGo = new GameObject("__PoseCaptureCam") { hideFlags = HideFlags.HideAndDontSave };
+                var cam = camGo.AddComponent<Camera>();
+                cam.enabled = false;
+                cam.orthographic = false;
+                cam.fieldOfView = fov;
+                cam.nearClipPlane = near;
+                cam.farClipPlane = far;
+                cam.aspect = (float)width / height;
+                cam.cullingMask = mask;
+                cam.transform.SetPositionAndRotation(camPos, camRot);
+
+                // Unity clamps these silently. Reporting the value it actually used keeps the reader from
+                // concluding that a near-plane bug does not reproduce when the near plane was never applied.
+                notes.Append(DescribeClamp("fov", fov, cam.fieldOfView));
+                notes.Append(DescribeClamp("near", near, cam.nearClipPlane));
+                notes.Append(DescribeClamp("far", far, cam.farClipPlane));
+
+                float ratio = cam.nearClipPlane > 0f ? cam.farClipPlane / cam.nearClipPlane : 0f;
+                if (ratio > 10000f)
+                    notes.Append($" NOTE: far/near is {F(ratio)} (near {F(cam.nearClipPlane)}, far " +
+                                 $"{F(cam.farClipPlane)}). Above about 10000 the depth buffer loses precision " +
+                                 "and distant surfaces z-fight. That is the price of a tiny near plane, not a " +
+                                 "fault in this capture — lower far if the background flickers.");
+
+                switch (bgMode)
+                {
+                    case CaptureBackgroundMode.Transparent:
+                        cam.clearFlags = CameraClearFlags.SolidColor;
+                        cam.backgroundColor = new Color(0f, 0f, 0f, 0f);
+                        notes.Append(" background=transparent: clearFlags SolidColor with alpha 0, so " +
+                                     "includeSkybox was IGNORED. If the PNG comes back opaque the render " +
+                                     "pipeline overwrote alpha — URP/HDRP post-processing commonly does.");
+                        break;
+                    case CaptureBackgroundMode.SolidColor:
+                        cam.clearFlags = CameraClearFlags.SolidColor;
+                        cam.backgroundColor = new Color(bgColor.r, bgColor.g, bgColor.b, 1f);
+                        notes.Append($" background={opt.Background}: clearFlags SolidColor, so includeSkybox " +
+                                     "was IGNORED.");
+                        break;
+                    default:
+                        if (includeSkybox)
+                        {
+                            cam.clearFlags = CameraClearFlags.Skybox;
+                            if (RenderSettings.skybox == null)
+                                notes.Append(" includeSkybox=true but the scene has no skybox material " +
+                                             "(RenderSettings.skybox is null), so the background is the " +
+                                             "camera's clear colour, not a sky.");
+                        }
+                        else
+                        {
+                            cam.clearFlags = CameraClearFlags.SolidColor;
+                            notes.Append(" includeSkybox=false: clearFlags SolidColor, clearing to the fresh " +
+                                         "camera's own default background colour.");
+                        }
+                        break;
+                }
+
+                rt = CaptureCommon.GetTemporaryTarget(width, height, opt, out string rtError);
+                if (rt == null) return $"Error: {rtError}";
+
+                if (!stereo)
+                {
+                    left = RenderOnce(cam, rt, keepAlpha, notes, out string renderError);
+                    if (left == null) return $"Error: {renderError}";
+
+                    notes.Append(DescribeFlatFrame(left,
+                        "the camera drew nothing from here — check the pose, the culling mask, and whether " +
+                        "the near plane is already past the geometry you expected to see"));
+
+                    string singleMsg = CaptureCommon.Finish(left, opt, $"Pose {whereLabel}", CaptureRoute.Render,
+                                                            out string singleFinishError, destroySource: true);
+                    left = null;   // Finish owns it now, including on its own failure path.
+                    if (singleMsg == null) return $"Error: {singleFinishError}";
+                    return singleMsg + DescribePose(camPos, camRot, cam, maskLabel) + notes.ToString();
+                }
+
+                // Both eyes are offset from the SAME centre pose, so the pair is symmetric about the point the
+                // caller asked for rather than starting at it — position='eye centre' stays the eye centre.
+                Vector3 rightAxis = camRot * Vector3.right;
+                float half = stereoSeparation * 0.5f;
+
+                cam.transform.position = camPos - rightAxis * half;
+                left = RenderOnce(cam, rt, keepAlpha, notes, out string leftError);
+                if (left == null) return $"Error: left eye: {leftError}";
+
+                cam.transform.position = camPos + rightAxis * half;
+                right = RenderOnce(cam, rt, keepAlpha, notes, out string rightError);
+                if (right == null) return $"Error: right eye: {rightError}";
+
+                notes.Append(DescribeFlatFrame(left,
+                    "the LEFT eye drew nothing — check the pose, the culling mask, and the near plane"));
+                notes.Append(DescribeFlatFrame(right,
+                    "the RIGHT eye drew nothing — check the pose, the culling mask, and the near plane"));
+
+                composite = ComposeSideBySide(left, right, keepAlpha, out int labelsDrawn,
+                                              out string composeError);
+                if (composite == null) return $"Error: {composeError}";
+
+                string msg = CaptureCommon.Finish(composite, opt, $"Stereo pair from pose {whereLabel}",
+                                                  CaptureRoute.Render, out string finishError,
+                                                  destroySource: true);
+                composite = null;   // Finish owns it now.
+                if (msg == null) return $"Error: {finishError}";
+
+                string labelNote = labelsDrawn == 2
+                    ? ""
+                    : $" NOTE: only {labelsDrawn} of the 2 eye labels could be burned into the image — the " +
+                      "LEFT eye is the left half regardless.";
+                return msg + $" Stereo pair: left half = LEFT eye, right half = RIGHT eye, separation " +
+                       $"{F(stereoSeparation)}m about the given position." + labelNote +
+                       DescribePose(camPos, camRot, cam, maskLabel) + notes.ToString();
+            }
+            catch (Exception ex)
+            {
+                return $"Error: rendering from pose {whereLabel} failed: {ex.Message}";
+            }
+            finally
+            {
+                if (left != null) UnityEngine.Object.DestroyImmediate(left);
+                if (right != null) UnityEngine.Object.DestroyImmediate(right);
+                if (composite != null) UnityEngine.Object.DestroyImmediate(composite);
+                if (rt != null) RenderTexture.ReleaseTemporary(rt);
+                // Last, and unconditionally: the camera must not outlive this call even if the render threw.
+                if (camGo != null) UnityEngine.Object.DestroyImmediate(camGo);
+            }
+        }
+
+        /// <summary>
+        /// One clear + render + read-back into a texture the caller owns.
+        ///
+        /// The clear is not optional: GetTemporaryTarget hands out pooled surfaces that still physically hold
+        /// the previous capture, and the second eye of a stereo pair would otherwise inherit the first eye's
+        /// pixels wherever it draws nothing — the exact comparison the pair exists to make.
+        /// </summary>
+        private static Texture2D RenderOnce(Camera cam, RenderTexture rt, bool keepAlpha, StringBuilder notes,
+                                            out string error)
+        {
+            error = null;
+            if (!TryClearTarget(rt, Color.clear, out string clearError))
+            {
+                notes.Append($" WARNING: the capture target could not be cleared before rendering " +
+                             $"({clearError}). It is a POOLED RenderTexture, so any area this camera did not " +
+                             "draw over may still hold a previous capture's pixels.");
+            }
+
+            try
+            {
+                cam.targetTexture = rt;
+                cam.Render();
+            }
+            catch (Exception ex)
+            {
+                error = $"Camera.Render failed: {ex.Message}";
+                return null;
+            }
+            finally
+            {
+                cam.targetTexture = null;
+            }
+
+            var tex = CaptureCommon.ReadBack(rt, keepAlpha, out string readError);
+            if (tex == null)
+            {
+                error = readError;
+                return null;
+            }
+            return tex;
+        }
+
+        /// <summary>
+        /// Resolves the camera position from either an explicit world vector or a bone, and hands back a short
+        /// human label for the result line. Ambiguity is reported, never resolved silently — a 'Head' that
+        /// matched three avatars would otherwise produce a perfectly plausible picture of the wrong one.
+        /// </summary>
+        private static bool TryResolvePosePosition(string position, string positionFromBone, string avatarName,
+                                                   string offset, bool offsetInBoneSpace, StringBuilder notes,
+                                                   out Vector3 camPos, out string whereLabel, out string error)
+        {
+            camPos = Vector3.zero;
+            whereLabel = "";
+            error = null;
+
+            bool hasPosition = !string.IsNullOrWhiteSpace(position);
+            bool hasBone = !string.IsNullOrWhiteSpace(positionFromBone);
+
+            if (hasPosition && hasBone)
+            {
+                error = $"position ('{position}') and positionFromBone ('{positionFromBone}') were both given " +
+                        "and they name different places. Pass exactly one.";
+                return false;
+            }
+            if (!hasPosition && !hasBone)
+            {
+                error = "no camera position was given. Pass position='x,y,z' for a world-space point, or " +
+                        "positionFromBone='Head' (optionally with avatarName and offset='0,0.07,0.02').";
+                return false;
+            }
+
+            Vector3 offsetVec = Vector3.zero;
+            bool hasOffset = !string.IsNullOrWhiteSpace(offset);
+            if (hasOffset && !TryParseVector3(offset, "offset", out offsetVec, out error)) return false;
+
+            if (hasPosition)
+            {
+                if (!TryParseVector3(position, "position", out camPos, out error)) return false;
+                if (hasOffset)
+                {
+                    // World axes: there is no bone to borrow a frame from, so offsetInBoneSpace is meaningless
+                    // here and saying so beats applying it in an invented space.
+                    camPos += offsetVec;
+                    notes.Append($" offset {V(offsetVec)} was added in WORLD axes (offsetInBoneSpace does not " +
+                                 "apply to an explicit position — there is no bone to take axes from).");
+                }
+                whereLabel = V(camPos);
+                return true;
+            }
+
+            if (!TryResolveBone(positionFromBone, avatarName, notes, out Transform bone, out error)) return false;
+
+            camPos = bone.position;
+            if (hasOffset)
+            {
+                camPos += offsetInBoneSpace ? bone.rotation * offsetVec : offsetVec;
+                notes.Append($" offset {V(offsetVec)} was applied in " +
+                             (offsetInBoneSpace ? "the BONE's axes" : "WORLD axes") + ".");
+            }
+            whereLabel = $"'{HierarchyPath(bone.gameObject)}' {V(camPos)}";
+            return true;
+        }
+
+        /// <summary>
+        /// Bone lookup with three routes, tried in this order: a humanoid bone through the Animator (the only
+        /// route that survives an avatar whose bones carry non-standard names), an exact name match under the
+        /// named avatar, then the repo-wide fuzzy FindGameObject when no avatar was named.
+        /// </summary>
+        private static bool TryResolveBone(string boneName, string avatarName, StringBuilder notes,
+                                           out Transform bone, out string error)
+        {
+            bone = null;
+            error = null;
+            string wanted = boneName.Trim();
+
+            GameObject root = null;
+            if (!string.IsNullOrWhiteSpace(avatarName))
+            {
+                root = MeshAnalysisTools.FindGameObject(avatarName.Trim());
+                if (root == null)
+                {
+                    error = $"avatarName '{avatarName}' matched no GameObject in the loaded scenes.";
+                    return false;
+                }
+            }
+
+            if (root != null)
+            {
+                var animator = root.GetComponent<Animator>() ?? root.GetComponentInChildren<Animator>(true);
+                if (animator != null && animator.isHuman &&
+                    Enum.TryParse(wanted, true, out HumanBodyBones humanBone) &&
+                    humanBone != HumanBodyBones.LastBone)
+                {
+                    var t = animator.GetBoneTransform(humanBone);
+                    if (t != null)
+                    {
+                        notes.Append($" Bone '{wanted}' was resolved as the humanoid {humanBone} of " +
+                                     $"'{HierarchyPath(root)}'.");
+                        bone = t;
+                        return true;
+                    }
+                    notes.Append($" '{wanted}' is a humanoid bone name but this avatar's rig has no {humanBone} " +
+                                 "mapped, so it was looked up by GameObject name instead.");
+                }
+
+                var matches = root.GetComponentsInChildren<Transform>(true)
+                                  .Where(t => string.Equals(t.name, wanted, StringComparison.OrdinalIgnoreCase))
+                                  .ToList();
+                if (matches.Count == 0)
+                {
+                    error = $"positionFromBone '{wanted}' matched no transform under avatarName " +
+                            $"'{HierarchyPath(root)}'. Pass a humanoid bone name (Head, LeftEye, ...) or an " +
+                            "exact child name.";
+                    return false;
+                }
+                if (matches.Count > 1)
+                {
+                    error = $"positionFromBone '{wanted}' matched {matches.Count} transforms under " +
+                            $"'{HierarchyPath(root)}': " +
+                            string.Join(", ", matches.Take(5).Select(t => HierarchyPath(t.gameObject))) +
+                            (matches.Count > 5 ? ", ..." : "") +
+                            ". Pass the full hierarchy path instead of the bare name.";
+                    return false;
+                }
+                bone = matches[0];
+                return true;
+            }
+
+            var found = MeshAnalysisTools.FindGameObject(wanted);
+            if (found == null)
+            {
+                error = $"positionFromBone '{wanted}' matched no GameObject in the loaded scenes. Pass " +
+                        "avatarName as well if the bone lives under an inactive avatar, or use a humanoid " +
+                        "bone name (Head, LeftEye, ...) together with avatarName.";
+                return false;
+            }
+
+            // FindGameObject returns the FIRST match; with two avatars in the scene that is a coin flip, and a
+            // capture of the wrong head looks entirely successful. Count the namesakes and say so.
+            int namesakes = 0;
+            try
+            {
+                namesakes = UnityEngine.Object.FindObjectsOfType<Transform>(true)
+                    .Count(t => string.Equals(t.name, found.name, StringComparison.Ordinal));
+            }
+            catch (Exception ex)
+            {
+                AgentLogger.Debug(LogTag.Tool, $"CaptureFromPose: namesake count skipped ({ex.Message}).");
+            }
+            if (namesakes > 1)
+            {
+                notes.Append($" WARNING: {namesakes} transforms in the loaded scenes are called " +
+                             $"'{found.name}' and '{HierarchyPath(found)}' is the one that was used. Pass " +
+                             "avatarName to say which avatar you meant.");
+            }
+
+            bone = found.transform;
+            return true;
+        }
+
+        private static bool TryResolvePoseRotation(string rotation, string lookAt, Vector3 camPos,
+                                                   StringBuilder notes, out Quaternion camRot, out string error)
+        {
+            camRot = Quaternion.identity;
+            error = null;
+
+            bool hasRotation = !string.IsNullOrWhiteSpace(rotation);
+            bool hasLookAt = !string.IsNullOrWhiteSpace(lookAt);
+
+            if (hasRotation && hasLookAt)
+            {
+                error = $"rotation ('{rotation}') and lookAt ('{lookAt}') were both given and they aim the " +
+                        "camera differently. Pass at most one.";
+                return false;
+            }
+
+            if (hasRotation)
+            {
+                if (!TryParseVector3(rotation, "rotation", out Vector3 euler, out error)) return false;
+                camRot = Quaternion.Euler(euler);
+                return true;
+            }
+
+            if (hasLookAt)
+            {
+                if (!TryParseVector3(lookAt, "lookAt", out Vector3 target, out error)) return false;
+                Vector3 dir = target - camPos;
+                if (dir.sqrMagnitude < 1e-10f)
+                {
+                    error = $"lookAt {V(target)} is the camera position itself, so there is no direction to " +
+                            "aim along.";
+                    return false;
+                }
+                // Vector3.up fails only when the aim is exactly vertical; Quaternion.LookRotation returns
+                // identity there, which would silently point the camera at the horizon instead of the target.
+                Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.9999f
+                    ? Vector3.forward
+                    : Vector3.up;
+                camRot = Quaternion.LookRotation(dir, up);
+                return true;
+            }
+
+            notes.Append(" No rotation or lookAt was given, so the camera looks along WORLD +Z. That is not " +
+                         "the bone's forward and not the avatar's forward — pass lookAt or rotation if the " +
+                         "aim matters.");
+            return true;
+        }
+
+        /// <summary>
+        /// '' = every layer, 'Default,UI' or '0,5' = only those, '~Water' = everything except those.
+        /// An unrecognised layer is an error listing the layers this project actually defines: a dropped
+        /// layer would come back as a picture that is simply missing objects, with nothing to explain why.
+        /// </summary>
+        private static bool TryParseCullingMask(string cullingMask, out int mask, out string label,
+                                                out string error)
+        {
+            mask = ~0;
+            label = "every layer";
+            error = null;
+
+            string spec = (cullingMask ?? "").Trim();
+            if (spec.Length == 0) return true;
+
+            bool invert = spec.StartsWith("~", StringComparison.Ordinal);
+            if (invert) spec = spec.Substring(1).Trim();
+            if (spec.Length == 0)
+            {
+                error = "cullingMask '~' names no layer to exclude.";
+                return false;
+            }
+
+            int bits = 0;
+            var named = new List<string>();
+            foreach (string raw in spec.Split(','))
+            {
+                string token = raw.Trim();
+                if (token.Length == 0) continue;
+
+                int index;
+                if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out index))
+                {
+                    if (index < 0 || index > 31)
+                    {
+                        error = $"cullingMask layer index {index} is out of range — Unity has layers 0-31.";
+                        return false;
+                    }
+                }
+                else
+                {
+                    index = LayerMask.NameToLayer(token);
+                    if (index < 0)
+                    {
+                        error = $"cullingMask names layer '{token}', which this project does not define. " +
+                                $"Defined layers: {DescribeDefinedLayers()}.";
+                        return false;
+                    }
+                }
+
+                bits |= 1 << index;
+                string name = LayerMask.LayerToName(index);
+                named.Add(string.IsNullOrEmpty(name) ? index.ToString(CultureInfo.InvariantCulture)
+                                                     : $"{name}({index})");
+            }
+
+            if (bits == 0)
+            {
+                error = $"cullingMask '{cullingMask}' resolved to no layer at all, which would render an empty " +
+                        "frame. Leave it empty to render every layer.";
+                return false;
+            }
+
+            mask = invert ? ~bits : bits;
+            label = invert ? $"every layer except {string.Join(", ", named)}"
+                           : $"only {string.Join(", ", named)}";
+            return true;
+        }
+
+        private static string DescribeDefinedLayers()
+        {
+            var defined = new List<string>();
+            for (int i = 0; i < 32; i++)
+            {
+                string name = LayerMask.LayerToName(i);
+                if (!string.IsNullOrEmpty(name)) defined.Add($"{name}({i})");
+            }
+            return defined.Count == 0 ? "(none)" : string.Join(", ", defined);
+        }
+
+        /// <summary>
+        /// Says so when Unity did not accept a clip plane or field of view verbatim. Silence here would let a
+        /// near-plane investigation conclude 'not reproducible' from a frame rendered at a different near plane.
+        /// </summary>
+        private static string DescribeClamp(string name, float requested, float applied)
+        {
+            if (Mathf.Abs(requested - applied) <= Mathf.Max(1e-6f, Mathf.Abs(requested) * 1e-5f)) return "";
+            return $" NOTE: {name}={F(requested)} was CLAMPED by Unity to {F(applied)}; this image was " +
+                   $"rendered with {F(applied)}, not {F(requested)}.";
+        }
+
+        private static string DescribePose(Vector3 pos, Quaternion rot, Camera cam, string maskLabel)
+        {
+            return $" Camera at {V(pos)}, euler {V(rot.eulerAngles)}, forward {V(rot * Vector3.forward)}, " +
+                   $"fov {F(cam.fieldOfView)}, near {F(cam.nearClipPlane)}, far {F(cam.farClipPlane)}, " +
+                   $"rendering {maskLabel}.";
+        }
+
+        /// <summary>
+        /// Left and right frames on one plate, separated by a thin gutter so the seam is visible, with the eye
+        /// burned into each half. Two attachments would let the reader mix the eyes up; one image cannot.
+        /// The caller owns the result.
+        /// </summary>
+        private static Texture2D ComposeSideBySide(Texture2D left, Texture2D right, bool keepAlpha,
+                                                   out int labelsDrawn, out string error)
+        {
+            error = null;
+            labelsDrawn = 0;
+            if (left == null || right == null)
+            {
+                error = "one of the two eye frames is missing.";
+                return null;
+            }
+            if (left.width != right.width || left.height != right.height)
+            {
+                error = $"the eye frames differ in size ({left.width}x{left.height} vs " +
+                        $"{right.width}x{right.height}) and cannot be paired.";
+                return null;
+            }
+
+            int gutter = Mathf.Max(2, left.width / 128);
+            int w = left.width * 2 + gutter;
+            int h = left.height;
+            Texture2D composite = null;
+            try
+            {
+                composite = new Texture2D(w, h, keepAlpha ? TextureFormat.RGBA32 : TextureFormat.RGB24, false);
+
+                var plate = new Color(0.15f, 0.15f, 0.15f, keepAlpha ? 0f : 1f);
+                var bg = new Color[w * h];
+                for (int i = 0; i < bg.Length; i++) bg[i] = plate;
+                composite.SetPixels(bg);
+
+                composite.SetPixels(0, 0, left.width, h, left.GetPixels());
+                composite.SetPixels(left.width + gutter, 0, right.width, h, right.GetPixels());
+
+                int scale = Mathf.Clamp(left.width / 48, 2, 10);
+                int margin = Mathf.Max(3, scale);
+                if (CaptureCommon.DrawTextWithBackground(composite, margin, margin, "L", scale, apply: false))
+                    labelsDrawn++;
+                if (CaptureCommon.DrawTextWithBackground(composite, left.width + gutter + margin, margin, "R",
+                                                         scale, apply: false))
+                    labelsDrawn++;
+
+                composite.Apply(false, false);
+                return composite;
+            }
+            catch (Exception ex)
+            {
+                if (composite != null) UnityEngine.Object.DestroyImmediate(composite);
+                error = $"the stereo pair could not be composed: {ex.Message}";
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 'x,y,z' with invariant-culture floats. Rejects anything else by name, because a vector that parsed
+        /// to zero would put the camera at the world origin and return a picture of somewhere else entirely.
+        /// </summary>
+        private static bool TryParseVector3(string s, string argName, out Vector3 v, out string error)
+        {
+            v = Vector3.zero;
+            error = null;
+
+            var parts = (s ?? "").Split(',');
+            if (parts.Length != 3)
+            {
+                error = $"{argName}='{s}' is not a vector — it needs exactly three comma-separated numbers, " +
+                        "as in '0,1.35,0.08'.";
+                return false;
+            }
+
+            var values = new float[3];
+            for (int i = 0; i < 3; i++)
+            {
+                if (!float.TryParse(parts[i].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                                    out values[i]))
+                {
+                    error = $"{argName}='{s}': component {i} ('{parts[i].Trim()}') is not a number.";
+                    return false;
+                }
+                if (float.IsNaN(values[i]) || float.IsInfinity(values[i]))
+                {
+                    error = $"{argName}='{s}': component {i} is not finite.";
+                    return false;
+                }
+            }
+
+            v = new Vector3(values[0], values[1], values[2]);
+            return true;
+        }
+
+        private static string V(Vector3 v)
+            => $"({F(v.x)}, {F(v.y)}, {F(v.z)})";
+
+        private static string F(float value)
+            => value.ToString("0.####", CultureInfo.InvariantCulture);
+
+        // ─────────────────────────────────────────────────────────────────────────
         // ListCameras
         // ─────────────────────────────────────────────────────────────────────────
 
