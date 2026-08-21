@@ -4,216 +4,155 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.11.0] - 2026-05-17
+## [Unreleased]
+
+## [0.15.0] - 2026-08-19
+
+### Added
+- ツール呼び出しの統計ウィンドウ。時系列・ツール別ランキング・カテゴリ別内訳・文字数と所要時間の 4 グラフ。ツールバーのアイコンから開く
+- `GetUnityAgentInfo` — バージョン / ツール内訳 / 導入パッケージ / MCP 状態を 1 コールで返す。`detail='full'` で詳細版
+- 背景の Unity にスクリプト変更をコンパイルさせる手段。`RefreshAssetDatabase` / `RecordAssemblyBaseline` / `CompareAssemblyBaseline` / `BringUnityToForeground`
+- コンパイル・インポートの完了待ち `WaitForCompilation`
+- キャプチャを拡張。`CaptureGameView` / `CaptureFromCamera` / `ListCameras` / `CaptureAnimationFrames` / `ListWindows` / `CaptureWindow` / `ListUIElements`
+- シェーダー変種の実コンパイル検証 `CompileShaderVariants` / `PreprocessShaderVariant` / `GetShaderVariantCount`
+- 画像差分 `DiffImages` と、マテリアルを A/B で振って描き比べる `RenderMaterialAB`
+- マテリアル関連 `DumpMaterial`（宣言型つき）/ `DiffMaterials` / `FindMaterials` / `RenderMaterialMask`
+- マテリアル割り当てのスナップショット比較 `SnapshotSceneMaterials` / `CompareSnapshots`
+- GUID による逆引き参照検索 `FindReferencesTo`
+- リフレクション呼び出しの入口 `InvokeMember`（Risk=Dangerous）
+- MCP の 120 秒制限を超える処理向けに `RunEditorScriptAsync` / `GetJobResult`
+- エディタの状態を軽量に返す `GetEditorState` と、モーダル中の呼び出しを即座に弾くメインスレッド・ウォッチドッグ
+- FaceEmo — 条件なしブランチ、条件の削除・変更（`RemoveGestureCondition` / `ModifyGestureCondition`）、アニメーションの一括設定（`SetExpressionAnimations`）、ランチャー間の Mode 複製（`CopyFaceEmoMode`）
+- AnimationClip の binding path を一括で付け替える `RebindAnimationClipPaths`。移植先メッシュの BlendShape 実在チェックつき
+
+### Changed
+- `CaptureSceneView` に `pivot` / `rotation` / `orthoSize` / `source` / `drawMode` / `lighting` を追加
+- `CaptureEditorWindow` に `focusless`（新既定 true）と `bringToFront` を追加。フォーカスを奪わずに撮れる
+- `ListEditorWindows` に `activeTab` を追加。背面タブは撮影を拒否する
+- `DiffImages` に `maskRegion` と `magentaPixels`、`GetConsoleLogs` に `sinceIndex` を追加
+- `RunEditorScript` で `HashSet<T>` / `Dictionary<K,V>` が使えるようになり、`usings` / `additionalReferences` を追加
+- `WaitForCompilation` に `assemblyName` と `settleSeconds`、`TriggerDomainReload` の `mode='recompile'` を実際に動くようにした
+- ブリッジに `--idle-quit` フラグを追加（既定 5 分、`0` 以下で無効）
+- `ModifyBranchProperties` に `branchIndices` を追加。`all` / `0-13` / `0,2,4` でまとめて設定できる
+- FaceEmo の一覧に GUID 先頭 8 桁、詳細にアセットパスを併記。同名クリップを識別できるようにした
+
+### Fixed
+- Ollama など OpenAI 互換プロバイダで `\uXXXX` がデコードされず、ツールが 1 つも実行できなかった（#5）。Claude API / Claude CLI / Codex CLI にも同じ欠陥があり併せて修正
+- スキーマにない引数が黙って捨てられ、意図しないオブジェクトを操作していた（#7）。未知の引数は結果の先頭に警告を出す。引数バインドの大文字小文字も無視するようにした
+- FaceEmo のサムネイル系 4 ツールが `gameObjectName` を受け付けず、`GetHierarchyTree` だけ対象引数が `name` だった（#7）
+- FaceEmo の一覧で条件の意味が誤って表示され、左右・両手のクリップが出ていなかった（#8）
+- Bridge モードで `GetEditorState` が `compiling` / `importing` / `playMode` / `autoRefresh` を一度も更新していなかった
+- ブリッジが利用中に自死する、落ちると恒久的に無応答になる、取り残された呼び出しが後から実行される、の 3 点
+- MCP の `initialize` が返す `serverInfo.version` が常に `0.0.0.0` だった
+- 多角度キャプチャの角度名が反対側を指し、真上・真下でセルの向きが不定になり、セルのラベルが描かれず、グリッド行列がツール間で食い違い、フレーミングが FOV を無視していた
+- `CaptureMeshIsolated` がシーン全 Renderer と対象の祖先の `SetActive` を無条件に書き換えていた
+- デバッグダンプが固定名で上書きされ、キャプチャでない画像が保持窓を押し出していた
+
+### Notes
+- キャプチャ関連の変更は Unity Editor 上での実機未検証（コンパイル検証のみ）。とくにリフレクション経路と `PrintWindow` の実挙動はビルドでは確かめられない
+- ブリッジのバイナリは `build.ps1 -All` で 4 RID を再ビルドしたものを同梱している。`main.go` を触ったら再ビルドすること
+
+## [0.14.0] - 2026-08-09
+
+> このバージョンはリリース時に CHANGELOG へ記載されなかったため、git 履歴から後追いで再構成した。
+
+### Added
+- MCP サーバーが Streamable HTTP トランスポートに対応（#4）。
+
+### Fixed
+- Streamable HTTP の Origin 検証を追加し、IPv6 ループバックと IPv4-mapped ループバックを受け付けるようにした。ブリッジ側の Origin の扱いも本体と揃えた。
+- 応答をボディ未読のまま閉じて接続が RST になる問題を修正。
+- レガシーな asset package 配置でのブリッジのルート解決に対応。
+- GestureManager 連携で `GetModuleFor` に GameObject を渡していた型不一致を修正。
+
+## [0.13.0] - 2026-07-19
+
+### Added
+- VRChat SDK 連携ツール群 `VRChatUploadTools`（7 ツール）。認証確認、Control Panel 起動、アップロード済みコンテンツの一覧・詳細、アバター/ワールドの Build & Publish、再アップロードなしのメタ情報更新。SDK の型はリフレクションで解決するので SDK 未導入でもコンパイルできる
+- Visibility は既定 private。public 化は `confirmPublic=true` とネイティブ確認ダイアログの二重ゲートで、LLM 単独では公開できない
+- `-batchmode` ではアップロードを拒否する。確認ダイアログが自動承認され、人間の同意なしに通ってしまうため
+- Skill Management に「URLから取込」を追加。GitHub の raw `.md` URL からスキルを取り込める（blob URL は自動変換、取込前にプレビュー）
+
+## [0.12.1] - 2026-07-09
+
+> このバージョンはリリース時に CHANGELOG へ記載されなかったため、git 履歴から後追いで再構成した。
+
+### Fixed
+- NDMF の手動 bake ツールで起きていた `Ambiguous match found` と、prefab を誤って拒否していた問題を解消。
+
+## [0.12.0] - 2026-07-06
+
+> このバージョンはリリース時に CHANGELOG へ記載されなかったため、git 履歴から後追いで再構成した。
+
+### Added
+- XML 形式 `<tool>` / `<arg>` のツール呼び出し構文を追加。内蔵スキル群の呼び出し例も XML に統一した。
+- ComfyUI 画像生成プロバイダを追加。
+- Modular Avatar の Merge Animator / Merge Armature / BoneProxy を AgentTool として公開。メニューの入れ子と icon、Merge Animator の layerType も指定できる。
+- VRChat アバター向けに Viseme / リップシンクの自動マッピングと、ViewPosition の自動算出・Eye Look セットアップを追加。
+- ローカライズリソースを整備。
+
+### Changed
+- システムプロンプト本文を外部 `.md` リソース化し、冗長な静的テキストを圧縮した。
+- README を英語主言語にして言語別ファイル（ja / zh-TW / zh-CN）へ分割。
+
+### Removed
+- 死蔵していた `SupporterData` / `SupporterShowcaseWindow` を削除。
+
+### Fixed
+- 破壊系ツール 6 件が確認ダイアログを迂回していた問題を解消（`DefaultConfirmTools` を追加）。
+- 長文が丸ごと非表示になる VisualElement の 65535 頂点上限を回避。
+- Write Defaults の案内と、VRChat 公式仕様と食い違っていたスキルの記述を訂正。
+- 廃止された Gemini モデルを除去し、Opus 4.8 を追加、価格テーブルを更新。
+
+## [0.11.1] - 2026-06-20
+
+> このバージョンはリリース時に CHANGELOG へ記載されなかったため、git 履歴から後追いで再構成した。
+
+### Added
+- ターンごとの変更ログを持ち、部分的な undo（ロールバック）ができるようにした。ドメインリロードをまたいで保持され、編集・再生成の前にはロールバック確認ダイアログを挟む。
+- メッセージ操作行を統一し、最後の応答に対する再生成ボタンを追加。処理中でも割り込んで編集できる。
+- チャット履歴パネルに削除ボタンとメッセージ数表示を追加。
+- 下端追従スクロールと「最新へジャンプ」ボタン。
+- Mesh Painter v2: ドラッグ分割 UI、共有テクスチャへのコミット、操作の永続化。
+- プロバイダに Claude Opus 4.7 / Gemini 3.5 Flash / GPT-5.5 を登録。
+
+### Fixed
+- 履歴が大きいとパネルを開いた瞬間に固まる問題。遅延読み込みと ListView による仮想化で解消し、行要素も再利用するようにした。
+- 破損した履歴ファイルの扱い、非表示中のポンプ停止、削除ダイアログのタイトルを修正。
+- ドメインリロード後にツールカードが消える問題と、リクエスト処理の耐障害性。
+- lilToon の decal `IsDecal` フラグ、Shadow3rd のテクスチャマッピング、docstring のずれを修正。
+- アバターパフォーマンス解析が NDMF 未導入環境で壊れないよう versionDefine で保護。
+
+## [0.11.0] - 2026-05-22
 
 ### Added — Plan C: Gesture-Aware Expression Workflow
+- FaceEmoPlanC 名前空間に 10 ツール。Discovery（`ResolveTargetAvatar` / `InspectFaceEmoState` / `AutoSetupFaceEmoForAvatar`）、Gesture（`ListGestureBindings` / `FindBranchByCondition` / `DetectGestureConflicts` / `AssignClipToGesture`）、Curation（`SuggestCandidateShapes` / `ApplyExpressionVariation` / `ListExpressionVariations`）
+- Session API を拡張。`OpenForBranch` / `CommitAsBranchOf`（6 段階のアトミックなコミットとロールバック）/ `CommitInPlace` / `GetCurrentValuesWithPaths`
+- `OpenExpressionSession` に `editMode`（`new-mode` / `create-branch-clip` / `edit-existing-clip`）を追加。CreateBranchClip 用に `CommitExpressionSessionToBranch` を新設
+- Ctrl+Z でターン全体をロールバックできるようにした
+- 設計と計画は `docs/superpowers/` 配下
 
-- 5 layers: Orchestrator / Discovery / Convention / Curation / Execution (`Editor/Tools/FaceEmoPlanC/`)
-- 10 new AgentTools under FaceEmoPlanC namespace:
-  - Discovery: `ResolveTargetAvatar`, `InspectFaceEmoState`, `AutoSetupFaceEmoForAvatar`
-  - Gesture: `ListGestureBindings`, `FindBranchByCondition`, `DetectGestureConflicts`, `AssignClipToGesture`
-  - Curation: `SuggestCandidateShapes`, `ApplyExpressionVariation`, `ListExpressionVariations`
-- Session API extensions (`FaceEmoExpressionEditor/FaceEmoExpressionSession.cs`):
-  - `OpenForBranch` — load existing Branch clip into Expression Editor
-  - `CommitAsBranchOf` — atomic 6-step commit + rollback (clip create → branch find/add → slot assign → menu save → mainview refresh)
-  - `CommitInPlace` — overwrite existing clip in place (EditExistingClip mode)
-  - `GetCurrentValuesWithPaths` — path-preserving blendshape read for commit
-  - Enums: `SessionEditMode` (NewMode/EditExistingClip/CreateBranchClip), `OverwriteMode` (Ask/Overwrite/EditExisting/Cancel)
-- `OpenExpressionSession` accepts `editMode='new-mode'|'create-branch-clip'|'edit-existing-clip'` (default 'new-mode')
-- New AgentTool `CommitExpressionSessionToBranch` for CreateBranchClip path
-- `CommitExpressionSession` routes to `CommitInPlace` when EditMode=EditExistingClip
-- `BuiltInSkills.cs` Workflow C guide (10-step gesture-aware flow)
-- Ctrl+Z atomic rollback (`Undo.SetCurrentGroupName` + `CollapseUndoOperations`)
-- `FaceProfileTools.LoadOrBuild` visibility changed from private to internal (CurationTools access)
-- Spec: `docs/superpowers/specs/2026-05-17-faceemo-plan-c-gesture-assignment-design.md`
-- Plan: `docs/superpowers/plans/2026-05-17-faceemo-plan-c-gesture-assignment.md`
-
-### Fixed
-
-- Quest conversion tools no longer break compilation on VRCQuestTools versions older than 2.7.0. The `MaterialSwap` component was added in VRCQuestTools 2.7.0, but `QuestConversionTools.cs` referenced it whenever *any* VRCQuestTools version was installed, causing `CS0246: MaterialSwap could not be found`. The `AddMaterialSwap` tool and the Material Swap section of `InspectQuestSettings` are now gated behind a new `VRC_QUEST_TOOLS_MATERIAL_SWAP` define (versionDefine expression `2.7.0`, i.e. 2.7.0 or newer). All other Quest tools stay available on older VRCQuestTools.
-- Model definitions are now single-sourced from `ModelCapabilityRegistry`. Provider dropdown presets and display names were previously hand-maintained in `ProviderRegistry.cs` as a second list parallel to the capability registry, and the two drifted: `grok-4` / `grok-code-fast-1` were registered but not selectable from the xAI dropdown, several Groq dropdown models had no capability entry (wrong context-window fallback), Perplexity's `sonar-reasoning-pro` / `sonar-deep-research` were missing from the registry, and Vertex AI's effective default resolved to the deprecated `gemini-2.0-flash`. Each model now declares which provider dropdowns it appears in via a `dropdowns:` argument; `ProviderRegistry` derives presets and `"DisplayName (id)"` labels from the registry, and a startup self-check warns on deprecated or unregistered provider defaults.
-
-## [Unreleased]
-### Added
-- **シェーダー変種の実コンパイル検証** `ShaderVariantTools`（3 ツール、`Editor/Tools/ShaderVariantTools.cs`）。`ShaderUtil.GetShaderMessages` / `ShaderHasError` は「エディタが既にコンパイルした変種」しか報告しないため、どのマテリアルからも要求されていない変種は壊れていてもエラー 0 を返す（実害はゲーム内でマゼンタになって初めて発覚する）。public API の `ShaderData.Pass.CompileVariant` で対象変種をその場でコンパイルする。
-  - `CompileShaderVariants` — パスごとに success / エラー / **バイトコードサイズ**。keyword の有無でサイズを比べると「狙ったパスにだけ効いた」ことがバイト単位で言える（実測: Sunao/CompletePCSS で `SPOT;SHADOWS_DEPTH;SHADOWS_SOFT` を付けると ForwardAdd 相当のパスが 18,518 → 29,710 byte、他パスは不変）。
-  - `PreprocessShaderVariant` — プリプロセス後 HLSL を正規表現で絞って返す。コンパイルが通ることは「差し込んだコードが実際にその変種に入った」証明にはならないため。
-  - `GetShaderVariantCount` — 変種数と keyword 空間。変種爆発の前後比較用（internal な `ShaderUtil.GetVariantCount` をリフレクションで参照し、取得できない場合は推測せず「unavailable」と報告）。
-- **画像差分と A/B レンダリング** `ImageDiffTools`（2 ツール、`Editor/Tools/ImageDiffTools.cs`）。
-  - `DiffImages` — 差分画素数 / 割合 / 最大差 / 平均差 と、可視化した差分 PNG。サイズ不一致は推測せずエラー。
-  - `RenderMaterialAB` — マテリアルのプロパティを A/B で振って SceneView を 2 回描画し、差分まで 1 コール。プロパティ名はシェーダー側の綴りに解決してから使う（`Material.Set*` は case-sensitive なので、綴りが違うと orphan プロパティに書き込まれ「このプロパティは効果なし」と誤答する）。`Integer` 宣言プロパティには `SetInteger` を使う。復元は `EditorJsonUtility` によるマテリアル全体のスナップショットで行い、例外時も含めて必ず戻す（プロパティ単位で書き戻すと、シリアライズエントリを持たなかったプロパティに新規エントリが作られ、`DumpMaterial` の `AT DEFAULT` 判定が壊れる）。
-- **マテリアルの宣言型つきダンプ** `DumpMaterial`。シェーダーの宣言型（`ShaderPropertyType`）、実際にシリアライズされているスロット（`m_Ints` / `m_Floats` / `m_Colors` / `m_TexEnvs`）、再読み込み時に効く値（`effective`）を並べて出す。`Integer` 宣言のプロパティに `SetFloat` で書くと **Unity は値を完全に無視する**（Unity 2022.3 で実測。`m_Ints` にも `m_Floats` にも入らず、例外も警告も出ない）ため、「設定したのに効かない」が黙って起きる。`Integer` 宣言で未設定のものは `NOT SET` として、`m_Ints` と `m_Floats` が食い違うものは `MISMATCH` として報告する。
-  - あわせて ShaderLab の落とし穴を可視化する: `("Foo", Int)` はレガシー構文で実体は `Float`（`SetFloat` で書く）、`("Foo", Integer)`（Unity 2021.1+）が本物の整数で `SetInteger` が要る。シェーダーソースの `Int` はどちらの意味にもなりうるので、`declared=` の表示だけが信用できる。
-  - `rootObject` の解決は非アクティブな GameObject も対象にする（`GameObject.Find` は非アクティブを見つけない。変換前後の比較では対象がトグルオフされているのが普通）。`InvokeMember` の `gameobject:` / `component:` ターゲットも同じ。
-  - 宣言されていないのに残っているプロパティは `ORPHAN` として件数を報告（シェーダーを乗り換えたマテリアルでは数百件出るのが正常で、エラーではない）。`propertyFilter` で 3000 プロパティ級の uber-shader からも目的の行だけ取り出せる。
-- **マテリアル割り当てのスナップショット比較** `SnapshotSceneMaterials` / `CompareSnapshots`。Renderer パス・スロット・マテリアル GUID を TSV に書き出して突き合わせる。「変換 → 解除で完全に元へ戻るか」の検証が 1 コールになる。`rootObject` 指定時のパスはルート相対なので、リネームや複製をまたいでも突き合う。同名の兄弟 GameObject には `#n` を付けて区別する（付けないとキーが衝突し、片方だけ変わっても `IDENTICAL` と誤答する）。
-- **逆引き参照検索** `FindReferencesTo`。「これを参照しているものはあるか」をテキストシリアライズされたアセットの GUID 走査で答える。削除・移動前の安全確認向け。`Assets/` と `ProjectSettings/` を走査し、`.meta`（FBX importer の `externalObjects` マテリアル再マップ等）も対象に含む（対象自身の `.meta` は除外 — 全ての `.meta` は先頭で自身の GUID を宣言するため、除外しないと必ず 1 件の偽陽性が出る）。時間予算つきで、タイムアウト・サイズ超過・Force Binary・**開いているシーンの未保存変更**のいずれかがあれば **結果を不完全と明示する**（空の結果を「削除して安全」と誤読させない）。約 10 GB のプロジェクトで全走査 45 秒程度。
-- **コンパイル / インポート完了待ち** `WaitForCompilation`。`isCompiling` を見て勘で待つ代わりに、完了までブロックして待機中に出た新規エラーだけを返す。`IEnumerator` を返すエディタコルーチンとして実装しているのでメインスレッドを止めない。ドメインリロードを伴う場合は待てないため、その旨と代替手順を docstring に明記。
-- **リフレクション呼び出しの宣言的入口** `InvokeMember`（Risk=Dangerous）。internal / private のメソッド・プロパティ・フィールドを型名とメンバー名で呼ぶ。`BindingFlags` は常に `Instance | Static | Public | NonPublic` で、**継承チェーンの各階層を個別に探索する**（`NonPublic` は基底クラスを歩かず `FlattenHierarchy` は static にしか効かないため、素直に書くと基底クラスの private インスタンスメンバーが見つからない）。「`Instance` を付け忘れて静かに null が返り、次の行で NullReferenceException」という定番の失敗が構造的に起きない。オーバーロードは引数の型で解決し、曖昧なら候補シグネチャを列挙して拒否する。
-- **メインスレッド・ウォッチドッグ**（`Editor/MCP/MainThreadWatchdog.cs`）。`EditorUtility.DisplayDialog` が開くと `EditorApplication.update` が止まり、キューに積まれた全ツール呼び出しがタイムアウトするまで沈黙していた。並行して動く複数エージェントが道連れで停止し、返るのは「タイムアウト」だけで原因の特定に往復を要した。モーダル表示中（所有ウィンドウが `IsWindowEnabled == false`）にリクエストが来たら、キューに積まずダイアログ名を添えて即座に返す（JSON-RPC `-32002`）。プログレスバーと質問ダイアログはタイトルから推測し、「待てばよい」のか「人が閉じる必要がある」のかを明示する。HTTP 直結と Go ブリッジ経由の両経路に適用。
-
-- VRChat SDK 連携の公開ツール群 `VRChatUploadTools`（7 ツール、`Editor/Tools/VRChatUploadTools.cs`）。VRChat SDK の型はすべてリフレクションで解決し、SDK 未導入プロジェクトでもコンパイル可能（`VRChatTools.FindVrcType` と同じ流儀）。
-  - `CheckVRChatAuthentication` — ログイン済みか否かだけを返す（資格情報は返さない）。未ログインで保存済み資格情報がある場合は SDK Control Panel を開いてセッション復元を待つ。
-  - `OpenVRChatSdkControlPanel` — SDK Control Panel を開く。
-  - `ListVRChatUploadedContent` / `GetVRChatContentInfo` — Content Manager 相当。`VRCApi.Get<List<T>>("avatars"/"worlds", user=me, releaseStatus=all)` で自分のアップロード済みアバター/ワールドの一覧・詳細を取得。
-  - `UploadVRChatAvatar` / `UploadVRChatWorld`（Risk=Dangerous）— `IVRCSdkAvatarBuilderApi` / `IVRCSdkWorldBuilderApi` の `BuildAndUpload` を呼ぶ Build & Publish。IEnumerator コルーチンで `Task` をポーリングし `ToolProgress` に進捗表示。新規は contentName + thumbnailPath 必須（SDK がサムネ欠如をビルド後にしか検出せず孤児レコードが残るため事前検証）。
-  - `UpdateVRChatContentInfo` — 再アップロードなしで name/description/tags/visibility を変更。ワールドの public/private は Community Labs の publish/unpublish エンドポイントを使用。
-  - **Visibility はデフォルト private**。public 化は「`confirmPublic=true` 引数（エージェントがユーザーに確認してから設定）+ ネイティブ確認ダイアログ（人間がクリック）」の二重ゲートで、LLM 単独では公開できない。
-  - **batchmode ではアップロード自体を拒否**。`-batchmode` では `EditorUtility.DisplayDialog` が自動 true になるため、SDK の著作権同意ダイアログも public 確認ダイアログも人間の同意なしに通ってしまう。両アップロードツールは `Application.isBatchMode` で冒頭拒否し、対話的な Editor セッションでのみ動作する（SDK の著作権同意フローは意図的にバイパスしない）。
-- Skill Management に「URLから取込」ボタンを追加。GitHub の raw `.md` URL（blob URL は自動で raw に変換）を指定してスキルを取り込める。ダウンロード後に frontmatter（title/description/tags）と本文をプレビュー表示し、ID を確認・編集して `UserSkillsPath` に保存する。既存スキルは上書き確認あり。ダウンロードは `UnityWebRequest` + `EditorApplication.update` ポーリング（`UpdateChecker` と同方式）。中央レジストリを持たない分散型の配布を意図した最小実装。
-- `GetEditorState` — エディタが今何をしているかを返す軽量プローブ。**このツールだけはメインスレッドを待たずに MCP サーバーのリスナースレッドで応答する**。モーダルダイアログはメインスレッドを完全に止めるため、メインスレッドを必要とするツールでは「モーダルが出ている」ことを永久に報告できないため。`compiling` / `importing` / `playMode` は毎 tick の `MainThreadWatchdog.NoteEditorState` によるスナップショットで、`snapshotAge` がその鮮度を示す（秒単位に育っていれば、値が何であれメインスレッドが詰まっている）。`modalDialog` は OS から直接読むので凍結中でも正確。
-- `RunEditorScriptAsync` / `GetJobResult` — MCP の 120 秒制限を超える処理のための jobId 方式。コンパイルは同期で行うため、コンパイルエラーは `RunEditorScriptAsync` の戻り値として即座に返る（ポーリングして初めてタイプミスを知らされることがない）。スクリプトが `IEnumerator` を返した場合は 1 tick 1 ステップで駆動するのでエディタが応答を保つ。**メインスレッドから処理を追い出すわけではない**点と、ドメインリロードでジョブレジストリごと消える点を docstring に明記。`DefaultConfirmTools` にも追加。
-- `DiffMaterials(pathA, pathB)` — 2 マテリアルをプロパティ単位で突き合わせ、宣言型・**値が実際に入っている serialized slot**・両者の実効値を返す。slot が要点で、Integer 宣言のプロパティは `m_Ints` にあり `SetInteger` で書く必要がある。`SetFloat` は警告もエラーも出さずに握り潰されるため、呼び出し側は書いたつもりで値は変わっていない。宣言型と slot が食い違う行を SLOT ANOMALY として明示する。異なるシェーダー同士も名前で突き合わせて比較可能。
-- `FindMaterials(shaderNameContains, root, folder, limit, maxScan)` — 走査前に絞り込む。`root` にシーンの GameObject 名を渡すとアセットデータベースに一切触れずレンダラーから収集する（非アクティブも含む — トグルオフされた比較対象を落とさないため）。`maxScan` と 20 秒の時間予算を超えたら INCOMPLETE と明示する（黙って部分集合を返さない）。
-- `RenderMaterialMask(materialPath)` — 指定マテリアルが描画している画素だけを白、他を黒にしたマスク PNG。「この見た目はどのマテリアルの仕業か」を座標を手で選んで色を読む代わりに直接答える。全レンダラーを一時的に単色 Unlit へ差し替えて撮影し、例外時も含めて finally で元に戻す。マテリアル**スロット単位**で差し替えるため、1 つのレンダラーが複数マテリアルを持つ場合も対象の三角形だけが白くなる。シーンの dirty フラグが立ちうる点は docstring に明記。
-- **キャプチャ基盤の一本化** `CaptureCommon` / `CaptureOptions`（`Editor/Tools/CaptureCommon.cs`。AgentTool ではない internal 基盤）。符号化・ダウンスケール・添付・保存・戻り値の文面が `SceneViewTools.EncodeWithOptions` と `WindowCaptureTools.EncodeAndAttach` に独立実装されており、実際に食い違っていた: ウィンドウ側は `2048x2048 → 512x512` と**実際に符号化された解像度**とデバッグダンプのパスを返していたのに対し、SceneView 側は**要求した `width`/`height` をそのまま**返し、ダンプのパスは返していなかった（`maxWidth` を効かせると「2048x2048」と書かれた 512x512 の PNG が添付され、その画像から起こした座標が全部ずれる）。キャプチャ系ツールの出口を `Finish`（Texture2D = render 経路）と `FinishFromBgra`（BGRA32 ボトムアップ生バッファ = window 経路）の 2 本に集約した。`EncodeWithOptions` は本体を `CaptureCommon.Encode` に移した薄いラッパとして残る（バイト列だけが欲しい `FaceCameraCapture` 用。`CaptureFacePreview` は今も自前で文面を組むので route を返さない唯一のキャプチャ）。
-  - **`route=render|window` を戻り値に明記**。「カメラを RenderTexture に描いた絵」と「OS のウィンドウ画像」は同じ被写体でも別物で（前者に Gizmo・グリッド・選択アウトライン・エディタ UI は一切写らない）、この区別が暗黙だったことが「ユーザーが見ている絵と違う」という混乱の根だった。フォールバックした場合は**要求された経路ではなく実際に使った経路**を書く。ここが `CaptureRoute` 型の存在理由。あわせて実出力解像度・元解像度・クロップ矩形・ダウンスケールの有無・バイト数・format・保存パス・デバッグダンプのパスを毎回同じ書式で返す。ダンプが書けなかったときは `Debug copy: unavailable` と明示する（黙って項目を落とすと「ダンプ機能が無い」と読める）。
-  - `cropRegion`（`x,y,w,h`、原点は**左下** — `DiffImages.maskRegion` と同じ規約なので一度測った矩形を撮影と差分で共用できる）、`background`（`scene` / `transparent` / `#RRGGBB`。`#` 省略可、`#RRGGBBAA` も受ける）、`antiAliasing`（1/2/4/8、既定 2。0 だけは「未指定」として 1 扱い）を追加。範囲外の `cropRegion` はクランプせずエラー（黙って別の領域を返すと、呼び出し側は指定した矩形の結果だと思って読む）。`background='transparent'` + `format='jpg'` は**エラー**（JPG はアルファを持てないので、透過は不透明なフレームに潰れて「成功」として返る）。綴りを間違えた `background` も `scene` に落とさずエラー（typo が黙って通ると、動いているキャプチャと見分けが付かない）。`antiAliasing` も最近傍に丸めずエラー（要求と違うサンプル数で描くと、原因不明の画質差として現れる）。
-  - window 経路では GDI 32bpp DIB のアルファバイトが未定義なので、アルファを常に不透明へ正規化する（ドライバがアルファ 0 を返すと**全面透明の PNG が「何も写っていない成功」として返る**）。window 経路の `background='transparent'` は「OS のウィンドウ画像に使えるアルファは無い」としてエラーにし、透過が要るなら render 経路で撮り直すよう案内する。
-  - MSAA ターゲットは直接読み戻せないため 1 サンプルへ Blit で解決してから `ReadPixels` する。`RenderTexture.active`・中間 `Texture2D`・一時 `RenderTexture` は例外時も含めて finally で復元／解放する。
-  - 注釈描画も基盤に持たせた（`DrawText` / `DrawRect` / `DrawTextWithBackground` / `MeasureText`、5x7 ドットマトリクスフォント内蔵）。`OnGUI` 文脈外でも、シーンが無くても描けて、フォントアセットに依存しないので「同じツールが別プロジェクトでは文字を描かない」が起きない。テーブルに無い文字（日本語など）は**中抜きの箱**として描く — 黙って落とすと `angle=45` が `angle45` になり、読み手はラベルが意図どおりでないことに気づけない。描画系は「1 画素でも画像内に落ちたか」を bool で返すので、注釈を約束したツールが「ラベルは入っていない」と報告できる。
-  - `RectTopLeftToBottomLeft` — 左上原点（Win32 / `EditorWindow.position` / `VisualElement.worldBound` / `region`）と左下原点（`Texture2D` / `cropRegion` / `maskRegion`）の変換を書いてよい唯一の場所。各ツールが手で `height - y` を書くと、矩形自身の高さを引き忘れてボックス 1 個分ずれるか、反転した半分を注釈するかのどちらかが「成功」として返る。どちらもエラーよりはるかに気づきにくい。
-- **GameView / 任意カメラのキャプチャ** `GameViewCaptureTools`（3 ツール、`Editor/Tools/GameViewCaptureTools.cs`）。`GestureManagerEnterPlayMode` があるのに Play モードの結果を見る手段が無く、ポストプロセス・Screen Space-Overlay の uGUI Canvas・カメラのカリング・実アスペクトを確認できなかった。
-  - `CaptureGameView(width=0, height=0, includeGizmos=false, maxWidth, format, jpgQuality, saveToPath, cropRegion)` — internal な `UnityEditor.EditorGUIUtility.RenderPlayModeViewCamerasInternal` をリフレクションで解決し、指定解像度の RenderTexture に描く（Edit / Play 両対応、GameView が 1 つも開いていなくても撮れる）。**宣言型は `Handles` ではない**: 2022.3.22f1 と 6000.5.2f1 の `UnityEditor.CoreModule.dll` / `UnityEditor.dll` をメタデータ走査して見つかる唯一の宣言が `EditorGUIUtility` で、`Handles` を探した初期実装は全バージョンで解決に失敗し、あらゆるキャプチャを window 経路へ降格させていた（`width`/`height` と `includeGizmos` が効かず、GameView 未オープン時と非 Windows では 1 枚も撮れない）。メソッドは接頭辞一致で探し、シグネチャは実行時に引数の型から役割を割り当てて検証する（決め打ちしない）。`EditorGUIUtility` の次に `PlayModeView` / `GameView` / `Handles` も探すので、将来メソッドが移動しても経路ごと死なない。
-  - `width`/`height` は両方指定か両方 0（0 のとき `PlayModeView.GetMainPlayModeViewTargetSize()` の実サイズ、それも読めなければ 1280x720 に落ちてその旨を明記）。片方だけの指定はアスペクト比の推測が必要になるためエラー — 黙って違うアスペクトで返ることは、このツールで探すバグそのものだから。AA は 1 固定で公開していない（play-mode レンダはプロジェクトの品質設定で描かれるため、出力側で MSAA を強制すると解決が二重になる）。
-  - 内部 API が解決できない Unity バージョンでは window 経路に落ちる。GameView パネルは Unity ウィンドウの `TryPrintWindow` 画像から切り出すので `width`/`height` と `includeGizmos` は効かず、`cropRegion` はパネル内で測る。**Game タブが dock の前面でないときはエラー**（背面タブはどこにも描かれておらず、前面タブの画素を「ゲームの絵」として返してしまう）。ウィンドウを測ってから撮る間にサイズが変わった場合もオフセットが陳腐化するのでエラーにしてリトライを促す。OS ウィンドウをどう同定したか（Unity 自身の `ContainerWindow` との rect 一致は信頼できる／包含ヒューリスティックは信頼できない）も戻り値に書く。前面かどうかがリフレクションで判定できない場合は撮ったうえで**その旨を注記**する（unknown を no として扱わない）。
-  - どちらの経路でも、Edit モードならスクリプトが 1 行も走っておらず「シーンの初期状態であってゲームプレイではない」ことと、`enabled` かつアクティブかつ `targetTexture` を持たず `targetDisplay=0` のカメラが 1 つも無いことを戻り値の末尾に注記する（後者は render 経路ではクリアカラーしか写っていない、window 経路では Unity 自身のプレースホルダが写っている、という違いまで書き分ける）。render 経路では加えて、GameView が 1 つも開いていないなら「これはユーザーが見ている絵ではない」ことと、フレーム全体が単色だった場合の推定原因を明示する（平坦な画像を成功したキャプチャとして渡さない）。
-  - `CaptureFromCamera(cameraName="", width=1024, height=1024, includeSkybox=true, background="scene", ...)` — シーン内の任意 `Camera` から撮る。`cameraName` 空文字で `Camera.main`、`/` を含めばヒエラルキーパス一致（同名カメラの区別用）。非アクティブな GameObject 上のカメラも `Resources.FindObjectsOfTypeAll` で解決する（`GameObject.Find` は非アクティブを見つけない。無効化されたカットシーンカメラはまさに見たい対象。`DumpMaterial` と同じ方針）。プレハブ**アセット**内のカメラは除外する（アセットには描くシーンが無い）。`targetTexture` / `aspect` / `enabled` / `clearFlags` / `backgroundColor` を退避し、例外時も含めて finally で必ず戻す。`background='transparent'` / `'#RRGGBB'` は `clearFlags` を差し替えるため `includeSkybox` が無視されることを戻り値に明記する。描画先はカメラが描く前に必ずクリアするので、`clearFlags` が Depth / Nothing のカメラ（オーバーレイ・UI・ミラー・セカンドディスプレイの通常構成）は**空の背景の上に自分のジオメトリだけ**が写る — これも明記する（RenderTexture はプールから前回のキャプチャを抱えて出てくるので、クリアしないと合成されて「成功」として返る）。合成されたスタックが見たいなら `CaptureGameView` を使う。
-  - `ListCameras()` — 名前 / パス / シーン / `enabled` / `activeInHierarchy` / `depth` / `targetDisplay` / `clearFlags` / FOV / ortho（+ `orthographicSize`）/ `targetTexture` の有無 / `Camera.main` か。**depth 昇順**（Unity が描く順）で並べる。非アクティブも含め、プレハブアセット内とエディタ内部カメラ（SceneView / プレビュー）は除外して**除外件数を報告する**（黙って短いリストにしない）。Prefab Mode で開いているカメラは含める（プレハブステージも実在するプレビューシーンだから）。
-- **アニメーションの時系列コンタクトシート** `CaptureAnimationFrames`（`Editor/Tools/AnimationCaptureTools.cs`、Risk=Caution）。アニメーションの動きを目視検証する手段が無かった。`AnimationClip` を `AnimationMode` でサンプルして 1 枚のシートを返す。`times` に `'0,0.25,0.5,1'` 形式（**正規化時間**）を渡せ、空なら `frameCount`（既定 6、最大 16）等分。`clipPath` は `Assets/Model/Char.fbx::Idle` の形で FBX のサブアセットも指せる（`::` 無しで複数クリップを持つアセットを指した場合は 1 つ選ばず候補名を列挙してエラー）。
-  - `AnimationMode.SampleAnimationClip` の `time` は**秒**であって正規化値ではないため、必ず `normalized * clip.length` を掛ける。掛け忘れると 1 秒を超えるクリップで全フレームが `t=0` 付近に潰れ（正規化 0〜1 が秒 0〜1 として扱われ `clip.length` で clamp される）、**同一の絵が frameCount 枚並んだシートが「成功」として返る**。乗算は 1 箇所に置き、ラベルには正規化時間と秒の両方を焼き込む（`[2] T0.50 0.42S`）ので、潰れたシートとラベルを間違えたシートを一目で区別できる。
-  - `clip.SampleAnimation` を直に呼ぶとシーンに未記録の変更が残ってユーザーの作業が壊れるため、`StartAnimationMode` / `SampleAnimationClip` / `StopAnimationMode` を使い、`StopAnimationMode` は finally からも呼ぶ。すでに `AnimationMode.InAnimationMode()`（Animation ウィンドウが録画／プレビュー中）なら**何も触らずエラー**を返す。Play モードも拒否する（`AnimationMode` は edit モードの機能で、動いている Animator と喧嘩したうえに `StopAnimationMode` がランタイム状態を巻き戻す）。キーは打たず、アセットも書かず、Renderer / GameObject の有効状態も触らない。
-  - **フレーミングはシート全体で固定**。カメラは**全サンプル時刻の bounds の和**から 1 度だけ置く（クリップを 2 周サンプルする: 測るため 1 周、描くため 1 周）。セルごとに再フィットするとキャラが動くたびに寄り引きが変わり、2 つのセルを比較できなくなる。代償として、大きく移動するモーションは全セルで被写体が小さくなる。
-  - `targetName` には `Animator` か `Animation` を持つ**カーブパスの基準ルート**を要求する。別のオブジェクトに対してサンプルするとパスが 1 本も解決せず N 枚同じ絵になるので、後で気づくのではなく最初に拒否する。平坦なセル・時刻が違うのに画素まで同一のセルは末尾で WARNING として報告する（クリーンな成功として返さない）。`angle`（front/back/left/right/top/bottom/45left/45right、または `yaw` / `yaw,pitch` の度数）と `padding` / `lighting` / `background` / `cellSize` は他のキャプチャと同じ意味で受ける。
-- **フォーカスを奪わないウィンドウ内容キャプチャ** `WindowCaptureNative.TryPrintWindow`（`PrintWindow` + `PW_RENDERFULLCONTENT`）。従来の画面矩形 BitBlt は他アプリの写り込みを避けるため Unity を最前面に上げており、**ユーザーの作業フォーカスを奪っていた**。`PrintWindow` はウィンドウ自身に描かせるので、隠れていても画面外に半分出ていても中身が返り、フォーカスは動かない。ただし `PW_RENDERFULLCONTENT` は未文書で、成功を返しながら真っ黒／全面透明を返すレンダラーがあるため、**取得したビットマップが全画素同一なら失敗と判定**して理由を添えて false を返し、呼び出し側が BitBlt 経路に落ちられるようにした（判定は 4096 点の疎プローブを先に走らせ、そこで差が見つからなかったときだけ全画素を歩く。全走査を払うのは答えが「失敗」になる直前だけ）。最小化・非表示のウィンドウは合成面が無いので撮る前に拒否する。例外は投げずに必ず false + 理由で返し、GDI ハンドル（DC / ビットマップ / 選択の復帰）は finally で必ず解放する。出力は `CaptureScreenRect` と同じ BGRA32 ボトムアップなので、どちらの経路も同じ `FinishFromBgra` に渡せる。座標は `DpiScope` の中で扱う（外だと 150% スケールのモニタで仮想化された 96DPI 座標が返り、ビットマップのサイズが狂う）。
-  - あわせて `EnumerateTopLevelWindows`（`EnumWindows` 順 = 手前から奥、タイトル / クラス名 / プロセス名 / PID / rect / 可視 / 最小化 / 自プロセスか）、`TryDescribeWindow`（HWND 1 個の同値版）、`GetUnityMainWindow` を追加。列挙は絶対に例外を投げない（ネイティブの `EnumWindows` フレームへ例外を通すのは未定義動作なので、途中で死んだウィンドウは 1 件だけ落として続行する）。
-- **任意の OS ウィンドウのキャプチャ** `ListWindows` / `CaptureWindow`（`Editor/Tools/WindowCaptureTools.cs`）。Unity 以外のウィンドウ（VRChat クライアント、Blender、ブラウザ、ドロップダウンやコンテキストメニューのようなレイヤードウィンドウ）を撮る手段が無かった。
-  - `ListWindows(titleContains="", processName="", includeInvisible=false)` — 既定はキャプション付きの可視ウィンドウのみ（デスクトップにはキャプションを持たないトップレベルウィンドウが数百あり、IME ホストや cloaked shell やトレイ常駐がそれで、探している数個を埋めてしまう。しかもどれも有効に撮れない）。HWND は `0x` 付き 16 進で出すので `CaptureWindow(hwnd='0x...')` にそのまま貼れる。200 行で打ち切り、**落とした件数を明記**する。`EnumWindows` 自体が何も返さなかったときは「ウィンドウが開いていない」ではなく列挙の失敗としてエラーにする。プロセス名が解決できないときは空欄ではなく `unknown`（空欄は「名前の無いプロセスが正常に解決できた」と読める）。
-  - `CaptureWindow(hwnd="", titleContains="", matchIndex=-1, focusless=true, region="", ...)` — `hwnd` は 16 進読み（`'1234'` は 0x1234、10 進の 1234 ではない）。`matchIndex=-1`（既定）はタイトルが**ちょうど 1 つ**に一致することを要求し、複数一致なら候補とインデックスを列挙して拒否する（ブラウザ 6 枚の 1 枚目を黙って撮るより 1 往復増やす方がまし）。他プロセスのウィンドウは Unity から前面化できないので、`PrintWindow` が断って BitBlt に落ちたときは上に重なっているものが写ることを明記する。最小化・非表示のウィンドウは拒否（アイコン化されたウィンドウは合成面が無く、rect も画面外に退避している）。
-- **UI 要素ツリーの列挙** `ListUIElements`（`Editor/Tools/UIElementTools.cs`）。キャプチャを見ても「どこに何があるか」を構造として扱えなかった。対象 `EditorWindow` の `rootVisualElement` を深さ優先で歩き、番号 / 型 / name / 表示テキスト / **ウィンドウ相対** rect / enabled / 可視 / 深さを返す。読み取り専用で、クリック・フォーカス・再描画・値設定はしない（確認ダイアログを開くボタンを押すとメインスレッドが止まるため、意図的に入れていない）。
-  - rect は `worldBound`（絶対レイアウト）からルート要素の原点を引いて出す。`layout` は親相対なので、それを使うと祖先のオフセット分だけ浅い階層から順に狂い、深い要素ほど注釈がずれていく。単位は Unity の論理ポイントで原点は**左上**なので、150% スケールでは物理画素が 1.5 倍になることと、`cropRegion` / `maskRegion` は左下原点であることを docstring に明記した。レイアウトがまだ走っていない要素は 0 ではなく `rect=unavailable` として返す。
-  - `annotate=true`（Windows エディタのみ）でそのウィンドウを `PrintWindow` で撮り、各要素の rect に番号付きの枠を重ねた画像を添付する（枠と番号は `Texture2D` への直接描線と 5x7 ドットフォント。フォントアセットに依存しない）。**BitBlt フォールバックは意図的に持たない** — 画面を撮る経路だと、エディタに重なっている別アプリの一部を「このウィンドウの UI」として枠で囲んでしまう。非 Windows・背面タブ・`PrintWindow` 拒否・分解できないツリー・rect を持つ要素が 0 件のときは注釈を**理由付きでスキップ**する。`maxAnnotations`（既定 60）は `maxElements`（既定 200）とは独立に枠だけを打ち切り、枠と番号の両方が画像に入った要素には番号の直後に `*` を付ける。`maxWidth` で縮小する場合は線と数字を予め太く描いてから縮小する。`PrintWindow` は**最後に描かれた**内容を返す一方、枠は**現在の**レイアウトから出すので、両者が食い違いうることも明記した。
-  - **IMGUI ウィンドウは分解できず、その `IMGUIContainer` は `rootVisualElement` からは見えない**。Unity 自身の Console / Project / Animation / Audio Mixer などは 1 つの `OnGUI` の中で命令的に描いており、コントロールはオブジェクトとしてどこにも存在しない。しかも `OnGUI` を走らせるコンテナは root の下ではなく、**HostView のパネルツリーに root の兄弟として**置かれる（2022.3 で確認: `DefaultWindowBackend` が `panel.visualTree` に挿入し、`DefaultEditorWindowBackend` が同じツリーにウィンドウの root を足す）。したがってそういうウィンドウは**空の root 1 行**に歩き、`IMGUIContainer` はどこにも現れない。1 行だけ返して、その `OnGUI` メソッド名をリフレクションで特定した注記を添える — 1 行ツリーには「まだ表示されていない／`CreateGUI` が走っていない」という**まったく別の原因**もあり、どちらなのかを言えなければ「ウィンドウを表示して再実行」という無意味な助言を、すでに開いて描画中の Console に対して出すことになる。判別できないときは unknown と書く（推測しない）。空リストは返さない（「UI が無いウィンドウ」と誤読される）。
-- **UnityAgent 自身のメタ情報** `GetUnityAgentInfo`（`Editor/Tools/UnityAgentInfoTools.cs`）。接続してきたクライアントには「自分が何と話しているのか」を知る手段が無かった。UnityAgent のバージョンを返すツールは存在せず、Unity のバージョンを返すツールも無く（`Application.unityVersion` の参照はエラーメッセージ内の 2 箇所だけだった）、導入済みパッケージを動的に取得しているコードは 1 行も無かった（`UnityEditor.PackageManager` の参照ゼロ）。
-  - `detail='brief'`（既定）はバージョン・ツール数・MCP 状態・パッケージ・プロジェクト設定を 6 行で返す。セッション開始時に毎回呼んでもトークンを食わない量に収めている。`detail='full'` はカテゴリ別／Risk 別のツール内訳、検出した全パッケージとそのバージョン、MCP エンドポイントとブリッジ状態、レンダリング設定まで出す（不具合報告用）。
-  - **ツール総数は環境ごとに変わる**。asmdef の versionDefine 12 個（`MODULAR_AVATAR` / `NDMF` / `FACE_EMO` / `AVATAR_OPTIMIZER` / `VRCFURY` / `LILTOON` …）がツールモジュールごと `#if` で除去するため、「そのツールが無い」のがバグなのか未導入なのかを切り分けられなかった。Packages セクションが**その 2 つを区別するための情報**であり、検出方法（`upm` / `define` / `reflection`）を行ごとに併記するので「define は立っているのに UPM に無い＝`Assets/` 直置き」「UPM にあるのに define が off＝再コンパイル待ち」まで読み取れる。
-  - VRChat SDK は versionDefine が存在しないためリフレクション（`VRChatTools.FindVrcType`）で検出する。TexTransTool の `NET_RS64_TTT` はサブ asmdef にしか無くメインアセンブリからは `#if` で観測できないので、**そのサブアセンブリから実際にロードされたツール数**で判定する（versionDefine のレンジが `[1.0.0,2.0.0)` なので、パッケージは入っているのにツールが 1 つもコンパイルされていない状態がありうる。その場合は `INSTALLED BUT NO TOOLS COMPILED` と明示する）。
-  - ツール数は `ToolRegistry.GetAllTools()` の生の件数ではなく**名前で一意化した件数**を出す。レジストリは重複ツール名を警告するだけでリストに残す一方、MCP のディスパッチは名前を 1 つに解決するため、生の件数は「呼べるツールの数」より多くなる。登録エントリ数と一意名数を両方出して差分を自己説明させている。Risk は `resolvedRisk` で数える（`attribute.Risk` の既定が `Caution` なので、明示指定していない内蔵ツールが全部 Caution に化ける）。カテゴリは `attribute.Category` が大半 null なので宣言型名へフォールバックする（システムプロンプト生成や設定ウィンドウと同じ規約）。
-  - **「有効」と「MCP から見える」は別物**として別々に数える。`MCPServerExposeRisk`（既定 `Caution`）を超えるツールはエディタ内チャットからは呼べるが MCP からは見えない。「ツールはあるのに Claude Code から呼べない」の原因がこれで、総数だけ出しても答えにならない。
-  - トークンやパスワードは**値を返さない**（`configured` / `not set` のみ）。取得できなかった項目は行ごと落とさず `unknown (理由)` と書く（空欄は「該当なし」と読まれてしまう）。セクションごとに独立した try で囲み、1 つの失敗が他のセクションを巻き込まない。
-  - MCP の `tools/list` にも 4 つ目のトップレベルツールとして出す。`Invoker` は 3 つのメタツールを名前で早期 return した後 `FindTool` の通常ディスパッチに落ちるため、`[AgentTool]` のメソッド名と一致させるだけでよく、**ディスパッチ側の変更は 1 行も要らない**（引数バインドもリスクゲートもメインスレッド投入も既存経路が処理する）。Bridge モード用に Go 側 (`Editor/Bridge~/UnityAgentBridge/main.go`) の `handleToolsList` にも同じスキーマを追加した — こちらは C# 側と二重管理で、片方だけ足すと Bridge 経由のクライアントからは**発見できないが名前を知っていれば呼べる**という分かりにくい状態になる。
-- **ツール呼び出し統計**（`Editor/Stats/`、`Editor/UI/Charts/`）。どのツールが何回呼ばれ、どれが落ち、どれが遅いのかを知る手段が無かった。3 経路すべて — チャット（`UnityAgentCore.ExecuteToolsAsync`）、MCP（`AgentMCPServer` の `PendingCall`。HTTP 直結と Go ブリッジ経由の両方）、ツールコンソール（`ToolConsoleWindow`）— から 1 件ずつ記録し、`ToolStatsWindow` でグラフにする。経路は `ToolCallRoute`（`Chat` / `Mcp` / `Console`）で区別する。
-  - 記録は **明細（`ToolStatsRecord`）と日別集計（`ToolStatsDaily`）の二層**。明細は保持上限（既定 5000 件、`AgentSettings.ToolStatsMaxRecords` で 500〜50000）を超えると古い方から捨てるが、日別集計は最大 730 日ぶん残る。総呼び出し数・成功率・平均所要時間・ツール別ランキングはすべて**日別集計を正とする**ので、明細の上限で頭打ちにならない。
-  - 明細が母集団になるグラフ（散布図と、「今日」の時間別内訳 — 時間別の内訳は日別集計に無いため明細から作る）だけは古い分が欠けるので、UI が「この期間の直近 N 件の明細に基づく」と明示する。捨てた累計は `ToolStatsRoot.droppedRecords` として保存ファイルにも持ち回る。日別のツール別内訳も 1 日あたり上位 `MaxToolsPerDay`（500）件までなので、それを超える種類を 1 日に呼ぶと下位が落ちることを docstring に書いた。
-  - `ToolCallStats.Record` は **ワーカースレッド（HTTP リスナー / ブリッジ読み取り）からも呼ばれる**ため、Unity API・UI Toolkit・ディスク I/O に一切触れない。永続化は `beforeAssemblyReload` / `quitting` / 周期フラッシュ（120 秒、または未フラッシュ件数が保持上限の 1/10 に達したとき）でメインスレッドから行う。しきい値を固定値ではなく上限件数に比例させているのは、1 回のフラッシュで明細を丸ごと書き直すため、固定値だと上限を上げたときに「毎回 N 件書くために 5 万件シリアライズする」形になるから。
-  - 保存先は `Library/UnityAgent/ToolStats.json`（git に乗らず、プロジェクトクリーンで消えてよい実行時データ）。書き込みは一時ファイル → `File.Replace` なので、既存ファイルがある通常経路では「本体が存在しない瞬間」が生じない。**初回作成時と `File.Replace` が使えない環境のフォールバック（削除 → 移動）にだけ非アトミックな窓が残る**ことは docstring に明記した（アトミックだと言い切らない）。
-  - 成否は **「例外・キャンセル・引数エラーなく完走したか」**で判定し、ツールが返した文字列の内容（`Error:` で始まる等）は使わない。
-  - `durationMs` は **「実行に要した時間」でキュー待ちを含めない**。MCP 経路は InProc / Bridge どちらの pump も `Invoker.Invoke` の直前で `PendingCall.MarkExecutionStart()` を呼ぶ 1 箇所に揃えてある（揃えないと、同じ `Mcp` なのに片方は enqueue 時点から、もう片方は dispatch 時点から計った値が同じ母集団に混ざる）。
-  - `ToolStatsWindow` — 期間（今日 / 7 日 / 30 日 / 全期間）、KPI 4 件（総呼び出し数 / 成功率 / 平均所要時間 / 対象ツール数）、4 種のグラフを 1 画面に並べる。開いたままでも 1 秒ごとに `ToolCallStats.Revision` をポーリングして追随する（`Record` はワーカースレッドから呼ばれるので、統計側からイベントは飛ばさない）。KPI と 4 グラフは `ToolStatsQuery.Capture` が返す**同じスナップショット 1 つ**から作るので、描画中に記録が増えても数字がずれない。
-  - グラフは `Editor/UI/Charts/` に 4 種（`ToolStatsTimeSeriesChart` = 折れ線 + 面に失敗数を重ねる / `ToolStatsRankingChart` = ツール別の横棒 / `ToolStatsCategoryChart` = カテゴリ別ドーナツ + 凡例 / `ToolStatsScatterChart` = 引数 + 結果の文字数 × 所要時間の散布図）。すべて `Painter2D` の直描きで、共通の余白・ラベル層・`GeometryChangedEvent` でのラベル再構築は `ToolStatsChartBase` が持つ。カテゴリは `ToolRegistry` から引き、`ToolConsoleWindow` と同じフォールバック順（`attribute.Category` → 宣言型名から `Tools` を除いたもの）に揃えた。キャッシュにはローカライズ前の生のカテゴリ名しか入れない（言語を切り替えても内訳が割れないように）。
-  - 入口はツールバーのアイコンボタン（`ToolbarPanel.OnStatsClicked`）と設定ウィンドウのセクション（記録の有効 / 無効・明細の保持件数・ウィンドウを開くボタン）。記録は `AgentSettings.ToolStatsEnabled` で止められる（保存済みのデータは消えない）。
-  - **記録が落ちる経路を潰してある。** チャットの非同期ツールは `MoveNext` を `TryMoveNext` ヘルパー越しに進める — `yield` を含むメソッドでは `MoveNext` を try-catch で囲えず（CS1626）、囲わないと最初の `yield` 以降で投げられた例外が `ExecuteToolsAsync` の外へ抜け、記録が残らないまま**同期ツールだけが失敗率の分母に残る**。処理中断と確認ダイアログのキャンセルも失敗 1 件として確定する。ツールコンソールは非同期実行中にウィンドウが閉じた場合（ドメインリロードを含む）を `OnDisable` で失敗として確定する。`MainThreadWatchdog` がモーダル検出で拒否した呼び出し（JSON-RPC `-32002`）も `AgentMCPServer.RecordStallRejection` で失敗として残す — ここを落とすと**モーダルで連続拒否されている最中だけ統計が空になり、成功率 100% に見える**。`PendingCall` 側はタイムアウトの `Cancel()` と遅延完了の `SetResult()` が競合しても `Interlocked` で 1 回しか記録しない。
-  - 統計のために引数 JSON を数え直さない。`PendingCall` は呼び出し元が既に持っている文字列の長さを受け取り、ブリッジは受信フレームの `ArgsJson` を reader スレッドで 1 度だけ作って使い回し、`ToolCallMatch.ParamsDisplay()` は結果をメモ化する。`RunEditorScript` のように本文を引数で渡すツールでは、1 呼び出しごとの再シリアライズが数百 KB のアロケーションになるため。
-- **スクリプトを確実にコンパイルさせるツール群** `ScriptCompilationTools`（4 ツール、`Editor/Tools/ScriptCompilationTools.cs`）。エージェントが `.cs` を書いても Unity 側では何も起きていないことがあり、それに気づく手段が無かった。Unity のマニュアルが挙げるアセットデータベースの更新契機は「エディタがフォーカスを取り戻したとき（Auto Refresh 有効時）」「Assets > Refresh」「`AssetDatabase.Refresh()` の呼び出し」の 3 つだけで、ファイルの書き込みはそのどれでもない。`CompilationPipeline.RequestScriptCompilation()` はフラグを立てる予約でしかないので、import されていなければ dirty なファイルがゼロで、**何もコンパイルせずに成功を返す**。
-  - `RefreshAssetDatabase(settleSeconds=3)` — 気づかせる唯一の正攻法。結果は `COMPILING` / `IMPORTING` / `COMPILED` / `NO CHANGE` のいずれか。`Refresh()` が戻った時点ではまだ何も始まっていないことがある（実際の開始は後続の tick）ので、猶予を置いてから判定する。**ビルドの完了は待たない** — 実プロジェクトでは分単位かかり、MCP は 120 秒で呼び出しを捨て、成功したコンパイルの後のドメインリロードが接続ごと落とすため。Play モードでは拒否する（Play 中に変更済みスクリプトを import すると再コンパイルが走ってプレイセッションが終わる）。`NO CHANGE` のときは、Unity が見ているのは `Assets/` と `Packages/` の 2 つだけで、それ以外の場所の編集は何度リフレッシュしても見えないことを添える。
-  - `RecordAssemblyBaseline` / `CompareAssemblyBaseline`（ともに Risk=Safe）— `Library/ScriptAssemblies` の DLL の更新時刻を記録して突き合わせ、「本当に建ったか」を状態フラグではなく**証拠**で答える。`isCompiling` が false になったことは「コンパイルが終わった」であって「何かが生成された」ではなく、「idle だった」は「そもそも始まらなかった」を意味しうる。ベースラインは `SessionState` に置くのでドメインリロードを跨いで残り（それが要点）、エディタを閉じると消える。DLL が新しくなっていても**新しいコードが走っているとは限らない**（リロードが終わるまで旧アセンブリを掴んだまま）ことも戻り値に書く。
-  - `BringUnityToForeground`（Risk=Dangerous）— **ユーザーのフォーカスを奪う**最後の手段。フォーカスを取り戻すこと自体が import の契機なので実効性はあるが、日常の手順にはしない。Windows 限定で、他プラットフォームでは動いたふりをせずエラーを返す。要求を送ったことではなく**実際に前面に来たか**を報告する（Windows はバックグラウンドプロセスからの前面化を拒否できる）。
+### Added — Plan B: Thumbnail Integration / Expression Session
+- `OpenExpressionSession` / `ReadExpressionFromWindow` / `CommitExpressionSession` / `CloseExpressionSession`
+- サムネイル 3 種と MainView 更新 `CaptureFaceEmoModeThumbnail` / `CaptureFaceEmoGestureTable` / `CaptureFaceEmoExMenuThumbnail` / `RefreshFaceEmoMainView`。出力は `Library/UnityAgent/face-thumbnails/`
+- 取り残された FaceEmo プレビューアバターを掃除する `CleanupFaceEmoPreviewAvatars`
 
 ### Changed
-- `WaitForCompilation` に `assemblyName` を追加し、Auto Refresh の状態を常に報告するようにした。「Unity was already idle」は成功時と、**Auto Refresh が無効で Unity が編集にそもそも気づいていない時**の両方で返るため、これまで区別できなかった（`isCompiling` は false のまま、何もコンパイルされない）。無効時は警告と `TriggerDomainReload(confirm:true, mode:'recompile')` の案内を出す。`assemblyName` を渡すとそのアセンブリの Location と**ビルド時刻**を返すので「新しいコードが実際に載ったか」を確認できる（省略時は `Assembly-CSharp` / `Assembly-CSharp-Editor` をロード済みなら報告）。
-- `CaptureSceneView` に `pivot` / `rotation` / `orthoSize` を追加（3 つとも指定するか全部省略するか）。指定すると SceneView カメラを直接駆動して撮影し、撮影後に必ず元へ戻す。`Selection.activeGameObject` を書き換えるツールを挟むと画角が動き、同じ被写体の 2 枚が寄りと全身になって「悪化した」と誤読される — 比較用の 2 枚を撮るなら必須。`sceneView.pivot` 等ではなくカメラの transform を直接動かしているのは、前者は SceneView 自身の repaint で反映されるため同一呼び出し内の `Render()` には間に合わないから。アスペクト比も `width/height` に固定する（ウィンドウサイズで絵が変わらないように）。
-- `DiffImages` に `maskRegion` と `magentaPixels` を追加。`maskRegion`（`x,y,w,h`、原点は左下）で比較範囲を限定でき、動くと分かっているギズモやオーバーレイを除外できる。`magentaPixels` は A/B それぞれで Unity のシェーダーエラー塗り（マゼンタ）の画素数を数える — 0 でなければその描画自体が壊れているので、差分の数値に意味がない。範囲外の `maskRegion` はクランプせずエラーにする（黙って別の領域を比較すると、呼び出し側は指定した矩形の結果だと思って読んでしまう）。
-- `GetConsoleLogs` に `sinceIndex` を追加。応答末尾の `nextSinceIndex=N` を次回渡すと、それ以降のエントリだけが返る。Unity 2022.3 の `LogEntry` にタイムスタンプが無いため、これまでは古いエラーと新しいエラーを行番号で見分ける必要があった。コンソールがクリアされて index が巻き戻った場合（Clear on Recompile が有効なら毎回のコンパイルで起きる）は検出して全件表示に切り替える — 黙って `sinceIndex` を適用すると、新しいコンパイルエラーが「変化なし」として報告されてしまう。
-- `CaptureEditorWindow` に `bringToFront`（既定 true）を追加。`EditorWindow.Focus()` は Unity 内でタブを切り替えるだけで OS レベルの前面化を行わないため、画面矩形をキャプチャすると実際に最前面にあるアプリ（ブラウザ等）が写り込んでいた。Win32 の `AttachThreadInput` + `SetForegroundWindow` で Unity を前面に出してから撮影する。
-- `RunEditorScript` で `HashSet<T>` / `Dictionary<K,V>` が使えるようになった。解決できなかった原因は `using` 不足ではなく（`using System.Collections.Generic;` は元から入っていた）、ランタイムコンパイラへの参照アセンブリが `netstandard` 1 本だけだったこと。実測（Unity 2022.3.22f1）で `System` と `System.Core` を足せば通り、既存コメントが警告していた「type X is defined multiple times」は起きないと確認できたため、`ToolUtility` の既定ホワイトリストに両方を追加した（明示的に足してはいけないのは `mscorlib` の方で、mcs が暗黙参照する）。同じホワイトリストを使う `AacExecuteScript` にも適用される。
-- `RunEditorScript` に `usings` と `additionalReferences` を追加。既定で足りないアセンブリに当たったとき、ホワイトリストを編集して再コンパイルせずに済む。型が解決できないコンパイルエラー（CS0246 / CS0234）のときは参照済みアセンブリ一覧をエラーに添えるので、次の一手が 1 往復で決まる。
-- FaceEmo is now REQUIRED for expression editing. Expression tools refuse to run without FaceEmo installed + a configured launcher + TargetAvatar.
-- Expression building now drives FaceEmo's ExpressionEditor live preview (when reflection access is healthy) or falls back to `.anim` write + window refresh (Degraded mode).
-- `FaceEmoAPI.SaveMenu` no longer auto-calls `RefreshWindowIfOpen`. After a domain reload, FaceEmo's stale `MainView` can NRE in `HierarchyView.Dispose` during re-Launch, and that exception fires on the next editor tick — out of any reachable try/catch. AI workflows already call `RefreshFaceEmoMainView` explicitly (BuiltInSkills.cs Workflow B step 7). `RefreshWindowIfOpen` now also force-closes any stale `MainWindow` before re-Launch as a defensive reset; failures are demoted from Warning to Info log.
-- `FaceEmoTools.ListFaceEmoExpressions` / `InspectFaceEmo` now read from the launcher's own `MenuRepositoryComponent` (live scene data) as their highest-priority source. Previously they hit `AssetDatabase.FindAssets` for a backup `FaceEmoProject` first, which often returned an empty backup and misled AI into retrying registrations.
-- `FaceEmoAPI.FindLauncher("")` (auto-find) now prefers `FaceEmo*` roots with a configured `TargetAvatar` over the first arbitrary launcher. Scenes with many launchers no longer surface misleading "no TargetAvatar" gate errors on the wrong one.
-- `SetExpressionPreviewMulti` Live-mode success message now includes a `Note:` explaining that the scene mesh is NOT updated (only FaceEmo's ExpressionEditor preview) and that visual verification needs `CaptureFaceEmoModeThumbnail` AFTER `CommitExpressionSession`.
-- `ListFaceEmoExpressions` / `InspectFaceEmo` now also dump the **Unregistered** menu list. When `Registered` is at its FaceEmo cap (7 items), Plan A's `Session.Commit` falls back to `Unregistered` — without showing it, those Modes appeared "missing" and the AI/user retried registration.
-- `FaceProfileTools.SetExpressionPreviewMulti` / `SuggestExpressionShapes` now use a new **avatar-aware** gate (`FaceEmoGate.RequireExpressionEditingReadyForAvatar`) that prefers the launcher whose `TargetAvatar` matches `avatarRootName`. Previously these tools picked the first arbitrary configured launcher in scene root order, so a Commit for "Milfy_Another" could end up registered in a Chiffon-targeted launcher's menu. New helper: `FaceEmoAPI.FindLauncherForAvatar(string)`.
-- `ExpressionEditorBridge.Dispose` now calls `IExpressionEditor.Dispose()` on FaceEmo's presenter so the chain disposes `ExpressionEditorModelFacade` → `PreviewClipSampler` → `DestroyImmediate(_previewAvatar)`. Without this, every `TryOpen` left a `HideAndDontSave` cloned avatar at world position (100,100,100); stacking N invocations made N avatars render on top of each other in FaceEmo's `PreviewWindow`. `OpenForMode` / `OpenForNewExpression` also bracket-sweep (before _active.Dispose and after Bridge.TryOpen) using `ExpressionEditorBridge.CleanupOrphanPreviewAvatars` to handle FaceEmo edge cases where the standard dispose chain leaves orphans.
-- `CommitExpressionSession` / `CreateAndRegisterExpression` / `CreateExpressionFromData` success messages now include `destination=Registered|Unregistered|Existing`, and append an actionable **Note** when the Mode landed in Unregistered because FaceEmo's Registered list is at its 7-item cap. The Note explains the consequence (gesture-assignable but NOT in the VRChat radial menu) and how to recover via `RemoveExpression` + `MoveExpressionItem` or `CreateExpressionGroup` + `MoveExpressionItem`. New helper: `FaceEmoExpressionSession.GetUnregisteredFallbackNote()`.
-- `OpenExpressionSession` gains a new optional `avatarRootName` parameter that picks the FaceEmo launcher whose `TargetAvatar` matches that name. Without this, generic auto-find returned the first configured launcher in scene root order — which could be a different avatar's launcher — and the subsequent `SetExpressionPreviewMulti` would silently commit the new Mode to the wrong avatar's menu. Workflow B now passes `avatarRootName` and `SetExpressionPreviewMulti` errors with a clear recovery hint when the active session's launcher targets a different avatar than the requested one. `Session.OpenForNewExpression` and `Session.OpenForMode` gain the same parameter at the API level.
-- Plan B thumbnail tools (`CaptureFaceEmoModeThumbnail`, `CaptureFaceEmoGestureTable`, `CaptureFaceEmoExMenuThumbnail`, `RefreshFaceEmoMainView`) gain the same optional `avatarRootName` parameter and a unified launcher-resolution priority: explicit `avatarRootName` → active session's launcher → generic auto-find. The error message when a Mode is not found now reports which launcher was searched so the AI knows to retry with the right avatar.
-- `CaptureSceneView` に `source` / `drawMode` / `lighting` を追加し、`background` / `cropRegion` / `antiAliasing` を `CaptureOptions` 経由で受けるようにした。戻り値は必ず `route=render` か `route=window` を書くので、2 種類の絵を取り違えられない。
-  - `source='window'`（既定 `render`）で SceneView のタブを画面に描かれているまま撮る。Gizmo・グリッド・選択アウトライン・オーバーレイが写る「見たまま」がこれで初めて撮れる（`camera.Render()` はそれらを一切描かないので、これまでユーザーが見ている SceneView とは別の絵が返っていた）。実装は `CaptureEditorWindow` の focusless 経路に委譲している — docked な SceneView はコンテナ HWND の解決・タブ矩形の切り出し・背面タブの拒否・同期再描画の強制が必要で、それを 2 箇所に書くのは 2 つの符号化器が食い違ったのと同じ失敗だから。同名タブが複数ある場合は `SceneView.lastActiveSceneView`（`source='render'` が描くのと同じもの）の index を `CaptureEditorWindow` と同じ列挙・同じフィルタで割り出して渡す。Windows エディタ限定で、他プラットフォームでは Gizmo が写らない旨を添えてエラーにする。
-  - `source='window'` で `pivot`/`rotation`/`orthoSize`・`drawMode`・`lighting`・`background`・`cropRegion` を明示した場合は、**意図の衝突としてエラー**にする（window 経路はすでに描かれた画素を写すだけなので、どれも物理的に効かせられない）。`width`/`height`/`antiAliasing` は「未指定」を表す値が無く指定の意図を判定できないため、エラーではなく**戻り値の注記**で「効かなかった」と伝える。
-  - `drawMode='wireframe'|'shadedWireframe'`（既定 `shaded`）— `GL.wireframe` を使う。`shadedWireframe` は shaded とワイヤーの 2 パスを撮り、コントラストから選んだ線色でエッジを焼き込む。ワイヤーのパスが空で返ってきた場合は shaded 画像をワイヤー入りとして渡さず、**その事実を戻り値に書く**。`GL.wireframe` は例外時も含めて finally で必ず元へ戻す（戻し忘れるとキャプチャだけでなくエディタ全体の以降の repaint が壊れるので、finally の中でも最初に戻す）。overdraw / mipmap / lightmap 等の `DrawCameraMode` は置換シェーダーが必要で `OnGUI` 文脈外の信頼性が低いため入れていない。
-  - `lighting='neutral'`（既定 `scene`）— カメラの肩越しに一時 Directional Light（`HideFlags.HideAndDontSave`）を置き、`RenderSettings.ambientMode` / `ambientLight` / `ambientIntensity` を一時的にフラットへ差し替える。暗いシーン・ライトの無いシーンで真っ黒な画像が「成功」として返っていたのを、少なくとも見える絵にする。シーン自身のライトは消さないので**読める絵にはなるが再現性のある絵にはならない**ことと、`RenderSettings` はシーンの lighting データなので Unity がシーンを変更済みとマークしうることを戻り値と docstring に明記した。退避した 3 値と一時ライトの破棄はいずれも finally で行う。
-- `CaptureEditorWindow` に `focusless`（**新既定 true**）と `region` を追加。`focusless` は `PrintWindow(PW_RENDERFULLCONTENT)` を使い、他アプリが重なっていても対象の中身だけを、**Unity を前面に上げずに**取る。docked なウィンドウは Unity メインウィンドウを撮ってタブの矩形を切り出し、フローティングは直接撮る — どちらだったか・どの手段で画素を得たかを毎回戻り値に書く。`PrintWindow` が断ったときだけ従来の画面矩形 BitBlt（`bringToFront` の挙動）に落ちる。`bringToFront`（既定 true）は互換のため残すが docstring で非推奨とし、`focusless=true` が成功する限り**無視される**ことと、前面化を実際に触ったかどうかは戻り値の `method=` に出ることを書いた。
-  - **背面タブは拒否する**。dock の背面タブはどこにも描かれていないので、`PrintWindow` は前面タブの画素を返す。それをこのウィンドウの名前で返すのは、このパッケージが最も避けたい「もっともらしく間違った答え」なので、画像ではなくエラーを返して `focusless=false`（タブを前面化し、その場で同期再描画してから撮る）を案内する。ただしこの拒否は `activeTab` が**判明している**ときだけ発火する — HostView のリフレクションが解決しない Unity バージョンでは `unknown` になり背面タブが通ってしまうので、その可能性も戻り値に明記する。
-  - `waitForRepaint=true` は `HostView.RepaintImmediately` で同期再描画を強制する。`PrintWindow` はウィンドウの**最後に描かれた**内容を返すため、IMGUI ウィンドウは検証したい変更以降イベントを受けていないと古い絵が返る。内部メソッドが取れない場合は「フラグは効かなかった」と書く（黙って無視しない）。
-  - `region='x,y,w,h'` は**このウィンドウ自身の矩形**内の相対矩形で、メインウィンドウのビットマップから切り出した場合でも `x=0,y=0` はこのウィンドウの左上。原点は**左上**で y は下向き（ウィンドウ座標系）— `cropRegion` / `DiffImages.maskRegion` が左下原点なのと**意図的に異なる**ので両方の docstring に明記した（混ぜると上下反転した帯を切り出した画像が「成功」として返る）。数値は**物理画素**なので 150% スケールでは `EditorWindow.position` の論理値の 1.5 倍になる。範囲外はクランプせずエラー。
-- `ListEditorWindows` に `activeTab`（同一 dock 内で前面か）/ `visible` / `focus` / `hwnd` / `tabs`（dock を共有する全タブ、前面に `*`）を追加し、`docked` を「メインウィンドウ内か・フローティングコンテナ内か・フローティング単体か」まで分けた。これまで「アクティブタブか」「実際に見えているか」を返しておらず、背面タブを撮っても気づけなかった。`m_Parent`（HostView）経由のリフレクションで取り、取れなければ `unknown` と表示する（推測しない）。`docked` がリフレクションで取れないときは `inferred-from-geometry`（矩形がどの OS ウィンドウに一致するか）と明示する。`hwnd` はそのまま `CaptureWindow` に渡すとタブストリップやツールバーを含むコンテナ全体が撮れる。`pos`/`size` は Unity の論理ポイントであって物理画素ではない（150% スケールでは画像が 1.5 倍になる）ことも docstring に書いた。列挙とコンテナ解決は 1 回の `EnumWindows` で済ませている（行ごとに列挙すると行同士で整合しない一覧が出る）。
-- `CaptureMultiAngle` / `CaptureMeshIsolated` / `ScanAvatarMeshes` に `padding`（既定 0.1）を追加し、`CaptureMeshIsolated` に `activateHidden`（既定 false）を追加した。角度に `bottom` を追加（従来は未定義の名前で、後述のとおり黙って落とされるか画角が壊れていた）。角度上限は 7 → 8。角度名は一貫して「カメラが立つ側」を意味し、`CaptureAnimationFrames` の `angle` と同一の規約なので、ポーズシートと角度シートをセル単位で比較できる。
-- `WaitForCompilation` に `settleSeconds`（既定 3、最大 30）を追加。`AssetDatabase.Refresh` も `CompilationPipeline.RequestScriptCompilation` も実際の開始を後続の tick に委ねるため、最初のフレームで見た idle は「始まらない」ことの証明にならず、**コンパイルが始まる直前に「待つものは無かった」と成功を返して**いた。猶予窓のあいだ開始を見張ってから判定する。`0` を渡すと従来どおり即断する。猶予に使った時間は `timeoutSeconds` とは別に報告し、両者の合計が 110 秒（MCP が呼び出しを捨てる 120 秒の手前）を超えないように丸める。あわせて idle で返るときの案内を `TriggerDomainReload(confirm:true, mode:'recompile')` から `RefreshAssetDatabase` に変え、**バックグラウンドのエディタは自力で import しない**ことを明記した（従来の警告は Auto Refresh が無効なときにしか出ず、有効なのに import されていないケースを取りこぼしていた）。
-- `TriggerDomainReload` の `mode:'recompile'` が `AssetDatabase.Refresh()` を先に呼ぶようになった（`refreshFirst`、既定 true）。前置しないと、バックグラウンドの Unity は編集を import しておらず dirty なファイルがゼロなので、`RequestScriptCompilation` は**何もコンパイルしないまま成功を返す**。`Refresh()` 自体がコンパイルを始めた場合は `RequestScriptCompilation` を呼ばず、その旨を返す。`refreshFirst=false` のときは「リフレッシュしていないので、この成功は『要求をキューに積んだ』であって『コンパイルが起きる』ではない」と戻り値に書く。この呼び出しでは結果を観測できない（コンパイルとドメインリロードが接続より長生きする）ことも明記し、`RecordAssemblyBaseline` / `CompareAssemblyBaseline` で挟むよう案内する。`mode:'reload'` は dirty なものが無くても必ず効く点も docstring に足した。
-- ブリッジに `--idle-quit` フラグを追加（既定 5 分。`0` 以下で自死を無効化）。README に全フラグの表と、再接続・キュー破棄・idle 自死・ブリッジ死亡時の再接続の挙動を追記した。UnityAgent の自動 spawn はこのフラグを渡さないので、Unity から起動したブリッジは既定の 5 分で動く。
-
-### Added
-- **ランチャーをまたいだ Mode の複製** `CopyFaceEmoMode` (issue #8)。ブランチ・条件・視線/口/まばたき/マウスモーフキャンセラー/トリガーの設定をまとめて宛先のランチャーへ移す。「頭部を別アバターへ移植して表情一式を持っていく」「衣装違いの派生アバターを作る」ときに、15 ブランチの Mode を `SetExpressionAnimation` ×16 と `ModifyBranchProperties` ×14 で組み直す必要が無くなる。既存の `CopyExpression` が使う `Menu.CopyMode` は<b>同一メニュー内</b>の複製しかできず、ランチャーが違えば Menu インスタンスも別なので使えなかった。
-  - `clipRemap` はクリップの差し替え表 (`旧->新;旧2->新2`、左辺はパスでもクリップ名でも可) か、フォルダパスを 1 つ。フォルダ指定なら元クリップと同名のものをその中から探す。**差し替え先が見つからなかったクリップは元のまま残り、警告として名指しで列挙する** — 移植元アバターのクリップを指したままの Mode は、見た目は正しく作られたのに何も起きないので、件数だけでなくどのスロットかまで出す。
-  - `dryRun` で書き込まずに計画だけ出せる (Mode の作成・ブランチの複製・差し替え解決まで実際に走らせ、`SaveMenu` だけ行わない)。
-- **アニメーションスロットの一括設定** `SetExpressionAnimations` (issue #8)。`Mode=パス` と `ブランチ番号:スロット=パス` を `;` 区切りで並べて 1 回で設定する。**全件を検証してから書く**ので、最後の 1 件の綴り間違いで Mode が半端に設定された状態で残ることがない。
-- **AnimationClip の binding path 一括付け替え** `RebindAnimationClipPaths` (issue #9)。メッシュの階層上の位置が変わると、それを参照するクリップの binding path が外れ、アニメーションは**エラーも警告も出さずに無反応になる**。頭部を別の胴体へ移植した、衣装をリネームした、Modular Avatar 導入でオブジェクトを動かした — いずれでも起きる。直すこと自体は「全カーブの path を書き換える」だけだが、`SetAnimationCurve` は 1 カーブずつなので 9 クリップ × 13 カーブでは現実的でなかった。
-  - `AnimationUtility` 経由で binding を読み直して書き戻すので、**バイナリシリアライズされた `.anim` でも動く**（FaceEmo が `Imported/<timestamp>/` に置くクリップはプロジェクトが Force Text でもバイナリで、テキスト置換が効かない）。`GetObjectReferenceCurveBindings` 側（マテリアル差し替え等）も同時に処理する — 片方だけ直すと、見た目は直ったのにマテリアルだけ動かないクリップができる。
-  - `matchMode` は `exact`（既定）と `prefix`。prefix はパス区切りで切るので `Body` が `BodyExtra` に当たることはない。`fromPath='*'` で全 binding を `toPath` の下へ移す（ルート直下のカーブもまとめて動かせる）。
-  - `verifyAgainst` に GameObject 名を渡すと、**書き換え後のパスが実際に解決するか**と **`blendShape.*` のシェイプが移植先メッシュに実在するか**を照合して報告する。「直したのに無反応」の原因はほぼここで、報告者も「いちばん最初に知りたい情報」と書いていた。
-  - `outputFolder` を指定すると複製側を書き換え、元クリップは触らない。出力先に同名ファイルがあれば**書き込む前にエラー**にする（黙って上書きや自動リネームをすると、どちらの複製を参照しているのか後から判断できなくなる）。`dryRun` で差分だけ見られる。
-  - 書き換えの結果 2 本のカーブが同じ binding に載る場合は、**1 本も書かずにエラー**にする。後から入れた方が前のカーブを黙って上書きして消すため。
-  - `fromPath` がどのクリップにも当たらなかった場合も**エラー**にし、実際に存在するパスを列挙する。「0 件書き換えて成功」はこの作業でいちばん危険な返答で、綴り違いと区別が付かないまま「直したつもり」で先へ進んでしまう。
-- **FaceEmo の条件操作ツール** `RemoveGestureCondition` / `ModifyGestureCondition` (issue #8)。`AddGestureCondition` はあるのに対になる削除・変更が無く、ドメイン層 (`FaceEmoAPI.RemoveCondition` / `ModifyCondition`) には揃っているのにツールとして公開されていなかった。そのため「ダミー条件つきでブランチを足してから `RunEditorScript` でドメイン API を直接叩いて条件を消す」という回り道が必要だった。どちらも `conditionIndex` を取るので、`InspectExpressionDetail` が条件に添字を出すようにした。
-
-### Changed
-- **`ModifyBranchProperties` が複数ブランチをまとめて処理できるようにした** (issue #8)。`branchIndices` に `all` / `0-13` / `0,2,4` / `0-6,9` を渡せる（指定時は `branchIndex` より優先）。同じ設定の繰り返しでブランチ数だけ呼び出す必要が無くなる。適用前に全対象を検証するので、途中で失敗して一部のブランチだけ設定が変わることはない。
-- **`AddGestureBranch` の `conditions` を省略可にした** (issue #8)。条件を 1 つも持たないブランチは「上のどのブランチにもマッチしなかったときに効くフォールバック」で、FaceEmo 本体の UI でも条件を追加しなければそうなる。にもかかわらず `conditions` が必須で `Required parameter 'conditions' cannot be empty.` になり、作れなかった。FaceEmo のドメインが条件 0 個の `AddBranch` を受け付けることは Unity 上で確認済み。成功メッセージには「どのジェスチャーにもマッチする」「FaceEmo は上から評価するので、この後に足したブランチは発火しない」ことを明記する。
-- **FaceEmo の一覧・詳細がクリップを識別できるようになった** (issue #8)。`ListFaceEmoExpressions` はクリップ名に GUID 先頭 8 桁を併記し、`InspectExpressionDetail` はアセットパスを併記する。FaceEmo は取り込んだクリップを `Imported/<timestamp>/` に**同名で**コピーするため、表示名は実質的に識別子にならず、複製元と複製先が同名になった状態では「直した方のクリップを参照できているか」が出力から判断できなかった（確認のためだけに GUID を引くスクリプトを書く必要があった）。
+- 表情編集に FaceEmo を必須にした。未導入・ランチャー未設定・TargetAvatar 未設定では実行を拒否する
+- 表情の組み立ては FaceEmo の ExpressionEditor ライブプレビューを駆動し、リフレクションが通らない場合は `.anim` 書き込みへ退避する
+- `ListFaceEmoExpressions` / `InspectFaceEmo` はシーン上の `MenuRepositoryComponent` を最優先で読むようにした。空のバックアップアセットを返して登録失敗と誤認させることがなくなる
+- 同 2 ツールが Unregistered 一覧も出すようにした。Registered が上限 7 件のときの退避先が見えず「消えた」と誤認していた
+- ランチャーの自動探索が `TargetAvatar` 設定済みのものを優先するようにした。あわせて `avatarRootName` で対象アバターを指定できる引数を各ツールに追加し、別アバターのメニューへ登録される事故を防ぐ
+- コミット系の成功メッセージに `destination` を含め、Unregistered へ退避した場合は回復手順を添えるようにした
+- `FaceEmoAPI.SaveMenu` が `RefreshWindowIfOpen` を自動で呼ばないようにした。ドメインリロード後の古い MainView が到達不能な例外を投げるため
+- `ExpressionEditorBridge.Dispose` が FaceEmo 側の Dispose 連鎖を呼ぶようにした。呼び出すたびにプレビューアバターが積み上がっていた
 
 ### Fixed
-- **`ListFaceEmoExpressions` が条件の意味を取り違えて表示していた**（issue #8 の調査中に発見）。`GetComparisonOp` が VRChat の AnimatorCondition 相当の表（0=">=", 1=">", 2="=", …）になっていたが、FaceEmo の `ComparisonOperator` は `Equals(0)` / `NotEqual(1)` の 2 値。その結果 **`Equals` が `>=`、`NotEqual` が `>` と表示され**、条件が読めないどころか逆に読める状態だった。あわせて `Hand` の表示が `hand == 0 ? "L" : "R"` だったため、`OneSide(2)` / `Either(3)` / `Both(4)` がすべて `R` になっていたのも直した（列挙の実値は Unity 上で確認）。
-- **`ListFaceEmoExpressions` が左手・右手・両手のクリップを表示していなかった**（issue #8 の調査中に発見）。実際に使われる live data 経路 (`DumpDomainBranch`) が `BaseAnimation` しか出しておらず、`SerializedObject` 経路 (`DumpBranch`) とも食い違っていたため、ハンド別クリップが設定されていても出力からは未設定と区別が付かなかった。条件を持たないブランチも `(no conditions — matches any gesture)` と明示するようにした（従来は条件欄が消えるだけで、フォールバックなのか読み取れなかった）。
-- **スキーマにない引数が MCP 経由で黙って捨てられていた** (issue #7)。引数バインドはメソッド側のパラメータを走査して JSON から引く片方向で、JSON 側に余ったキーを検査する処理が無かった。存在しない引数名を渡してもエラーにも警告にもならず、ツールは既定の自動探索にフォールバックする。**対象を選ぶ引数がこれに当たると、まったく別のオブジェクトを操作したうえで成功を返す**（`RefreshFaceEmoMainView` が別ランチャーに対して `Success: MainView refreshed` と答えた実例がある）。未知のキーがあれば結果の先頭に `Warning: <tool> ignored an unknown argument 'x' (did you mean 'y'?). Accepted: ...` を差し込むようにした。
-  - **エラーにせず警告にした**のは、既存クライアントが送っている余分なキーで呼び出しが一斉に失敗するのを避けるため。なおチャット経路（XML の `<arg>` バインド）は元から未知の引数をエラーで弾いており、そちらは変えていない。
-  - 警告は成功・失敗の**どちらの本文にも**前置する。無視された引数が原因でエラーになるケース（別ランチャーを見に行って「Mode not found」）こそ、この情報が要るため。結果を確定させる経路が同期・非同期コルーチン・ユーザー選択待ちの 3 つあるので、`PendingCall.SetResult` / `SetError` の側で一元化した。
-  - あわせて MCP の引数バインドを**大文字小文字を無視**するようにした。JSON オブジェクトは序数比較の辞書なので、以前は綴りが同じでも大小が違うだけで「渡していない」扱いになり、既定値のまま黙って実行されていた。チャット経路は元から大小を無視するので、経路によって通ったり通らなかったりしていた。完全一致を優先し、大小違いが複数あるときはどちらを使ったか呼び出し側に見えないので採用しない。
-- **FaceEmo のサムネイル系 4 ツールが `gameObjectName` を受け付けなかった** (issue #7)。`CaptureFaceEmoModeThumbnail` / `CaptureFaceEmoGestureTable` / `CaptureFaceEmoExMenuThumbnail` / `RefreshFaceEmoMainView` は `avatarRootName` しか持たず、他の FaceEmo 系ツール（`InspectFaceEmo` / `ListFaceEmoExpressions` / `SetExpressionAnimation` …）が使う `gameObjectName` は上記のとおり黙って捨てられていた。FaceEmo 系を続けて呼んでいる最中に対象の指定方法だけが切り替わるため気付けない。解決順を gameObjectName → avatarRootName → アクティブなセッション → 自動探索にした。
-- **`GetHierarchyTree` だけ対象引数が `name` だった** (issue #7)。GameObject を対象に取るツールはおおむね `gameObjectName` なのに、このツールだけ `name` で `Missing required argument 'name'` になっていた。`gameObjectName` を別名として受け付け、`name` は互換のために残す（位置引数で呼ぶ既存の書き方を壊さないよう、新しい引数は末尾に追加した）。どちらも省略した場合は、どの名前で渡せばよいかを書いたエラーを返す。
-- **SSE / JSONL から文字列を取り出す 5 箇所が `\uXXXX` をデコードしていなかった** (issue #5)。各プロバイダは応答ストリームを軽量に走査するため、完全な JSON パーサを通さず手書きで `"key": "value"` を抜き出しており、その手書き実装が個別にエスケープ処理を持っていた。どれも `\u` を扱わないため、`\u003c` は `u003c` という**一見もっともらしいゴミ文字列**になっていた（バックスラッシュを捨てて次の 1 文字だけを残す `default` 分岐のため）。XML 形式のツール呼び出しは `\u003ctool name=...` で始まるので、`\u` で非 ASCII を送るサーバー（Ollama など）ではツールが 1 つも実行できず、チャットに `u003ctool name=...u003e` がそのまま表示されていた。日本語の本文も同様に化ける。
-  - エスケープの解釈を `Editor/Providers/JsonStringUnescape.cs` に集約し、`OpenAICompatibleProvider`（`ExtractDeltaContent` / `ExtractDeltaField`）、`ClaudeApiProvider.ExtractStringAfter`、`ClaudeCliProvider` / `CodexCliProvider` の `ExtractJsonStringValueAfter` の 5 箇所すべてがそれを呼ぶようにした。`\b` `\f` `\/` を落としていた実装も同時に揃う。
-  - サロゲートペア（絵文字）は上位・下位を続けて `char` として追記すれば UTF-16 の string 上で正しい 1 文字に組み上がるため、特別扱いしない。
-  - 壊れた入力（4 桁に満たない `\u`、16 進でない、仕様に無いエスケープ）は**バックスラッシュごと原文のまま**返す。捨てると今回と同じ「気付けない化け方」を再生産するため。
-  - 報告は Ollama についてだったが、原因は OpenAI 互換プロバイダ全体の SSE パースにある（OpenAI 本家は非 ASCII を UTF-8 のまま流すので顕在化しにくかっただけ）。同じ欠陥のあった Claude API / Claude CLI / Codex CLI も併せて直した。Unity Editor 上で 5 箇所すべてをリフレクション経由で実行し、issue #5 の実ペイロードで検証済み。
-- **`GetEditorState` が Bridge モードで `compiling` / `importing` / `playMode` / `autoRefresh` を一度も更新していなかった。** このツールはメインスレッドを待たずに MCP のリスナースレッドで応答する代わりに、メインスレッドの pump が毎 tick 書き込むスナップショットを読む。ところが pump は InProc（`AgentMCPServer`）と Bridge（`AgentMCPBridgeClient`）に 1 つずつあり、スナップショットを書いていたのは InProc 側だけで、Bridge 側は `MainThreadWatchdog.NotePump()` しか呼んでいなかった。しかも `snapshotAge` の元になる pump 時刻の方は更新されていたため、**「snapshotAge 0.00s / compiling False」と、たった今計測したかのように答える** — 最も誤解を招く壊れ方だった（コンパイル中でも `compiling: False`、Play 中でも停止中と読める値が「新鮮」として返る）。pump の記録・状態スナップショット・Auto Refresh のサンプリングを `MainThreadWatchdog.NoteMainThreadTick()` の 1 箇所に集約し、両方の pump がそれを呼ぶようにした。pump が増えても同じ枝分かれが起きない。
-- **ブリッジが MCP クライアントの利用中に自死しうる**問題を修正。idle 自死の判定に使う `lastActivity` は Unity からのメッセージでしか更新されておらず、MCP 側のトラフィックは延命に一切効かなかった。ドメインリロードや Unity の再起動で接続が切れている間にクライアントが呼び続けていても、5 分でブリッジが終了する。さらに `mcpClientCount`（処理中の HTTP リクエスト数）は**宣言されているだけでどこからも参照されておらず**、リクエストの実行中でも自死できた。認証を通った `/mcp` リクエストを `beginMCPRequest` / `endMCPRequest` で挟んで `lastActivity` の更新と in-flight 件数の計上を行い、in-flight が 1 件でもあれば終了しないようにした。未認証のノイズは意図的に延命に効かせない。
-- **Unity が居ない間にキューへ積まれた呼び出しが、誰も待っていなくなった後に実行されていた。** HTTP 側は `callTimeout`（120 秒）で諦めてクライアントに応答を返すが、そのとき呼び出しを消すのは `pending` からだけで `queueWhenDown` には残り続け、Unity が再接続した時点でディスパッチされて**実際に走っていた**（破壊的なツールでは危険）。`pruneStaleQueuedCalls` を追加し、`flushQueuedCalls` の先頭と 30 秒ごとのメンテナンス tick の両方で、`Created` から 120 秒を超えたものを破棄する（破棄件数はログに残す）。Unity の不在が長引いてもキューが際限なく育たない。
-- **ブリッジが落ちると恒久的に無応答になっていた。** `AgentMCPServerBootstrap` の接続リトライは起動直後の 200ms × 25 回（約 5 秒）で打ち切られ、その後に接続を失っても（ブリッジの idle 自死・手動 kill・クラッシュ）何も再試行しなかったため、復帰にはドメインリロードか設定のトグルが必要だった。監視 tick をセッション中ずっと `EditorApplication.update` に張り、接続喪失を検出したら 1 秒から指数バックオフ（上限 30 秒）で再試行し、試行ごとに `Bridge.lock` を見てプロセスを確認・必要なら再 spawn するようにした。恒久的に諦めることはない。`Connect` が例外なく戻ったのに未接続（クライアント内部の running フラグが立ったままで no-op になった状態）の場合は `Disconnect` を挟んでから張り直す — これが無いと reader スレッドだけが死んだケースで二度と再接続できない。spawn 失敗のログは最初の 1 回だけ Error で、以降は Debug に落とす（再試行のたびにコンソールが埋まらないように）。
-- **上記のブリッジ（Go）側の変更は同梱バイナリに反映されていない。** `Editor/Bridge~/UnityAgentBridge/main.go` だけを変更しており、`Editor/Bridge/bin/` 配下の win-x64 / linux-x64 / osx-x64 / osx-arm64 は旧バイナリのままなので、リリース前に `Editor/Bridge~/UnityAgentBridge/build.ps1 -All` での再ビルドが必要。
-- **角度名が反対側を指していた**（`CaptureMultiAngle` / `CaptureMeshIsolated` / `ScanAvatarMeshes`）。カメラ位置は `center - GetAngleDirection(angle) * distance` で求めており、`front` は `Vector3.forward`（+Z）を返していたのでカメラは **-Z 側**に置かれていた。Unity / VRChat 慣習のアバターは +Z を向いているので、`front` と書かれたセルには**後頭部**が写っていた。同じ符号反転で `left` と `right` も入れ替わり（`left` = `Vector3.left` = -X からカメラが +X 側＝被写体の右脇に立つ）、`ScanAvatarMeshes` の固定 `45right` も反対の象限から撮っていた。`TryGetCameraSide` が「カメラが立つ側」をそのまま返し、位置を `center + side * distance` で求めるように直した。**過去のキャプチャとの互換性は無い**: 保存済みの参照画像と撮り直した画像は前後・左右が入れ替わって見えるので、比較する 2 枚は両方このバージョンで撮り直すこと。
-- `top`（および新設の `bottom`）でセルの向きが不定になっていた。`Transform.LookAt` は参照 up が `Vector3.up` 固定で、視線が up 軸と平行になる真上・真下ではロールが未定義になるため、`Quaternion.LookRotation` は任意の向きを返す — セルが理由もなく 90 度単位で回って返ってくる。視線が up とほぼ平行なときだけ参照 up を `Vector3.forward` に切り替える `LookAtRotation` を通すようにした。
-- 未知の角度名の扱いが 2 通りに壊れていた。`CaptureMultiAngle` は綴り間違いを**黙ってスキップ**しており、1 セル落ちると画像下の並び順リストが全部ずれて `[2]` が別の絵を指した。`CaptureMeshIsolated` は `GetAngleDirection` の `Vector3.zero` をそのまま使い、`center - zero * distance` でカメラを**被写体の中心に置いて**撮っていた。どちらも、シーンに一時カメラを作る前に候補名を挙げてエラーにする。
-- `CaptureMultiAngle` のセルラベルが**文字を一切描いていなかった**。各セルの下端に 8px の黒帯を描くだけで、どのセルがどの角度かは戻り値のテキストにしか無く、画像だけを見ると判別できなかった（`CaptureMeshIsolated` / `ScanAvatarMeshes` は TextMesh ラベルを持っていた）。`CaptureMultiAngle` と `CaptureMeshIsolated` を、合成後の画素へ 5x7 ドットフォントで焼き込む方式に揃えた（TextMesh は撮影対象のジオメトリ自身に隠され、ビルトインフォントの存在に依存し、グリッドが存在する前のセル内でレンダされるので最終画像に対する位置決めができない。焼き込みならどんな背景でも必ず既知の位置に載る）。`ScanAvatarMeshes` だけは TextMesh のまま残した — ラベルが GameObject 名でアバターのメッシュは日本語名が普通であり、ドットフォントに CJK グリフが無いため中抜きの箱が並ぶだけになるので、ビルトイン TTF が唯一名前を出せる手段だから。実際に描けたラベル数を数えており、0 件なら「ラベルが無い」と報告する（ラベル入りの絵として渡さない）。
-- コンタクトシートのグリッド行列がツール間で食い違っていた。3 枚を `CaptureMultiAngle` は 3x1、`CaptureMeshIsolated` / `ScanAvatarMeshes` は 2x2 に並べており、同じ枚数でも呼んだツールによって配置が変わるため、一方のシートで数えた「左上の次のセル」がもう一方と一致しなかった。7 枚も `CaptureMultiAngle` / `CaptureMeshIsolated` は 4x2、`ScanAvatarMeshes` は 3x3 で食い違っていた。`CaptureAnimationFrames` を含む 4 ツールすべてが `CaptureCommon.ComputeGrid` を呼ぶようにした（3 枚までは横 1 列、それ以上はできるだけ正方形で左→右・上→下。3 枚は 3x1、7 枚は 3x3 に統一される）。
-- 多角度キャプチャのフレーミングが FOV を無視していた（`CaptureMultiAngle` / `CaptureMeshIsolated` / `ScanAvatarMeshes`）。`distance = maxExtent * 2.5` は目分量で合わせた FOV でしか正しく収まらず、対角が最大 extent よりはるかに大きい縦長のメッシュは上下が見切れ、平たいメッシュは小さすぎた。外接球半径を垂直 FOV と水平 FOV の**両方**に収める距離（`r / sin(min(vHalf, hHalf)) * (1 + padding)`）に置き換え、`padding`（既定 0.1）を追加した。`nearClipPlane` / `farClipPlane` は算出した距離から導出し、被写体が near 面に食い込まないようにした。`padding` は距離に対する**割合**なので 0..10 の外はクランプせずエラーにする（画素数の打ち間違いをクランプで受けると、意図と違う画角が「成功」として返る）。
-- `CaptureMeshIsolated` がシーン全 Renderer に加えて**対象の祖先の `SetActive` まで無条件に書き換えていた**。`activateHidden=false`（新既定）でオプトインにし、既定では `Renderer.enabled` のみを触る。既定のまま対象が非アクティブな祖先の下にある場合は、空のグリッドではなく**その祖先の名前を挙げてエラー**を返す（「ジオメトリの無いメッシュ」に見える画像を黙って返さない）。`activateHidden=true` のときは各オブジェクト自身の `activeSelf` を退避して子側から戻すので、失敗しても階層は元どおりになる（finally で行うので例外時も戻る）。ただし一時的にエディタ全体に対してアクティブになること、ドメインリロードなどで中断されると戻らないことも docstring に書いた。対象サブツリーの**内側**が非アクティブな場合は触らず（それは被写体の定義自体を変えてしまう）、代わりに何枚が画像に入っていないかを報告する。
-- デバッグダンプが固定名 `%TEMP%\unity-agent-last-capture.png` だったため、連続キャプチャで上書きされて before/after 比較と並行エージェントが壊れていた（「before」として渡したパスを読み返すと「after」の画像が返るので、ありもしない劣化を作り出すか、本物の劣化を隠す）。`%TEMP%/unity-agent-captures/capture-YYYYMMDD-HHMMSS-NNN.<ext>` に**毎回新しい名前**で書き、最新 20 件だけを保持する（古いものは削除するので、20 キャプチャより長く残す必要があるものは `saveToPath` を使う）。連番カウンタはドメインリロードで巻き戻り、2 つ目の Unity インスタンスは別のカウンタを持つため、名前は衝突を実際に `File.Exists` で確認してから使う（1 秒内に 1000 名が埋まったら GUID 名に落とす）。削除の対象は名前ではなく**更新時刻**で選ぶ（カウンタが巻き戻るので名前は年齢の順序として信用できない）。prune は書き込みの try の外に置いた（古いファイルの削除失敗が、直前に書けたパスを捨てさせないため）。
-- キャプチャでない画像がキャプチャの保持窓を押し出していた。ユーザー添付画像（`UnityAgentWindow` のチャット添付と Web ダッシュボード添付）と AI 生成テクスチャ（`TextureGenerationTools`、すでにプロジェクトのアセットとして書き出し済み）が `%TEMP%/unity-agent-captures/` に複製され、スクリーンショットを数枚貼ったチャットセッションが 20 件の窓を丸ごと追い出していた。3 箇所を `SetPendingImage(..., dumpDebugCopy:false)` に変更（これらは入力とアセットであってエディタの観察ではない）。`DiffImages` の差分画像とマスク画像は `true` のまま残す — 差分は後続のキャプチャと比較される観察そのものなので、ダンプディレクトリから読み返せる必要がある。
-- **上記のキャプチャ関連の変更は Unity Editor 上での実機未検証**（コンパイル検証のみ）。とくにリフレクション経路（`EditorGUIUtility.RenderPlayModeViewCamerasInternal`、`HostView`、`panel.visualTree`）と `PrintWindow(PW_RENDERFULLCONTENT)` の実挙動はビルドでは検証できない。
-- MCP の `initialize` が返す `serverInfo.version` が常に **`0.0.0.0`** だった。`Handlers.GetPackageVersion()` は `Assembly.GetName().Version` を返していたが、このアセンブリには `[assembly: AssemblyVersion]` が無いため既定値がそのまま出ていた。接続してきたクライアントが最初に見る唯一のバージョンであり、他にバージョンを知る手段が無かったため、実質的に「バージョン不明の相手と話している」状態だった。`package.json` 由来の実バージョン（`UpdateChecker.CurrentVersion`）を返すようにした。`AssemblyInfo.cs` に `AssemblyVersion` を足す案は採らなかった — リリース時に更新する場所が `package.json` / `SDK/package.json` に続いて 3 箇所目になり、二重管理が三重管理になるため。なお **Bridge モードではこの値はブリッジ自身のもの**（`UnityAgentBridge` / `0.1.0`）が返るので、本体バージョンを知る手段は `GetUnityAgentInfo` だけになる。
-- **`GetUnityAgentInfo` は実機未検証**（コンパイル検証のみ）。`PackageInfo.GetAllRegisteredPackages()` の戻り値、`#if` シンボルの実際の状態、MCP 状態の各プロパティは実行して初めて確かめられる。また Bridge バイナリは win-x64 のみ再ビルドしてあり、**linux-x64 / osx-x64 / osx-arm64 は 3 ツール時代のまま**なので、リリース前に `build.ps1 -All` での再ビルドが必要。
+- VRCQuestTools 2.7.0 より前のバージョンでコンパイルが壊れる問題。`MaterialSwap` は 2.7.0 で追加された型なので `VRC_QUEST_TOOLS_MATERIAL_SWAP` で切り分けた
+- モデル定義を `ModelCapabilityRegistry` に一本化。ドロップダウンの手書きリストと二重管理になっていて食い違っていた（xAI から選べないモデル、容量誤り、未登録の Perplexity モデル、廃止済みの Vertex AI 既定）
 
-### Added
-- `OpenExpressionSession`, `ReadExpressionFromWindow`, `CommitExpressionSession`, `CloseExpressionSession` AgentTools.
-- `CleanupFaceEmoPreviewAvatars` AgentTool — sweeps the scene for orphan FaceEmo preview avatars (HideAndDontSave, located at (100,100,100), avatar-like). Use this when FaceEmo's PreviewWindow shows multiple stacked avatars from prior abandoned sessions.
-- `FaceEmoGate`, `FaceEmoExpressionSession`, `ExpressionEditorBridge`, `AssetPathFallback`.
-- Plan B (Thumbnail integration): `CaptureFaceEmoModeThumbnail`, `CaptureFaceEmoGestureTable`, `CaptureFaceEmoExMenuThumbnail`, `RefreshFaceEmoMainView` AgentTools.
-- `FaceEmoThumbnailRenderer` (internal, reflection layer for FaceEmo's MainThumbnailDrawer / GestureTableThumbnailDrawer / ExMenuThumbnailDrawer).
-- PNG output under `Library/UnityAgent/face-thumbnails/`.
 ### Notes
-- Plan B (Thumbnail integration) is included in this release.
+- Plan B（サムネイル統合）もこのリリースに含む
 
 ## [0.10.4] — 2026-05-11
 
