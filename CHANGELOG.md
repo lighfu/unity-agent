@@ -17,10 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - 同名オーバーロードを全部並べ、複数あるものは引数型を完全修飾名で出す。`Ambiguous match found` の原因が一目で分かる
   - 宣言元の型ごとに区切って出力。`memberFilter` と `nameContains` で絞り込める
   - enum は `name = value` と `enum:Full.Type.Value` 形式を併記し、そのまま `InvokeMember` に貼れる
+- シェーダーのパスを一覧する `ListShaderPasses`。索引 / パス名 / LightMode タグ / 持っているシェーダーステージを返す (#16)
+  - `materialPath` を渡すと、そのマテリアルでパスが有効かどうかも並べる。マテリアル側の切り替えは LightMode 値で引くので、タグのないパスは `n/a` と出す
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
 - `RunEditorScript` の既定 usings に `using Object = UnityEngine.Object;` を追加。`System` と `UnityEngine` が同居していて `Object.FindObjectsOfType` が曖昧参照になっていたのを解消 (#13)
+- `CompileShaderVariants` / `PreprocessShaderVariant` が、パスを LightMode タグ値でも指定できるようになった (#16)
+  - パス名はあてにならない。無名のパスは名前で選べず、名前があっても体系がシェーダーごとに違い (`ForwardAdd` / `FORWARD_DELTA` / `Add`)、同じ名前のパスが 2 つあるシェーダーすら実在する
+  - エラーの `Available:` 一覧と、コンパイル結果の各行にも LightMode を併記する。全パスをコンパイルしてバイトコードの大きさから目的のパスを探す必要がなくなる
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)

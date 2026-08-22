@@ -39,7 +39,11 @@ for a shader that is actually broken (the failure then shows up as a magenta mat
 
 shaderPath: asset path ('Assets/Foo.shader') or shader name ('Sunao Shader/Standard').
 keywords: ';' separated shader keywords to enable (e.g. 'SPOT;SHADOWS_DEPTH;SHADOWS_NATIVE'). Empty = no keywords.
-passes: ';' separated pass names or 0-based indices. Empty = all passes (capped by maxPasses).
+passes: ';' separated pass names, LightMode tag values, or 0-based indices (all matched
+  case-insensitively). Empty = all passes, capped by maxPasses. Prefer the LightMode value or
+  the index: names are optional, inconsistently spelled where present ('ForwardAdd' vs
+  'FORWARD_DELTA' vs 'Add'), and one name can cover two different passes.
+  Call ListShaderPasses to see the index, name and tag of every pass.
 platform: d3d11 (default) | vulkan | metal | glcore | gles3 | switch | ps4 | gamecore.
 shaderType: fragment (default) | vertex | geometry | hull | domain.
 subshaderIndex: -1 (default) uses the active subshader.
@@ -76,7 +80,7 @@ counting pixels in a screenshot.",
             if (!TryResolveSubshader(data, subshaderIndex, out ShaderData.Subshader subshader, out int usedSubshader, out string subErr))
                 return subErr;
 
-            var selected = ResolvePasses(subshader, passes, out string passErr);
+            var selected = ResolvePasses(shader, usedSubshader, subshader, passes, out string passErr);
             if (passErr != null) return passErr;
             if (selected.Count == 0) return $"Error: Subshader {usedSubshader} of '{shader.name}' has no passes.";
 
@@ -95,9 +99,13 @@ counting pixels in a screenshot.",
             long totalBytes = 0;
             foreach (var (index, pass, name) in selected)
             {
+                // Labelled per row so that compiling every pass at once still tells the caller which
+                // one is which; on an unnamed-pass shader the name column alone says nothing.
+                string label = PassLabel(shader, usedSubshader, index, name);
+
                 if (!pass.HasShaderStage(stage))
                 {
-                    sb.AppendLine($"[{index}] {name,-16} SKIP  (no {stage} stage in this pass)");
+                    sb.AppendLine($"[{index}] {label,-40} SKIP  (no {stage} stage in this pass)");
                     continue;
                 }
 
@@ -109,7 +117,7 @@ counting pixels in a screenshot.",
                 catch (Exception ex)
                 {
                     failed++;
-                    sb.AppendLine($"[{index}] {name,-16} ERROR (CompileVariant threw: {ex.Message})");
+                    sb.AppendLine($"[{index}] {label,-40} ERROR (CompileVariant threw: {ex.Message})");
                     continue;
                 }
 
@@ -117,13 +125,13 @@ counting pixels in a screenshot.",
                 if (info.Success)
                 {
                     totalBytes += size;
-                    sb.AppendLine($"[{index}] {name,-16} OK    {size} bytes");
+                    sb.AppendLine($"[{index}] {label,-40} OK    {size} bytes");
                     AppendMessages(sb, info.Messages, onlyWarnings: true);
                 }
                 else
                 {
                     failed++;
-                    sb.AppendLine($"[{index}] {name,-16} FAIL");
+                    sb.AppendLine($"[{index}] {label,-40} FAIL");
                     AppendMessages(sb, info.Messages, onlyWarnings: false);
                 }
             }
@@ -184,7 +192,7 @@ maxLines: cap on returned lines (default 200) — preprocessed uber-shaders are 
             if (!TryResolveSubshader(data, -1, out ShaderData.Subshader subshader, out int usedSubshader, out string subErr))
                 return subErr;
 
-            var selected = ResolvePasses(subshader, pass, out string passErr);
+            var selected = ResolvePasses(shader, usedSubshader, subshader, pass, out string passErr);
             if (passErr != null) return passErr;
             if (selected.Count == 0) return $"Error: No pass matched '{pass}'.";
 
@@ -199,11 +207,13 @@ maxLines: cap on returned lines (default 200) — preprocessed uber-shaders are 
             }
             catch (Exception ex)
             {
-                return $"Error: PreprocessVariant threw for pass [{index}] {passName}: {ex.Message}";
+                return $"Error: PreprocessVariant threw for pass "
+                     + $"[{index}] {PassLabel(shader, usedSubshader, index, passName)}: {ex.Message}";
             }
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Shader: {shader.name}  subshader {usedSubshader}  pass [{index}] {passName}");
+            sb.AppendLine($"Shader: {shader.name}  subshader {usedSubshader}  "
+                        + $"pass [{index}] {PassLabel(shader, usedSubshader, index, passName)}");
             sb.AppendLine($"Keywords: {(kw.Length == 0 ? "(none)" : string.Join(";", kw))}  Platform: {compilerPlatform}  Stage: {stage}");
 
             if (!pre.Success)
@@ -320,6 +330,143 @@ count is marked unavailable rather than guessed.",
         }
 
         // ── internals ────────────────────────────────────────────────────────
+
+        [AgentTool(@"List every pass of a shader: index, name, LightMode tag, which shader stages it
+carries, and — when a material is given — whether that material has the pass enabled.
+
+READ THIS BEFORE GUESSING A PASS. CompileShaderVariants, PreprocessShaderVariant and
+SetShaderPassEnabled all take a pass by name, but naming is optional and inconsistent: many
+shaders leave every pass unnamed, and the ones that name them disagree (ForwardAdd vs
+FORWARD_ADD vs Add). The LightMode tag is what the render pipeline actually matches on, so it
+is the one identifier that means the same thing in every shader.
+
+shaderPath: asset path ('Assets/Foo.shader') or shader name ('Sunao Shader/Standard').
+subshaderIndex: -1 (default) lists the active subshader. Pass an index for any other one.
+materialPath: optional. Adds an 'enabled' column read from Material.GetShaderPassEnabled.
+  Those toggles are keyed by the LightMode value, so a pass without the tag shows 'n/a'.
+
+Unity reports tag values upper-cased (FORWARDADD, not ForwardAdd). Every match here and in
+CompileShaderVariants is case-insensitive, so either spelling selects the same pass.",
+            Category = "ShaderVariant", Risk = ToolRisk.Safe)]
+        public static string ListShaderPasses(string shaderPath, int subshaderIndex = -1, string materialPath = "")
+        {
+            if (!TryResolveShader(shaderPath, out Shader shader, out string shaderErr))
+                return shaderErr;
+
+            Material mat = null;
+            if (!string.IsNullOrWhiteSpace(materialPath))
+            {
+                mat = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+                if (mat == null) return $"Error: no Material at '{materialPath}'.";
+                if (mat.shader != shader)
+                    return $"Error: material '{materialPath}' uses shader "
+                         + $"'{(mat.shader != null ? mat.shader.name : "(none)")}', not '{shader.name}'. "
+                         + "Pass toggles only mean something for the shader the material actually uses.";
+            }
+
+            ShaderData data;
+            try { data = ShaderUtil.GetShaderData(shader); }
+            catch (Exception ex) { return $"Error: ShaderUtil.GetShaderData failed for '{shader.name}': {ex.Message}"; }
+            if (data == null) return $"Error: No ShaderData for '{shader.name}'.";
+
+            if (!TryResolveSubshader(data, subshaderIndex, out ShaderData.Subshader subshader, out int usedSubshader, out string subErr))
+                return subErr;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Shader: {shader.name}");
+            sb.Append($"Subshader {usedSubshader} of {data.SubshaderCount}");
+            if (usedSubshader == data.ActiveSubshaderIndex) sb.Append(" (active)");
+            sb.AppendLine($"  -  {subshader.PassCount} pass(es)");
+            if (mat != null) sb.AppendLine($"Material: {materialPath}");
+            sb.AppendLine("---");
+            sb.AppendLine(mat != null
+                ? "idx  name              LightMode         stages                    enabled"
+                : "idx  name              LightMode         stages");
+
+            int untagged = 0;
+            for (int i = 0; i < subshader.PassCount; i++)
+            {
+                ShaderData.Pass p = null;
+                try { p = subshader.GetPass(i); }
+                catch (Exception ex)
+                {
+                    sb.AppendLine($"{$"[{i}]",-4} (could not be read: {ex.Message})");
+                    continue;
+                }
+
+                string name = string.IsNullOrEmpty(p?.Name) ? "(unnamed)" : p.Name;
+                string lightMode = PassLightMode(shader, usedSubshader, i);
+                if (lightMode == null) untagged++;
+
+                var stages = new List<string>();
+                foreach (var stage in InspectedStages)
+                {
+                    try { if (p != null && p.HasShaderStage(stage)) stages.Add(stage.ToString().ToLowerInvariant()); }
+                    catch (Exception) { /* a stage this Unity build cannot answer for is simply not listed */ }
+                }
+
+                string idx = $"[{i}]";
+                string row = $"{idx,-4} {name,-16}  {lightMode ?? "-",-16}  "
+                           + $"{(stages.Count == 0 ? "-" : string.Join(", ", stages)),-24}";
+                if (mat != null)
+                {
+                    // GetShaderPassEnabled answers for any string, so asking it about a pass with no
+                    // LightMode would invent a confident "yes" for a toggle that does not exist.
+                    row += lightMode == null ? "  n/a" : (mat.GetShaderPassEnabled(lightMode) ? "  yes" : "  NO");
+                }
+                sb.AppendLine(row.TrimEnd());
+            }
+
+            sb.AppendLine("---");
+            if (untagged > 0)
+                sb.AppendLine($"{untagged} pass(es) carry no LightMode tag; address those by index.");
+            sb.Append("Pass the index, or the LightMode value when the pass has one, as 'passes' to CompileShaderVariants.");
+            return sb.ToString();
+        }
+
+        // The stages TryParseShaderType accepts. Enumerating ShaderType wholesale would advertise
+        // stages that cannot then be passed back in as shaderType.
+        private static readonly ShaderType[] InspectedStages =
+        {
+            ShaderType.Vertex, ShaderType.Fragment, ShaderType.Geometry,
+            ShaderType.Hull, ShaderType.Domain, ShaderType.Surface,
+        };
+
+        // Fully qualified on purpose: this file already opens UnityEditor.Rendering, and a bare
+        // using for UnityEngine.Rendering would put two Rendering namespaces in scope.
+        private static readonly UnityEngine.Rendering.ShaderTagId LightModeTag =
+            new UnityEngine.Rendering.ShaderTagId("LightMode");
+
+        /// <summary>
+        /// The LightMode tag of one pass, or null when the pass declares none.
+        ///
+        /// This is the only dependable way to say which pass is which. Pass names are optional —
+        /// an unnamed pass reports as "(unnamed)" and gives the caller nothing to go on — and the
+        /// shaders that do name their passes disagree on the convention (ForwardAdd / FORWARD_ADD
+        /// / Add all appear in the wild). The tag is what the render pipeline itself matches on.
+        /// </summary>
+        private static string PassLightMode(Shader shader, int subshaderIndex, int passIndex)
+        {
+            try
+            {
+                var tag = shader.FindPassTagValue(subshaderIndex, passIndex, LightModeTag);
+                return string.IsNullOrEmpty(tag.name) ? null : tag.name;
+            }
+            catch (Exception ex)
+            {
+                AgentLogger.Debug(LogTag.Tool,
+                    $"FindPassTagValue(LightMode) threw for '{shader.name}' subshader {subshaderIndex} " +
+                    $"pass {passIndex} ({ex.Message}); reporting the pass without a tag.");
+                return null;
+            }
+        }
+
+        /// <summary>Pass name with its LightMode appended, so an unnamed pass is still identifiable.</summary>
+        private static string PassLabel(Shader shader, int subshaderIndex, int passIndex, string name)
+        {
+            string lightMode = PassLightMode(shader, subshaderIndex, passIndex);
+            return lightMode == null ? name : $"{name} (LightMode={lightMode})";
+        }
 
         private static bool TryResolveShader(string shaderPath, out Shader shader, out string error)
         {
@@ -451,7 +598,7 @@ count is marked unavailable rather than guessed.",
         /// Empty selector = every pass. Unnamed passes are addressable by index only.
         /// </summary>
         private static List<(int index, ShaderData.Pass pass, string name)> ResolvePasses(
-            ShaderData.Subshader subshader, string selector, out string error)
+            Shader shader, int subshaderIndex, ShaderData.Subshader subshader, string selector, out string error)
         {
             error = null;
             var all = new List<(int, ShaderData.Pass, string)>();
@@ -475,7 +622,8 @@ count is marked unavailable rather than guessed.",
                 {
                     if (idx < 0 || idx >= all.Count)
                     {
-                        error = $"Error: pass index {idx} out of range (PassCount={all.Count}).";
+                        error = $"Error: pass index {idx} out of range (PassCount={all.Count}). "
+                              + "Call ListShaderPasses to see the indices, names and LightMode tags.";
                         return result;
                     }
                     result.Add(all[idx]);
@@ -485,8 +633,21 @@ count is marked unavailable rather than guessed.",
                 var hit = all.Where(t => string.Equals(t.Item3, w, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (hit.Count == 0)
                 {
-                    string available = string.Join(", ", all.Select(t => $"[{t.Item1}] {t.Item3}"));
-                    error = $"Error: no pass named '{w}'. Available: {available}";
+                    // Fall back to the LightMode tag. Names are optional, the shaders that do name
+                    // their passes disagree on the convention, and one name can even cover two
+                    // passes — a shader whose ForwardBase and ForwardAdd passes are both called
+                    // "FORWARD" is real, and no name can separate them. The tag always can.
+                    hit = all.Where(t => string.Equals(
+                              PassLightMode(shader, subshaderIndex, t.Item1), w,
+                              StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+                if (hit.Count == 0)
+                {
+                    // The tags are listed because the bare name list is unusable on shaders that
+                    // leave their passes unnamed: every entry reads "(unnamed)".
+                    string available = string.Join(", ",
+                        all.Select(t => $"[{t.Item1}] {PassLabel(shader, subshaderIndex, t.Item1, t.Item3)}"));
+                    error = $"Error: no pass named or LightMode-tagged '{w}'. Available: {available}";
                     return result;
                 }
                 result.AddRange(hit);
