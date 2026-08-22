@@ -8,7 +8,7 @@
   const STRINGS = {
     ja: {
       "meta.title": "UnityAgent — VRChat アバターのための AI Unity Editor",
-      "meta.description": "LLM で Unity Editor を自然言語操作。VRChat アバター制作に特化した 500+ ツールを搭載した AI エージェント。",
+      "meta.description": "LLM で Unity Editor を自然言語操作。VRChat アバター制作に特化した 600+ ツールを搭載した AI エージェント。",
       "a11y.skip": "本文へスキップ",
 
       "nav.features": "特徴",
@@ -19,10 +19,10 @@
       "nav.changelog": "更新履歴",
       "nav.community": "コミュニティ",
 
-      "hero.badge": "v0.10 リリース · MIT OSS",
+      "hero.badge": "v0.15 リリース · MIT OSS",
       "hero.title.line1": "Unity Editor を、",
       "hero.title.line2": "話しかけて動かす。",
-      "hero.lede": "UnityAgent は、VRChat アバター制作のための AI エージェント兼 Editor ユーティリティ集。500+ 専用ツールを自然言語から呼び出すことも、AI なしで GUI ツール単体として使うこともできます。",
+      "hero.lede": "UnityAgent は、VRChat アバター制作のための AI エージェント兼 Editor ユーティリティ集。600+ 専用ツールを自然言語から呼び出すことも、AI なしで GUI ツール単体として使うこともできます。",
       "hero.cta.install": "インストール",
       "hero.cta.github": "GitHub で見る",
       "hero.stat.tools": "専用ツール",
@@ -31,7 +31,7 @@
 
       "features.eyebrow": "FEATURES",
       "features.title": "アバター制作のあらゆる場面に。",
-      "features.lede": "一貫した自然言語インタフェースの裏で、UnityAgent は 500+ の専用ツールが連携して動きます。",
+      "features.lede": "一貫した自然言語インタフェースの裏で、UnityAgent は 600+ の専用ツールが連携して動きます。",
       "features.f1.title": "アバター解析と最適化",
       "features.f1.body": "PhysBone・BlendShape・骨構造を一括検査し、Quest 変換、メッシュ簡略化、テクスチャアトラスまで自動化。",
       "features.f2.title": "Modular Avatar / NDMF 連携",
@@ -67,9 +67,9 @@
       "standalone.note": "※ いずれのツールも UnityAgent ウィンドウから起動できます。LLM プロバイダーの設定は不要です。",
 
       "tools.eyebrow": "TOOLS",
-      "tools.title": "500+ の専用ツール。",
-      "tools.lede": "すべて自然言語から呼び出せます。下表は主要カテゴリの抜粋です。",
-      "tools.footnote": "※ 各カテゴリ配下に複数の細分化ツールがあり、合計 549 件以上を提供しています。",
+      "tools.title": "600+ の専用ツール。",
+      "tools.lede": "すべて自然言語から呼び出せます。下表はカテゴリ別の内訳で、合計 632 件すべてを含みます。",
+      "tools.footnote": "※ 件数は v0.15.0 のソースに含まれるツールの数です。Modular Avatar や lilToon など、対応パッケージが未導入の環境ではその分のツールがコンパイルされません。",
 
       "providers.eyebrow": "PROVIDERS",
       "providers.title": "使い慣れた LLM をそのまま。",
@@ -129,7 +129,7 @@
 
     en: {
       "meta.title": "UnityAgent — AI-powered Unity Editor for VRChat avatars",
-      "meta.description": "Control Unity Editor in natural language. An AI agent with 500+ tools specialized for VRChat avatar creation.",
+      "meta.description": "Control Unity Editor in natural language. An AI agent with 600+ tools specialized for VRChat avatar creation.",
       "a11y.skip": "Skip to content",
 
       "nav.features": "Features",
@@ -140,10 +140,10 @@
       "nav.changelog": "Changelog",
       "nav.community": "Community",
 
-      "hero.badge": "v0.10 released · MIT OSS",
+      "hero.badge": "v0.15 released · MIT OSS",
       "hero.title.line1": "Talk to Unity Editor.",
       "hero.title.line2": "Watch it build.",
-      "hero.lede": "UnityAgent is both an AI agent and a suite of standalone Editor utilities for VRChat avatar creation. Call 500+ tools in natural language — or use the GUI utilities directly, no AI required.",
+      "hero.lede": "UnityAgent is both an AI agent and a suite of standalone Editor utilities for VRChat avatar creation. Call 600+ tools in natural language — or use the GUI utilities directly, no AI required.",
       "hero.cta.install": "Install",
       "hero.cta.github": "View on GitHub",
       "hero.stat.tools": "Specialized tools",
@@ -152,7 +152,7 @@
 
       "features.eyebrow": "FEATURES",
       "features.title": "Built for avatar creators.",
-      "features.lede": "Behind a single natural-language interface, 500+ tools cooperate to get the job done.",
+      "features.lede": "Behind a single natural-language interface, 600+ tools cooperate to get the job done.",
       "features.f1.title": "Avatar analysis & optimization",
       "features.f1.body": "Inspect PhysBones, BlendShapes and rigs at once. Automate Quest conversion, mesh simplification and texture atlasing.",
       "features.f2.title": "Modular Avatar / NDMF integration",
@@ -188,9 +188,9 @@
       "standalone.note": "* Each utility opens directly from the UnityAgent window. No LLM provider setup needed.",
 
       "tools.eyebrow": "TOOLS",
-      "tools.title": "500+ specialized tools.",
-      "tools.lede": "All callable from natural language. Below is a curated set of major categories.",
-      "tools.footnote": "* Each category contains multiple finer-grained tools, totaling 549+ in this release.",
+      "tools.title": "600+ specialized tools.",
+      "tools.lede": "All callable from natural language. The table below is the full breakdown — all 632 tools, by category.",
+      "tools.footnote": "* Counts come from the v0.15.0 source. Tools gated on an optional package (Modular Avatar, lilToon and so on) are not compiled when that package is absent.",
 
       "providers.eyebrow": "PROVIDERS",
       "providers.title": "Bring your own LLM.",
@@ -250,7 +250,7 @@
 
     "zh-TW": {
       "meta.title": "UnityAgent — 面向 VRChat Avatar 的 AI Unity Editor",
-      "meta.description": "用自然語言控制 Unity Editor。UnityAgent 是專為 VRChat Avatar 製作準備的 AI Agent，內建 500+ 專用工具。",
+      "meta.description": "用自然語言控制 Unity Editor。UnityAgent 是專為 VRChat Avatar 製作準備的 AI Agent，內建 600+ 專用工具。",
       "a11y.skip": "跳到正文",
 
       "nav.features": "特色",
@@ -261,10 +261,10 @@
       "nav.changelog": "更新紀錄",
       "nav.community": "社群",
 
-      "hero.badge": "v0.10 已發布 · MIT 開源",
+      "hero.badge": "v0.15 已發布 · MIT 開源",
       "hero.title.line1": "和 Unity Editor 對話，",
       "hero.title.line2": "讓它替你製作。",
-      "hero.lede": "UnityAgent 既是面向 VRChat Avatar 製作的 AI Agent，也是一套獨立的 Editor 工具集。你可以用自然語言呼叫 500+ 專用工具，也可以不設定 AI，直接使用 GUI 工具。",
+      "hero.lede": "UnityAgent 既是面向 VRChat Avatar 製作的 AI Agent，也是一套獨立的 Editor 工具集。你可以用自然語言呼叫 600+ 專用工具，也可以不設定 AI，直接使用 GUI 工具。",
       "hero.cta.install": "安裝",
       "hero.cta.github": "在 GitHub 查看",
       "hero.stat.tools": "專用工具",
@@ -273,7 +273,7 @@
 
       "features.eyebrow": "FEATURES",
       "features.title": "涵蓋 Avatar 製作的各個環節。",
-      "features.lede": "在統一的自然語言介面背後，UnityAgent 讓 500+ 專用工具協同工作。",
+      "features.lede": "在統一的自然語言介面背後，UnityAgent 讓 600+ 專用工具協同工作。",
       "features.f1.title": "Avatar 分析與最佳化",
       "features.f1.body": "一次檢查 PhysBone、BlendShape 和骨骼結構，自動化 Quest 轉換、網格簡化與貼圖圖集處理。",
       "features.f2.title": "Modular Avatar / NDMF 整合",
@@ -309,9 +309,9 @@
       "standalone.note": "* 每個工具都可以直接從 UnityAgent 視窗啟動，無需設定 LLM 提供者。",
 
       "tools.eyebrow": "TOOLS",
-      "tools.title": "500+ 專用工具。",
-      "tools.lede": "全部都可以透過自然語言呼叫。下面列出的是主要類別摘錄。",
-      "tools.footnote": "* 每個類別下都有多個細分工具，本版本合計提供 549+ 個工具。",
+      "tools.title": "600+ 專用工具。",
+      "tools.lede": "全部都可以透過自然語言呼叫。下表為完整的類別分佈，涵蓋全部 632 個工具。",
+      "tools.footnote": "* 數量來自 v0.15.0 的原始碼。若未安裝 Modular Avatar、lilToon 等對應套件，該部分工具不會被編譯。",
 
       "providers.eyebrow": "PROVIDERS",
       "providers.title": "使用你熟悉的 LLM。",
@@ -371,7 +371,7 @@
 
     zh: {
       "meta.title": "UnityAgent — 面向 VRChat 头像的 AI Unity Editor",
-      "meta.description": "用自然语言控制 Unity Editor。UnityAgent 是专为 VRChat 头像制作准备的 AI Agent，内置 500+ 专用工具。",
+      "meta.description": "用自然语言控制 Unity Editor。UnityAgent 是专为 VRChat 头像制作准备的 AI Agent，内置 600+ 专用工具。",
       "a11y.skip": "跳到正文",
 
       "nav.features": "特性",
@@ -382,10 +382,10 @@
       "nav.changelog": "更新记录",
       "nav.community": "社区",
 
-      "hero.badge": "v0.10 已发布 · MIT 开源",
+      "hero.badge": "v0.15 已发布 · MIT 开源",
       "hero.title.line1": "和 Unity Editor 对话，",
       "hero.title.line2": "让它替你搭建。",
-      "hero.lede": "UnityAgent 既是面向 VRChat 头像制作的 AI Agent，也是一套独立的 Editor 工具集。你可以用自然语言调用 500+ 专用工具，也可以不配置 AI，直接使用 GUI 工具。",
+      "hero.lede": "UnityAgent 既是面向 VRChat 头像制作的 AI Agent，也是一套独立的 Editor 工具集。你可以用自然语言调用 600+ 专用工具，也可以不配置 AI，直接使用 GUI 工具。",
       "hero.cta.install": "安装",
       "hero.cta.github": "在 GitHub 查看",
       "hero.stat.tools": "专用工具",
@@ -394,7 +394,7 @@
 
       "features.eyebrow": "FEATURES",
       "features.title": "覆盖头像制作的各个环节。",
-      "features.lede": "在统一的自然语言界面背后，UnityAgent 让 500+ 专用工具协同工作。",
+      "features.lede": "在统一的自然语言界面背后，UnityAgent 让 600+ 专用工具协同工作。",
       "features.f1.title": "头像分析与优化",
       "features.f1.body": "一次性检查 PhysBone、BlendShape 和骨骼结构，自动化 Quest 转换、网格简化和纹理图集处理。",
       "features.f2.title": "Modular Avatar / NDMF 集成",
@@ -430,9 +430,9 @@
       "standalone.note": "* 每个工具都可以直接从 UnityAgent 窗口启动，无需配置 LLM 提供商。",
 
       "tools.eyebrow": "TOOLS",
-      "tools.title": "500+ 专用工具。",
-      "tools.lede": "全部都可以通过自然语言调用。下面列出的是主要类别摘录。",
-      "tools.footnote": "* 每个类别下都有多个细分工具，本版本合计提供 549+ 个工具。",
+      "tools.title": "600+ 专用工具。",
+      "tools.lede": "全部都可以通过自然语言调用。下表为完整的类别分布，涵盖全部 632 个工具。",
+      "tools.footnote": "* 数量来自 v0.15.0 的源码。若未安装 Modular Avatar、lilToon 等对应包，该部分工具不会被编译。",
 
       "providers.eyebrow": "PROVIDERS",
       "providers.title": "使用你熟悉的 LLM。",

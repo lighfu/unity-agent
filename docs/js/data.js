@@ -5,36 +5,38 @@
 (function () {
   "use strict";
 
-  // -------- Tool categories (curated highlights) --------
-  // Counts reflect the number of [AgentTool] entries in each Editor/Tools file (or grouped files).
+  // -------- Tool categories --------
+  // Counts are the number of [AgentTool] entries in the Editor/Tools files of each
+  // category. Every tool in the source belongs to exactly one category here, so the
+  // counts add up to the total quoted in tools.footnote.
   const TOOL_CATEGORIES = [
     {
       key: "animation",
-      count: 51,
-      ja: { name: "Animation & Animator", desc: "Animator State Machine、AnimationClip、AAC を編集・生成。" },
-      en: { name: "Animation & Animator", desc: "Edit and generate Animator state machines, AnimationClips, and AAC." },
-      "zh-TW": { name: "Animation & Animator", desc: "編輯和產生 Animator 狀態機、AnimationClip 與 AAC。" },
-      zh: { name: "Animation & Animator", desc: "编辑和生成 Animator 状态机、AnimationClip 与 AAC。" },
+      count: 57,
+      ja: { name: "Animation & Animator", desc: "Animator State Machine、AnimationClip、AAC を編集・生成。binding path の一括付け替えも。" },
+      en: { name: "Animation & Animator", desc: "Edit and generate Animator state machines, AnimationClips and AAC; rebind clip paths in bulk." },
+      "zh-TW": { name: "Animation & Animator", desc: "編輯和產生 Animator 狀態機、AnimationClip 與 AAC，也可批次改寫 binding path。" },
+      zh: { name: "Animation & Animator", desc: "编辑和生成 Animator 状态机、AnimationClip 与 AAC，也可批量改写 binding path。" },
     },
     {
       key: "face",
-      count: 55,
-      ja: { name: "BlendShape & Face", desc: "FaceEmo、表情パターン、カメラキャプチャまでを統合。" },
-      en: { name: "BlendShape & Face", desc: "FaceEmo, expression sets, face camera capture in one place." },
-      "zh-TW": { name: "BlendShape & Face", desc: "整合 FaceEmo、表情組合與臉部攝影機擷取。" },
-      zh: { name: "BlendShape & Face", desc: "集成 FaceEmo、表情组合和面部摄像机捕获。" },
+      count: 78,
+      ja: { name: "BlendShape & Face", desc: "FaceEmo、表情パターン、BlendShape の解析と編集。" },
+      en: { name: "BlendShape & Face", desc: "FaceEmo, expression sets, BlendShape analysis and editing." },
+      "zh-TW": { name: "BlendShape & Face", desc: "FaceEmo、表情組合，以及 BlendShape 的分析與編輯。" },
+      zh: { name: "BlendShape & Face", desc: "FaceEmo、表情组合，以及 BlendShape 的分析与编辑。" },
     },
     {
       key: "material-texture",
-      count: 74,
-      ja: { name: "Material & Texture", desc: "lilToon / Poiyomi、TextureAtlas、AO ベイク、TexTransTool 統合。" },
-      en: { name: "Material & Texture", desc: "lilToon / Poiyomi, atlasing, AO bake, TexTransTool integration." },
-      "zh-TW": { name: "Material & Texture", desc: "lilToon / Poiyomi、圖集化、AO 烘焙與 TexTransTool 整合。" },
-      zh: { name: "Material & Texture", desc: "lilToon / Poiyomi、图集化、AO 烘焙和 TexTransTool 集成。" },
+      count: 82,
+      ja: { name: "Material & Texture", desc: "lilToon / Poiyomi、TextureAtlas、AO ベイク、TexTransTool 統合、シェーダー変種の実コンパイル検証。" },
+      en: { name: "Material & Texture", desc: "lilToon / Poiyomi, atlasing, AO bake, TexTransTool integration, real shader-variant compilation checks." },
+      "zh-TW": { name: "Material & Texture", desc: "lilToon / Poiyomi、圖集化、AO 烘焙、TexTransTool 整合，以及 Shader 變體的實際編譯驗證。" },
+      zh: { name: "Material & Texture", desc: "lilToon / Poiyomi、图集化、AO 烘焙、TexTransTool 集成，以及 Shader 变体的实际编译验证。" },
     },
     {
       key: "mesh",
-      count: 28,
+      count: 30,
       ja: { name: "Mesh", desc: "メッシュ解析、編集、生成、UV アイランド単位の選択など。" },
       en: { name: "Mesh", desc: "Analyze, edit, generate meshes; per-UV-island selection and more." },
       "zh-TW": { name: "Mesh", desc: "分析、編輯和產生網格，支援按 UV 島選擇等操作。" },
@@ -42,31 +44,31 @@
     },
     {
       key: "bone-physics",
-      count: 47,
-      ja: { name: "Bone & Physics", desc: "Bone、PhysBone、ウェイト編集、物理コンストレイント。" },
-      en: { name: "Bone & Physics", desc: "Bone setups, PhysBones, weight editing, physics constraints." },
-      "zh-TW": { name: "Bone & Physics", desc: "骨骼設定、PhysBone、權重編輯與物理約束。" },
-      zh: { name: "Bone & Physics", desc: "骨骼设置、PhysBone、权重编辑和物理约束。" },
+      count: 54,
+      ja: { name: "Bone & Physics", desc: "Bone、PhysBone、ウェイト編集、Cloth。" },
+      en: { name: "Bone & Physics", desc: "Bone setups, PhysBones, weight editing, cloth." },
+      "zh-TW": { name: "Bone & Physics", desc: "骨骼設定、PhysBone、權重編輯與 Cloth。" },
+      zh: { name: "Bone & Physics", desc: "骨骼设置、PhysBone、权重编辑与 Cloth。" },
     },
     {
       key: "vrchat",
-      count: 35,
-      ja: { name: "VRChat SDK", desc: "Avatar3、Constraint、Contact、Performance、Expression Parameters。" },
-      en: { name: "VRChat SDK", desc: "Avatar3, Constraints, Contacts, Performance, Expression Parameters." },
-      "zh-TW": { name: "VRChat SDK", desc: "Avatar3、Constraint、Contact、Performance 與 Expression Parameters。" },
-      zh: { name: "VRChat SDK", desc: "Avatar3、Constraint、Contact、Performance 与 Expression Parameters。" },
+      count: 51,
+      ja: { name: "VRChat SDK", desc: "Avatar3、Constraint、Contact、Performance、Expression Parameters、SDK からのアップロード。" },
+      en: { name: "VRChat SDK", desc: "Avatar3, Constraints, Contacts, Performance, Expression Parameters, and SDK uploads." },
+      "zh-TW": { name: "VRChat SDK", desc: "Avatar3、Constraint、Contact、Performance、Expression Parameters 與 SDK 上傳。" },
+      zh: { name: "VRChat SDK", desc: "Avatar3、Constraint、Contact、Performance、Expression Parameters 与 SDK 上传。" },
     },
     {
       key: "ndmf",
-      count: 24,
-      ja: { name: "Modular Avatar / NDMF", desc: "MA メニュー・パラメータ、NDMF パイプライン、VRCFury。" },
-      en: { name: "Modular Avatar / NDMF", desc: "MA menus & params, NDMF pipelines, VRCFury." },
-      "zh-TW": { name: "Modular Avatar / NDMF", desc: "MA 選單與參數、NDMF 流程、VRCFury。" },
-      zh: { name: "Modular Avatar / NDMF", desc: "MA 菜单与参数、NDMF 流程、VRCFury。" },
+      count: 39,
+      ja: { name: "Modular Avatar / NDMF", desc: "MA メニュー・パラメータ、NDMF パイプライン、VRCFury、AAO。" },
+      en: { name: "Modular Avatar / NDMF", desc: "MA menus & params, NDMF pipelines, VRCFury, AAO." },
+      "zh-TW": { name: "Modular Avatar / NDMF", desc: "MA 選單與參數、NDMF 流程、VRCFury 與 AAO。" },
+      zh: { name: "Modular Avatar / NDMF", desc: "MA 菜单与参数、NDMF 流程、VRCFury 与 AAO。" },
     },
     {
       key: "outfit",
-      count: 23,
+      count: 18,
       ja: { name: "Outfit & Accessory", desc: "衣装フィッティング、アクセサリ配置、Mochi Fitter 連携。" },
       en: { name: "Outfit & Accessory", desc: "Outfit fitting, accessory placement, Mochi Fitter catalog." },
       "zh-TW": { name: "Outfit & Accessory", desc: "服裝適配、配件放置與 Mochi Fitter 目錄。" },
@@ -74,19 +76,35 @@
     },
     {
       key: "scene",
-      count: 49,
-      ja: { name: "Scene & Hierarchy", desc: "Scene、Hierarchy、Inspector、SceneView の操作。" },
-      en: { name: "Scene & Hierarchy", desc: "Scene, Hierarchy, Inspector and SceneView operations." },
-      "zh-TW": { name: "Scene & Hierarchy", desc: "Scene、Hierarchy、Inspector 與 SceneView 操作。" },
-      zh: { name: "Scene & Hierarchy", desc: "Scene、Hierarchy、Inspector 和 SceneView 操作。" },
+      count: 61,
+      ja: { name: "Scene & Hierarchy", desc: "Scene、Hierarchy、Inspector、コンポーネントとプロパティの操作。" },
+      en: { name: "Scene & Hierarchy", desc: "Scene, Hierarchy, Inspector, component and property operations." },
+      "zh-TW": { name: "Scene & Hierarchy", desc: "Scene、Hierarchy、Inspector 與元件、屬性操作。" },
+      zh: { name: "Scene & Hierarchy", desc: "Scene、Hierarchy、Inspector 与组件、属性操作。" },
     },
     {
       key: "asset",
+      count: 26,
+      ja: { name: "Asset & Importer", desc: "アセット検索、インポート設定、GUID による逆引き参照検索。" },
+      en: { name: "Asset & Importer", desc: "Asset search, importer settings, reverse reference lookup by GUID." },
+      "zh-TW": { name: "Asset & Importer", desc: "資源搜尋、匯入設定，以及以 GUID 反查參照。" },
+      zh: { name: "Asset & Importer", desc: "资源搜索、导入设置，以及以 GUID 反查引用。" },
+    },
+    {
+      key: "capture",
       count: 20,
-      ja: { name: "Asset & Importer", desc: "アセット検索、インポート設定、Prefab。" },
-      en: { name: "Asset & Importer", desc: "Asset search, importer settings, prefabs." },
-      "zh-TW": { name: "Asset & Importer", desc: "資源搜尋、匯入設定與 Prefab。" },
-      zh: { name: "Asset & Importer", desc: "资源搜索、导入设置和 Prefab。" },
+      ja: { name: "Capture & Diff", desc: "GameView / SceneView / エディタウィンドウの撮影と、画像同士の差分。AI に見せる目。" },
+      en: { name: "Capture & Diff", desc: "Capture GameView, SceneView and editor windows, then diff the images — the AI's eyes." },
+      "zh-TW": { name: "Capture & Diff", desc: "擷取 GameView / SceneView / 編輯器視窗並比對影像差異，等於 AI 的眼睛。" },
+      zh: { name: "Capture & Diff", desc: "捕获 GameView / SceneView / 编辑器窗口并比对图像差异，相当于 AI 的眼睛。" },
+    },
+    {
+      key: "script",
+      count: 31,
+      ja: { name: "Script & Diagnostics", desc: "C# の動的実行、コンパイル待ち、コンソール、テスト実行、スキル管理。" },
+      en: { name: "Script & Diagnostics", desc: "Run C# dynamically, await compilation, read the console, run tests, manage skills." },
+      "zh-TW": { name: "Script & Diagnostics", desc: "動態執行 C#、等待編譯、讀取 Console、執行測試與管理 Skill。" },
+      zh: { name: "Script & Diagnostics", desc: "动态执行 C#、等待编译、读取 Console、运行测试和管理 Skill。" },
     },
     {
       key: "quest",
@@ -105,16 +123,16 @@
       zh: { name: "OSC", desc: "OSC 输入输出自动化和高级控制。" },
     },
     {
-      key: "particle",
-      count: 16,
-      ja: { name: "Particle", desc: "Particle System の各モジュール設定を一括操作。" },
-      en: { name: "Particle", desc: "Bulk configuration across Particle System modules." },
-      "zh-TW": { name: "Particle", desc: "批次設定 Particle System 的各個模組。" },
-      zh: { name: "Particle", desc: "批量配置 Particle System 的各个模块。" },
+      key: "particle-audio",
+      count: 21,
+      ja: { name: "Particle & Audio", desc: "Particle System の各モジュール設定と、AudioSource / AudioClip の操作。" },
+      en: { name: "Particle & Audio", desc: "Particle System modules plus AudioSource / AudioClip handling." },
+      "zh-TW": { name: "Particle & Audio", desc: "Particle System 各模組設定，以及 AudioSource / AudioClip 操作。" },
+      zh: { name: "Particle & Audio", desc: "Particle System 各模块设置，以及 AudioSource / AudioClip 操作。" },
     },
     {
       key: "build",
-      count: 16,
+      count: 14,
       ja: { name: "Build & Prefab", desc: "BuildPipeline、Prefab、Meta ファイル管理。" },
       en: { name: "Build & Prefab", desc: "BuildPipeline, prefabs, .meta management." },
       "zh-TW": { name: "Build & Prefab", desc: "BuildPipeline、Prefab 與 .meta 檔案管理。" },
@@ -166,105 +184,24 @@
           label: "added",
           items: {
             ja: [
-              "BakeAmbientOcclusion — Raycast ベースの AO ベイク (texel / vertex 2 モード)。",
-              "IdentifyBodySmr / IdentifyFaceSmr — 多段ヒューリスティクスで Body / Face SMR を誤差ゼロで特定。",
-              "TexTransTool 連携 — read-only / authoring / pipeline 各 Tier のツール群を NET_RS64_TTT 越しに搭載。",
+              "CaptureFromPose — 任意の位置・向きにカメラを置いて 1 枚撮る。アバターの目の位置から見た画も撮れる。",
+              "DescribeType — 型のメンバを一覧。難読化された DLL でも中身を確認できる。",
+              "RunEditorScript / RunEditorScriptAsync に members 引数。ヘルパーメソッドやイテレータを宣言できる。",
             ],
             en: [
-              "BakeAmbientOcclusion — raycast AO bake with texel / vertex modes.",
-              "IdentifyBodySmr / IdentifyFaceSmr — multi-stage heuristics to identify Body / Face SMRs reliably.",
-              "TexTransTool integration — read-only, authoring and pipeline tiers behind NET_RS64_TTT.",
+              "CaptureFromPose — place a throwaway camera anywhere and take one shot, including the view from the avatar's eyes.",
+              "DescribeType — list a type's members, even inside obfuscated DLLs.",
+              "A members argument for RunEditorScript / RunEditorScriptAsync, so scripts can declare helper methods and iterators.",
             ],
             "zh-TW": [
-              "BakeAmbientOcclusion — 基於 Raycast 的 AO 烘焙，支援 texel / vertex 兩種模式。",
-              "IdentifyBodySmr / IdentifyFaceSmr — 透過多階段啟發式可靠識別 Body / Face SMR。",
-              "TexTransTool 整合 — 透過 NET_RS64_TTT 提供 read-only、authoring 與 pipeline 各層工具。",
+              "CaptureFromPose — 可在任意位置與角度放置攝影機拍攝一張畫面，也能拍出從 Avatar 眼睛看出去的視角。",
+              "DescribeType — 列出型別的成員，即使是混淆過的 DLL 也能查看。",
+              "RunEditorScript / RunEditorScriptAsync 新增 members 參數，可宣告輔助方法與迭代器。",
             ],
             zh: [
-              "BakeAmbientOcclusion — 基于 Raycast 的 AO 烘焙，支持 texel / vertex 两种模式。",
-              "IdentifyBodySmr / IdentifyFaceSmr — 通过多阶段启发式可靠识别 Body / Face SMR。",
-              "TexTransTool 集成 — 通过 NET_RS64_TTT 提供 read-only、authoring 和 pipeline 各层工具。",
-            ],
-          },
-        },
-        {
-          label: "changed",
-          items: {
-            ja: [
-              "ToolRegistry が AjisaiFlow.UnityAgent.* を内部ツール扱い。Optional パッケージ依存ツールも同梱可能に。",
-              "[AgentTool(Risk=...)] を尊重し、内部ツールのリスク判定を改善。",
-            ],
-            en: [
-              "ToolRegistry now treats AjisaiFlow.UnityAgent.* as internal. Optional-package-gated modules ship built-in.",
-              "Honors [AgentTool(Risk=...)] for internal tools, improving risk classification.",
-            ],
-            "zh-TW": [
-              "ToolRegistry 現在將 AjisaiFlow.UnityAgent.* 視為內部工具，可內建依賴可選套件的模組。",
-              "內部工具會尊重 [AgentTool(Risk=...)]，改進風險分類。",
-            ],
-            zh: [
-              "ToolRegistry 现在将 AjisaiFlow.UnityAgent.* 视为内部工具，可内置依赖可选包的模块。",
-              "内部工具会尊重 [AgentTool(Risk=...)]，改进风险分类。",
-            ],
-          },
-        },
-      ],
-    },
-    {
-      version: "0.5.0",
-      date: "2026-04-02",
-      groups: [
-        {
-          label: "changed",
-          items: {
-            ja: [
-              "VPM 配布物がコンパイル済み DLL から ソースコード に切替。",
-              "Obfuscar 難読化を撤去。完全ソース透明化。",
-              "リポジトリを MIT ライセンスで OSS 化。",
-            ],
-            en: [
-              "VPM distribution switched from compiled DLL to source.",
-              "Removed Obfuscar obfuscation — full source transparency.",
-              "Repository open-sourced under MIT license.",
-            ],
-            "zh-TW": [
-              "VPM 發布形式從已編譯 DLL 切換為原始碼。",
-              "移除 Obfuscar 混淆，實現完整原始碼透明。",
-              "倉庫以 MIT 授權開源。",
-            ],
-            zh: [
-              "VPM 分发形式从已编译 DLL 切换为源码。",
-              "移除 Obfuscar 混淆，实现完整源码透明。",
-              "仓库以 MIT 许可开源。",
-            ],
-          },
-        },
-        {
-          label: "added",
-          items: {
-            ja: [
-              "メインウィンドウに更新通知バナー。",
-              "更新後の CHANGELOG ダイアログ (バージョン毎に 1 度)。",
-              "Claude CLI のライブ thinking / tool 表示パネル。",
-              "AI 応答中の表現的ローディングアニメーション。",
-            ],
-            en: [
-              "Update notification banner on the main window.",
-              "Post-update changelog dialog (shown once per version).",
-              "Claude CLI activity panel with live thinking / tool stream.",
-              "Expressive loading animation during AI processing.",
-            ],
-            "zh-TW": [
-              "主視窗新增更新通知橫幅。",
-              "更新後顯示 CHANGELOG 對話框（每個版本顯示一次）。",
-              "新增 Claude CLI 活動面板，即時顯示 thinking / 工具流。",
-              "AI 回應期間加入更直觀的載入動畫。",
-            ],
-            zh: [
-              "主窗口新增更新通知横幅。",
-              "更新后显示 CHANGELOG 对话框（每个版本显示一次）。",
-              "新增 Claude CLI 活动面板，实时显示 thinking / 工具流。",
-              "AI 响应期间加入更直观的加载动画。",
+              "CaptureFromPose — 可在任意位置和角度放置摄像机拍摄一张画面，也能拍出从 Avatar 眼睛看出去的视角。",
+              "DescribeType — 列出类型的成员，即使是混淆过的 DLL 也能查看。",
+              "RunEditorScript / RunEditorScriptAsync 新增 members 参数，可声明辅助方法与迭代器。",
             ],
           },
         },
@@ -272,20 +209,112 @@
           label: "fixed",
           items: {
             ja: [
-              "Claude CLI プロバイダーが正しくリアルタイム出力するように修正。",
-              "応答中の誤タイムアウトを防ぐ非アクティブ判定タイムアウトに置換。",
+              "RunEditorScript が Debug.Log の出力を捨てたうえで、成功とだけ返していた問題。",
             ],
             en: [
-              "Claude CLI provider now correctly streams real-time output.",
-              "Replaced fixed timeout with inactivity-based timeout to avoid false timeouts.",
+              "RunEditorScript discarded Debug.Log output and reported nothing but success.",
             ],
             "zh-TW": [
-              "Claude CLI 提供者現在可以正確串流輸出即時內容。",
-              "將固定逾時替換為基於閒置時間的逾時，避免誤判逾時。",
+              "RunEditorScript 會丟棄 Debug.Log 的輸出，只回報成功。",
             ],
             zh: [
-              "Claude CLI 提供商现在可以正确流式输出实时内容。",
-              "将固定超时替换为基于空闲时间的超时，避免误判超时。",
+              "RunEditorScript 会丢弃 Debug.Log 的输出，只回报成功。",
+            ],
+          },
+        },
+      ],
+    },
+    {
+      version: "0.15.0",
+      date: "2026-08-19",
+      groups: [
+        {
+          label: "added",
+          items: {
+            ja: [
+              "ツール呼び出しの統計ウィンドウ。時系列・ランキング・カテゴリ別・所要時間の 4 グラフ。",
+              "キャプチャ群 — GameView、カメラ、エディタウィンドウ、アニメーション連番を撮影して差分を取る。",
+              "シェーダー変種の実コンパイル検証。差し込んだコードが本当に通るかを確かめられる。",
+              "MCP の 120 秒制限を超える処理向けの非同期ジョブ (RunEditorScriptAsync / GetJobResult)。",
+            ],
+            en: [
+              "A tool-call statistics window with four charts: timeline, ranking, category breakdown and duration.",
+              "Capture tools — GameView, cameras, editor windows and animation frames, plus image diffing.",
+              "Real shader-variant compilation checks, so you can confirm injected code actually compiles.",
+              "Async jobs for work that exceeds the 120-second MCP limit (RunEditorScriptAsync / GetJobResult).",
+            ],
+            "zh-TW": [
+              "工具呼叫統計視窗，提供時間軸、排行、類別分佈與耗時共 4 種圖表。",
+              "擷取工具群 — 可擷取 GameView、攝影機、編輯器視窗與動畫連續影格，並比對差異。",
+              "Shader 變體的實際編譯驗證，可確認插入的程式碼是否真的能通過編譯。",
+              "針對超過 MCP 120 秒限制的作業提供非同步工作 (RunEditorScriptAsync / GetJobResult)。",
+            ],
+            zh: [
+              "工具调用统计窗口，提供时间轴、排行、类别分布与耗时共 4 种图表。",
+              "捕获工具群 — 可捕获 GameView、摄像机、编辑器窗口与动画连续帧，并比对差异。",
+              "Shader 变体的实际编译验证，可确认插入的代码是否真的能通过编译。",
+              "针对超过 MCP 120 秒限制的作业提供异步任务 (RunEditorScriptAsync / GetJobResult)。",
+            ],
+          },
+        },
+        {
+          label: "fixed",
+          items: {
+            ja: [
+              "Ollama など OpenAI 互換プロバイダで Unicode エスケープがデコードされず、ツールが 1 つも実行できなかった (#5)。",
+              "スキーマにない引数が黙って捨てられ、意図しないオブジェクトを操作していた (#7)。",
+            ],
+            en: [
+              "Unicode escapes were not decoded on OpenAI-compatible providers such as Ollama, so no tool could run (#5).",
+              "Arguments missing from the schema were dropped silently, letting tools act on the wrong object (#7).",
+            ],
+            "zh-TW": [
+              "在 Ollama 等 OpenAI 相容供應商上 Unicode 跳脫字元未被解碼，導致完全無法執行工具 (#5)。",
+              "不在 schema 中的參數會被靜默丟棄，導致工具操作到非預期的物件 (#7)。",
+            ],
+            zh: [
+              "在 Ollama 等 OpenAI 兼容供应商上 Unicode 转义未被解码，导致完全无法执行工具 (#5)。",
+              "不在 schema 中的参数会被静默丢弃，导致工具操作到非预期的对象 (#7)。",
+            ],
+          },
+        },
+      ],
+    },
+    {
+      version: "0.14.0",
+      date: "2026-08-09",
+      groups: [
+        {
+          label: "added",
+          items: {
+            ja: [
+              "MCP サーバーが Streamable HTTP トランスポートに対応 (#4)。",
+            ],
+            en: [
+              "The MCP server now supports the Streamable HTTP transport (#4).",
+            ],
+            "zh-TW": [
+              "MCP 伺服器支援 Streamable HTTP 傳輸 (#4)。",
+            ],
+            zh: [
+              "MCP 服务器支持 Streamable HTTP 传输 (#4)。",
+            ],
+          },
+        },
+        {
+          label: "fixed",
+          items: {
+            ja: [
+              "Streamable HTTP の Origin 検証を追加。IPv6 と IPv4-mapped のループバックを受け付ける。",
+            ],
+            en: [
+              "Added Origin validation for Streamable HTTP, accepting IPv6 and IPv4-mapped loopback.",
+            ],
+            "zh-TW": [
+              "新增 Streamable HTTP 的 Origin 驗證，並接受 IPv6 與 IPv4-mapped 的 loopback。",
+            ],
+            zh: [
+              "新增 Streamable HTTP 的 Origin 验证，并接受 IPv6 与 IPv4-mapped 的 loopback。",
             ],
           },
         },
