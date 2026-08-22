@@ -223,7 +223,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         private static bool Reserve(Dictionary<string, string> occupied, EditorCurveBinding b,
             string assetPath, out string error)
         {
-            string key = b.path + " " + (b.type != null ? b.type.FullName : "?") + " " + b.propertyName;
+            string key = b.path + "\0" + (b.type != null ? b.type.FullName : "?") + "\0" + b.propertyName;
             if (occupied.TryGetValue(key, out string firstOwner))
             {
                 error = $"Error: in '{assetPath}', the rewrite would put two different curves on the same "
