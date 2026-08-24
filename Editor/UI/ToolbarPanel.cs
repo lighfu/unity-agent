@@ -86,7 +86,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             Add(supportBtn);
 
             // History
-            _historyBtn = CreateToolbarButton("\ue889", M("履歴"));
+            _historyBtn = CreateToolbarButton(MD3Icon.History, M("履歴"));
             _historyBtn.clicked += () => OnHistoryToggled?.Invoke();
             var historyBadgeContainer = WrapWithBadge(_historyBtn, out _historyBadgeContainer);
             Add(historyBadgeContainer);
