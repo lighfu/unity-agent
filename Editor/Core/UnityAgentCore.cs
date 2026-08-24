@@ -452,13 +452,26 @@ namespace AjisaiFlow.UnityAgent.Editor
                 error =>
                 {
                     _isProcessing = false;
-                    onReplyReceived?.Invoke($"Error: {error}", false);
+                    onReplyReceived?.Invoke(FormatProviderError(error), false);
                 },
                 onStatus,
                 onDebugLog,
                 onPartialResponse,
                 onStreamEvent
             );
+        }
+
+        /// <summary>
+        /// プロバイダーのエラー文をチャット欄用に整える。
+        /// 既に "Error:" で始まっている場合に前置すると "Error: Error: ..." と二重になるので、
+        /// そのときはそのまま返す。
+        /// </summary>
+        private static string FormatProviderError(string error)
+        {
+            if (string.IsNullOrWhiteSpace(error)) return "Error: (詳細なし)";
+            return error.TrimStart().StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
+                ? error
+                : $"Error: {error}";
         }
 
         /// <summary>ルートコルーチンハンドルを設定する。Cancel() で停止するため。</summary>
@@ -618,7 +631,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 error =>
                 {
                     _isProcessing = false;
-                    onReplyReceived?.Invoke($"Error: {error}", false);
+                    onReplyReceived?.Invoke(FormatProviderError(error), false);
                 },
                 onStatus,
                 onDebugLog,

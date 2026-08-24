@@ -122,18 +122,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
             // ── HTTP request with SSE streaming and retry ──
             float retryDelay = 1.0f;
-            string lastRateLimitBody = null;
+            RateLimitInfo lastRateLimit = null;
 
             for (int attempt = 0; attempt <= MaxRetries; attempt++)
             {
                 if (attempt > 0)
                 {
-                    string waitMsg = $"Claude API rate limit (429). Retrying in {retryDelay}s... ({attempt}/{MaxRetries})";
+                    // サーバーが待ち時間を指定していればそれを優先する（機械的な倍々より正確）。
+                    float wait = lastRateLimit != null ? lastRateLimit.NextDelaySeconds(retryDelay) : retryDelay;
+                    string waitMsg = $"Claude API rate limit (429). Retrying in {wait:0.#}s... ({attempt}/{MaxRetries})";
                     AgentLogger.Warning(LogTag.Provider,
-                        $"{waitMsg}\n  Model: {_modelName}\n  Response: {lastRateLimitBody ?? "(empty)"}");
+                        $"{waitMsg}\n{lastRateLimit?.ToLogDetail("Claude", _modelName, attempt) ?? "(empty)"}");
                     onStatus?.Invoke(waitMsg);
                     double t0 = EditorApplication.timeSinceStartup;
-                    while (EditorApplication.timeSinceStartup - t0 < retryDelay)
+                    while (EditorApplication.timeSinceStartup - t0 < wait)
                     {
                         if (_aborted) yield break;
                         yield return null;
@@ -187,14 +189,22 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                         onSuccess?.Invoke(result);
                         yield break;
                     }
-                    else if (req.responseCode == 429 && attempt < MaxRetries)
+                    else if (req.responseCode == 429)
                     {
-                        lastRateLimitBody = handler.GetBufferedText();
-                        if (string.IsNullOrEmpty(lastRateLimitBody))
-                            lastRateLimitBody = req.downloadHandler?.text;
-                        string retryAfter = req.GetResponseHeader("Retry-After");
-                        if (!string.IsNullOrEmpty(retryAfter))
-                            AgentLogger.Info(LogTag.Provider, $"Retry-After header: {retryAfter}");
+                        string rateLimitBody = handler.GetBufferedText();
+                        if (string.IsNullOrEmpty(rateLimitBody))
+                            rateLimitBody = req.downloadHandler?.text;
+                        lastRateLimit = RateLimitInfo.Parse(rateLimitBody, req.GetResponseHeader("Retry-After"));
+
+                        // 最終試行の 429 と、待っても回復しない 429 はここで打ち切る。
+                        // 以前は `attempt < MaxRetries` を条件に含めていたため、最終試行の 429 が
+                        // 汎用エラー分岐に落ちてループ後の専用メッセージが到達不能になっていた。
+                        if (attempt >= MaxRetries || !lastRateLimit.ShouldRetry)
+                        {
+                            AgentLogger.Error(LogTag.Provider, lastRateLimit.ToLogDetail("Claude", _modelName, attempt + 1));
+                            onError?.Invoke(lastRateLimit.ToUserMessage("Claude API", _modelName, attempt + 1));
+                            yield break;
+                        }
                         continue;
                     }
                     else
@@ -209,10 +219,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 }
             }
 
-            // 全リトライ失敗
-            string exhaustedMsg = $"Rate limit (429) - Max retries ({MaxRetries}) exceeded.\nModel: {_modelName}\nLast response: {lastRateLimitBody ?? "(empty)"}";
-            AgentLogger.Error(LogTag.Provider, exhaustedMsg);
-            onError?.Invoke($"Error: {exhaustedMsg}");
+            // ループ内の全分岐が yield break か continue で終わり、最終試行の 429 も上で打ち切るため、
+            // ここには到達しない。将来の改変で抜け道ができたときに黙って無応答にならないための保険。
+            AgentLogger.Error(LogTag.Provider,
+                $"[Claude] Retry loop exited without a result: model={_modelName}, maxRetries={MaxRetries}");
+            onError?.Invoke($"Claude API: リトライ処理が結果を返さずに終了しました (model={_modelName})。");
         }
 
         // ─── SSE event processing ───

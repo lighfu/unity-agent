@@ -148,21 +148,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                     else if (request.responseCode == 429)
                     {
                         string rateLimitBody = request.downloadHandler?.text ?? "";
+                        var info = RateLimitInfo.Parse(rateLimitBody, request.GetResponseHeader("Retry-After"));
                         currentRetry++;
-                        if (currentRetry > maxRetries)
+
+                        // 1 日あたりの枠切れは待っても当日は回復しないので、リトライせず即座に返す。
+                        if (currentRetry > maxRetries || !info.ShouldRetry)
                         {
-                            string msg = $"Error: Too Many Requests (429) - Max retries exceeded.\nModel: {_modelName}\nResponse: {rateLimitBody}";
-                            AgentLogger.Error(LogTag.Provider, $"[Gemini] {msg}");
-                            onError?.Invoke(msg);
+                            AgentLogger.Error(LogTag.Provider, info.ToLogDetail("Gemini", _modelName, currentRetry));
+                            onError?.Invoke(info.ToUserMessage("Gemini", _modelName, currentRetry));
                             yield break;
                         }
 
-                        string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        AgentLogger.Warning(LogTag.Provider, $"[Gemini] {waitMsg}\n  Model: {_modelName}\n  Response: {rateLimitBody}");
+                        float wait = info.NextDelaySeconds(delay);
+                        string waitMsg = $"Rate limit exceeded (429). Retrying in {wait:0.#}s... ({currentRetry}/{maxRetries})";
+                        AgentLogger.Warning(LogTag.Provider, $"{waitMsg}\n{info.ToLogDetail("Gemini", _modelName, currentRetry)}");
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = UnityEditor.EditorApplication.timeSinceStartup;
-                        while (UnityEditor.EditorApplication.timeSinceStartup - startTime < delay)
+                        while (UnityEditor.EditorApplication.timeSinceStartup - startTime < wait)
                         {
                             if (_aborted) yield break;
                             yield return null;
@@ -269,21 +272,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                         string rateLimitBody = handler.GetBufferedText();
                         if (string.IsNullOrEmpty(rateLimitBody))
                             rateLimitBody = request.downloadHandler?.text ?? "";
+                        var info = RateLimitInfo.Parse(rateLimitBody, request.GetResponseHeader("Retry-After"));
                         currentRetry++;
-                        if (currentRetry > maxRetries)
+
+                        // 1 日あたりの枠切れは待っても当日は回復しないので、リトライせず即座に返す。
+                        if (currentRetry > maxRetries || !info.ShouldRetry)
                         {
-                            string msg = $"Error: Too Many Requests (429) - Max retries exceeded.\nModel: {_modelName}\nResponse: {rateLimitBody}";
-                            AgentLogger.Error(LogTag.Provider, $"[Gemini] {msg}");
-                            onError?.Invoke(msg);
+                            AgentLogger.Error(LogTag.Provider, info.ToLogDetail("Gemini", _modelName, currentRetry));
+                            onError?.Invoke(info.ToUserMessage("Gemini", _modelName, currentRetry));
                             yield break;
                         }
 
-                        string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        AgentLogger.Warning(LogTag.Provider, $"[Gemini] {waitMsg}\n  Model: {_modelName}\n  Response: {rateLimitBody}");
+                        float wait = info.NextDelaySeconds(delay);
+                        string waitMsg = $"Rate limit exceeded (429). Retrying in {wait:0.#}s... ({currentRetry}/{maxRetries})";
+                        AgentLogger.Warning(LogTag.Provider, $"{waitMsg}\n{info.ToLogDetail("Gemini", _modelName, currentRetry)}");
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = EditorApplication.timeSinceStartup;
-                        while (EditorApplication.timeSinceStartup - startTime < delay)
+                        while (EditorApplication.timeSinceStartup - startTime < wait)
                         {
                             if (_aborted) yield break;
                             yield return null;

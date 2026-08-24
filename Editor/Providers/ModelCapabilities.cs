@@ -133,6 +133,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// <summary>
         /// 指定プロバイダーの設定 UI ドロップダウンに表示するモデルを登録順で返す。
         /// ids[i] と labels[i] は添字対応。ラベルは "DisplayName  (modelId)" 形式で生成する。
+        ///
+        /// Gemini (Google AI) に限り、models.list で取得済みの動的モデルを静的分の後ろに足す。
+        /// これがないと「モデル一覧を更新」を押しても選択肢が 1 つも増えない。
+        /// Vertex AI / Gemini CLI は利用可能なモデルの集合が異なるので足さない。
         /// </summary>
         public static (string[] ids, string[] labels) GetDropdownModels(LLMProviderType provider)
         {
@@ -148,6 +152,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 ids.Add(m.ModelId);
                 labels.Add($"{m.DisplayName}  ({m.ModelId})");
             }
+
+            if (provider == LLMProviderType.Gemini && DynamicModels != null)
+            {
+                var extra = new List<string>();
+                foreach (var kv in DynamicModels)
+                    if (!ids.Contains(kv.Key)) extra.Add(kv.Key);
+                extra.Sort(StringComparer.Ordinal);
+                foreach (var id in extra)
+                {
+                    ids.Add(id);
+                    labels.Add($"{DynamicModels[id].DisplayName}  ({id})");
+                }
+            }
+
             return (ids.ToArray(), labels.ToArray());
         }
 
@@ -159,6 +177,39 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             if (string.IsNullOrEmpty(modelId)) return null;
             if (DynamicModels != null && DynamicModels.TryGetValue(modelId, out var dyn)) return dyn;
             return StaticModels.TryGetValue(modelId, out var stat) ? stat : null;
+        }
+
+        /// <summary>
+        /// Google が提供を終了したモデル ID のプレフィクス。設定に残っていても API は 404 か
+        /// 最小の枠しか返さないため、名前を見た時点で警告できるようにここに持つ。
+        /// </summary>
+        static readonly string[] RetiredGeminiPrefixes =
+        {
+            "gemini-1.0", "gemini-1.5", "gemini-2.0", "gemini-pro", "gemini-3-pro-preview",
+        };
+
+        /// <summary>
+        /// Gemini のモデル ID がレジストリに無い場合の注意文を返す。登録済みなら null。
+        ///
+        /// 対象を "gemini" で始まる ID に限るのは、OpenAI 互換 / Ollama / カスタムエンドポイントでは
+        /// 未登録のモデル名が正常だから。Gemini だけは Google の現行モデルを列挙できるので、
+        /// 一覧に無い = 廃止済みか新モデルのどちらか、と言い切れる。
+        /// </summary>
+        public static string DescribeUnknownGeminiModel(string modelId)
+        {
+            if (string.IsNullOrEmpty(modelId)) return null;
+            if (!modelId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase)) return null;
+            if (GetRegistered(modelId) != null) return null;
+
+            foreach (var prefix in RetiredGeminiPrefixes)
+            {
+                if (modelId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return $"注意: モデル '{modelId}' は Google が提供を終了しています。" +
+                           "設定画面で現行のモデル（Gemini 3.5 Flash / Gemini 3.5 Flash Lite など）に変更してください。";
+            }
+
+            return $"注意: モデル '{modelId}' は UnityAgent のモデル一覧にありません。" +
+                   "綴り違いか、提供が終了した可能性があります。設定画面の「モデル一覧を更新」で現行のモデルを取得できます。";
         }
 
         // ─── Pattern inference for custom/unknown models ───
@@ -468,9 +519,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             // Gemini 3 系は thinkingLevel (effort) 推奨 → ThinkingBudgetMax=0 で Effort UI を表示
             Reg(d, "gemini-3.5-flash", "Gemini 3.5 Flash",
                 1048576, 65536, true, 0, 0, true, search: true, dropdowns: gemCli);
+            // Flash-Lite は無料枠の 1 日あたり上限が最も大きい。無料枠で使うユーザーの既定候補。
+            Reg(d, "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite",
+                1048576, 65536, true, 0, 0, true, search: true, dropdowns: gem);
             Reg(d, "gemini-3-flash-preview", "Gemini 3 Flash Preview",
                 1048576, 65536, true, 0, 0, true, search: true);
-            Reg(d, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview",
+            // 無料枠では一切使えない (公式 pricing の Free Tier が Not available)。
+            // 選ぶと必ず失敗するので、ドロップダウンのラベルで分かるようにしておく。
+            Reg(d, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview [課金必須]",
                 1048576, 65536, true, 0, 0, true, search: true, dropdowns: gem);
 
             // ── Claude ── (ドロップダウンは最新3モデルのみ。旧モデルは性能照会用に登録)

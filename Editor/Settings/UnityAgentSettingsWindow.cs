@@ -988,7 +988,17 @@ namespace AjisaiFlow.UnityAgent.Editor
                         {
                             _isFetchingGeminiModels = false;
                             if (ModelCapabilityRegistry.HasDynamicGeminiModels)
+                            {
+                                // descriptor はキャッシュされているので、これを呼ばないと
+                                // 取得したモデルがドロップダウンに 1 件も出ない。
+                                ProviderRegistry.RefreshModelPresets();
+                                // 保存済みモデル名が取得結果に含まれていれば、カスタム扱いを解除する。
+                                var refreshed = ProviderRegistry.Get(LLMProviderType.Gemini);
+                                if (refreshed.ModelPresets != null &&
+                                    Array.IndexOf(refreshed.ModelPresets, cfg.ModelName) >= 0)
+                                    cfg.UseCustomModel = false;
                                 ShowSnackbar(M("モデル一覧を更新しました"));
+                            }
                             RebuildContentArea();
                         }));
                 };
@@ -1423,12 +1433,30 @@ namespace AjisaiFlow.UnityAgent.Editor
                 tf.style.marginLeft = 12;
                 tf.style.marginRight = 12;
                 tf.style.marginTop = 4;
+                parent.Add(tf);
+
+                // 廃止済み / 未登録のモデル名を黙って通すと、後で 429 や 404 になって初めて気付くことになる。
+                var modelWarning = new MD3Text("", MD3TextStyle.BodySmall, color: _theme.Error);
+                modelWarning.style.marginLeft = 12;
+                modelWarning.style.marginRight = 12;
+                modelWarning.style.marginTop = 4;
+                modelWarning.style.whiteSpace = WhiteSpace.Normal;
+                parent.Add(modelWarning);
+
+                void UpdateModelWarning(string modelId)
+                {
+                    string note = ModelCapabilityRegistry.DescribeUnknownGeminiModel(modelId);
+                    modelWarning.Text = note ?? "";
+                    modelWarning.style.display = note == null ? DisplayStyle.None : DisplayStyle.Flex;
+                }
+                UpdateModelWarning(cfg.ModelName);
+
                 tf.changed += v =>
                 {
                     cfg.ModelName = v;
+                    UpdateModelWarning(v);
                     SaveSettings();
                 };
-                parent.Add(tf);
             }
         }
 

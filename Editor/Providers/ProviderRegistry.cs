@@ -437,8 +437,27 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 },
             };
 
-            // モデルプリセット / 表示名は ModelCapabilityRegistry を単一の真実源として算出する。
-            // *ModelPresets[] / *ModelDisplayNames[] の二重管理を排除するための要。
+            ApplyModelPresets();
+
+            // 既定モデルの健全性チェック（単一真実源化後に残る唯一のドリフト面）。
+            foreach (var kv in _descriptors)
+            {
+                var desc = kv.Value;
+                if (string.IsNullOrEmpty(desc.DefaultModel)) continue;
+                var cap = ModelCapabilityRegistry.GetRegistered(desc.DefaultModel);
+                if (cap == null)
+                    Debug.LogWarning($"[UnityAgent] プロバイダー '{desc.DisplayName}' の既定モデル '{desc.DefaultModel}' が ModelCapabilityRegistry に未登録です。");
+                else if (cap.IsDeprecated)
+                    Debug.LogWarning($"[UnityAgent] プロバイダー '{desc.DisplayName}' の既定モデル '{desc.DefaultModel}' は deprecated です。");
+            }
+        }
+
+        /// <summary>
+        /// モデルプリセット / 表示名は ModelCapabilityRegistry を単一の真実源として算出する。
+        /// *ModelPresets[] / *ModelDisplayNames[] の二重管理を排除するための要。
+        /// </summary>
+        static void ApplyModelPresets()
+        {
             foreach (var kv in _descriptors)
             {
                 var desc = kv.Value;
@@ -453,18 +472,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 desc.ModelPresets = ids;
                 desc.ModelDisplayNames = labels;
             }
+        }
 
-            // 既定モデルの健全性チェック（単一真実源化後に残る唯一のドリフト面）。
-            foreach (var kv in _descriptors)
-            {
-                var desc = kv.Value;
-                if (string.IsNullOrEmpty(desc.DefaultModel)) continue;
-                var cap = ModelCapabilityRegistry.GetRegistered(desc.DefaultModel);
-                if (cap == null)
-                    Debug.LogWarning($"[UnityAgent] プロバイダー '{desc.DisplayName}' の既定モデル '{desc.DefaultModel}' が ModelCapabilityRegistry に未登録です。");
-                else if (cap.IsDeprecated)
-                    Debug.LogWarning($"[UnityAgent] プロバイダー '{desc.DisplayName}' の既定モデル '{desc.DefaultModel}' は deprecated です。");
-            }
+        /// <summary>
+        /// ドロップダウンの選択肢を作り直す。descriptor は初回に一度だけ構築されてキャッシュされるため、
+        /// models.list で動的モデルを取得した後はこれを呼ばないと選択肢が増えない。
+        /// </summary>
+        public static void RefreshModelPresets()
+        {
+            if (_descriptors == null) { BuildDescriptors(); return; }
+            ApplyModelPresets();
         }
 
         static string[] PrependItem(string item, string[] arr)

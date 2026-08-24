@@ -117,20 +117,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
                     }
                     else if (request.responseCode == 429)
                     {
+                        string responseBody = request.downloadHandler?.text ?? "";
+                        var info = RateLimitInfo.Parse(responseBody, request.GetResponseHeader("Retry-After"));
                         currentRetry++;
-                        if (currentRetry > maxRetries)
+
+                        // 1 日あたりの枠切れは待っても当日は回復しないので、リトライせず即座に返す。
+                        if (currentRetry > maxRetries || !info.ShouldRetry)
                         {
-                            onError?.Invoke($"Too Many Requests (429) - Max retries exceeded.\nResponse: {request.downloadHandler.text}");
+                            AgentLogger.Error(LogTag.Provider, info.ToLogDetail("Gemini Image", _imageModelName, currentRetry));
+                            onError?.Invoke(info.ToUserMessage("Gemini 画像生成", _imageModelName, currentRetry));
                             yield break;
                         }
 
-                        string responseBody = request.downloadHandler?.text ?? "";
-                        string waitMsg = $"Rate limit exceeded (429). Retrying in {delay}s... ({currentRetry}/{maxRetries})";
-                        AgentLogger.Warning(LogTag.Provider, $"[Gemini Image] {waitMsg}\n  Model: {_imageModelName}\n  Response: {responseBody}");
+                        float wait = info.NextDelaySeconds(delay);
+                        string waitMsg = $"Rate limit exceeded (429). Retrying in {wait:0.#}s... ({currentRetry}/{maxRetries})";
+                        AgentLogger.Warning(LogTag.Provider, $"{waitMsg}\n{info.ToLogDetail("Gemini Image", _imageModelName, currentRetry)}");
                         onStatus?.Invoke(waitMsg);
 
                         double startTime = UnityEditor.EditorApplication.timeSinceStartup;
-                        while (UnityEditor.EditorApplication.timeSinceStartup - startTime < delay)
+                        while (UnityEditor.EditorApplication.timeSinceStartup - startTime < wait)
                         {
                             if (_aborted) yield break;
                             yield return null;

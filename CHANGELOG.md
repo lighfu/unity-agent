@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - enum は `name = value` と `enum:Full.Type.Value` 形式を併記し、そのまま `InvokeMember` に貼れる
 - シェーダーのパスを一覧する `ListShaderPasses`。索引 / パス名 / LightMode タグ / 持っているシェーダーステージを返す (#16)
   - `materialPath` を渡すと、そのマテリアルでパスが有効かどうかも並べる。マテリアル側の切り替えは LightMode 値で引くので、タグのないパスは `n/a` と出す
+- Gemini のモデル一覧に `gemini-3.5-flash-lite` を追加 (#19)。Flash-Lite は無料枠の 1 日あたり上限が最も大きく、無料枠で使うなら第一候補になるモデルだった
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
@@ -26,10 +27,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `CompileShaderVariants` / `PreprocessShaderVariant` が、パスを LightMode タグ値でも指定できるようになった (#16)
   - パス名はあてにならない。無名のパスは名前で選べず、名前があっても体系がシェーダーごとに違い (`ForwardAdd` / `FORWARD_DELTA` / `Add`)、同じ名前のパスが 2 つあるシェーダーすら実在する
   - エラーの `Available:` 一覧と、コンパイル結果の各行にも LightMode を併記する。全パスをコンパイルしてバイトコードの大きさから目的のパスを探す必要がなくなる
+- 429 (レート制限) のレスポンス本文を解釈するようになった。全プロバイダー共通 (#18)
+  - サーバーが指定した待ち時間 (`RetryInfo.retryDelay` / `Retry-After`) を優先して待つ。従来は 1 秒からの倍々を機械的に繰り返すだけだった
+  - 60 秒を超える待ち時間を指示されたら待たずに打ち切り、その旨を伝える
+- 設定画面の「モデル一覧を更新」で取得したモデルが、モデル選択のドロップダウンに反映されるようになった (#19)。従来は取得件数のラベルが増えるだけで選択肢は 1 つも増えなかった
+- 無料枠では使えない `gemini-3.1-pro-preview` を、ドロップダウン上で `[課金必須]` と分かるようにした (#19)
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)
 - `RunEditorScriptAsync` の説明が、書けないコルーチン形状を「Prefer this」として勧めていた問題。`members` で宣言できるようにしたうえで、実際にコンパイルできる例に差し替えた
+- 1 日あたりの無料枠を使い切った 429 でも 5 回リトライし、31 秒待たせた末に必ず失敗していた問題 (#18)。本文の `quotaId` / `quotaMetric` を見て日次枠の枯渇と判定した場合はリトライせず、リセットの時刻まで含めて日本語で説明するようにした
+- 429 のレスポンス JSON をそのままチャット欄に流していた問題 (#18)。要約した説明だけを出し、全文は Unity Console のログに回すようにした
+- エラーが `Error: Error: ...` と二重に前置されていた問題 (#18)
+- 廃止済みや未登録のモデル名が何の警告もなく通っていた問題 (#19)。設定画面のカスタムモデル欄と、429 のエラー文で注意を出すようにした
+- Claude / OpenAI 互換プロバイダーの「Max retries exceeded」が到達不能なデッドコードだった問題 (#20)。最終試行の 429 が汎用エラー分岐に落ちて、生の本文がそのまま表示されていた
 
 ## [0.15.0] - 2026-08-19
 
