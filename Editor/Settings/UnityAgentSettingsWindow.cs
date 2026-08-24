@@ -984,10 +984,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                     _isFetchingGeminiModels = true;
                     RebuildContentArea();
                     EditorCoroutineUtility.StartCoroutineOwnerless(
-                        ModelCapabilityRegistry.FetchGeminiModels(cfg.ApiKey, cfg.ApiVersion, () =>
+                        ModelCapabilityRegistry.FetchGeminiModels(cfg.ApiKey, cfg.ApiVersion, ok =>
                         {
                             _isFetchingGeminiModels = false;
-                            if (ModelCapabilityRegistry.HasDynamicGeminiModels)
+                            if (ok)
                             {
                                 // descriptor はキャッシュされているので、これを呼ばないと
                                 // 取得したモデルがドロップダウンに 1 件も出ない。
@@ -998,6 +998,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                                     Array.IndexOf(refreshed.ModelPresets, cfg.ModelName) >= 0)
                                     cfg.UseCustomModel = false;
                                 ShowSnackbar(M("モデル一覧を更新しました"));
+                            }
+                            else
+                            {
+                                ShowSnackbar(M("モデル一覧の取得に失敗しました。Console のログを確認してください"));
                             }
                             RebuildContentArea();
                         }));
@@ -1436,28 +1440,53 @@ namespace AjisaiFlow.UnityAgent.Editor
                 parent.Add(tf);
 
                 // 廃止済み / 未登録のモデル名を黙って通すと、後で 429 や 404 になって初めて気付くことになる。
-                var modelWarning = new MD3Text("", MD3TextStyle.BodySmall, color: _theme.Error);
-                modelWarning.style.marginLeft = 12;
-                modelWarning.style.marginRight = 12;
-                modelWarning.style.marginTop = 4;
-                modelWarning.style.whiteSpace = WhiteSpace.Normal;
-                parent.Add(modelWarning);
-
-                void UpdateModelWarning(string modelId)
+                //
+                // Google AI のチャットに限る。Vertex AI はバージョン付き ID を受け付け、
+                // OpenAI 互換の先が Gemini を中継していることもあるので、
+                // そこに当てると正常な設定に赤い警告を出してしまう。
+                bool checksModelName = _providerType == LLMProviderType.Gemini;
+                MD3Text modelWarning = null;
+                if (checksModelName)
                 {
-                    string note = ModelCapabilityRegistry.DescribeUnknownGeminiModel(modelId);
-                    modelWarning.Text = note ?? "";
-                    modelWarning.style.display = note == null ? DisplayStyle.None : DisplayStyle.Flex;
+                    modelWarning = new MD3Text("", MD3TextStyle.BodySmall, color: _theme.Error);
+                    modelWarning.style.marginLeft = 12;
+                    modelWarning.style.marginRight = 12;
+                    modelWarning.style.marginTop = 4;
+                    modelWarning.style.whiteSpace = WhiteSpace.Normal;
+                    parent.Add(modelWarning);
+                    UpdateModelWarning(modelWarning, cfg.ModelName);
                 }
-                UpdateModelWarning(cfg.ModelName);
 
                 tf.changed += v =>
                 {
                     cfg.ModelName = v;
-                    UpdateModelWarning(v);
+                    if (modelWarning != null) UpdateModelWarning(modelWarning, v);
                     SaveSettings();
                 };
             }
+        }
+
+        /// <summary>カスタムモデル名がレジストリから見て怪しい場合に注意を出す。問題なければ隠す。</summary>
+        private void UpdateModelWarning(MD3Text label, string modelId)
+        {
+            string note;
+            switch (ModelCapabilityRegistry.ClassifyGeminiModel(modelId))
+            {
+                case ModelCapabilityRegistry.GeminiModelStatus.Retired:
+                    note = string.Format(
+                        M("モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。"), modelId);
+                    break;
+                case ModelCapabilityRegistry.GeminiModelStatus.Unlisted:
+                    note = string.Format(
+                        M("モデル '{0}' は一覧にありません。綴り違いか、提供が終了した可能性があります。"), modelId);
+                    break;
+                default:
+                    note = null;
+                    break;
+            }
+
+            label.Text = note ?? "";
+            label.style.display = note == null ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         // ═══════════════════════════════════════════════════════

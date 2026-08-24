@@ -23,6 +23,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public bool SupportsSearch;
         public bool SupportsStreaming;
         public bool IsDeprecated;
+        /// <summary>無料枠では使えない（公式 pricing の Free Tier が Not available）。ドロップダウンのラベルで注記する。</summary>
+        public bool FreeTierUnavailable;
         /// <summary>このモデルを設定 UI のドロップダウンに表示するプロバイダー一覧。null = 表示しない（性能照会のみ）。</summary>
         public LLMProviderType[] Dropdowns;
 
@@ -33,7 +35,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             bool supportsThinking, int thinkingBudgetMin, int thinkingBudgetMax,
             bool supportsImageInput, bool supportsSearch = false,
             bool supportsStreaming = true, bool isDeprecated = false,
-            LLMProviderType[] dropdowns = null)
+            LLMProviderType[] dropdowns = null, bool freeTierUnavailable = false)
         {
             ModelId = modelId;
             DisplayName = displayName;
@@ -46,6 +48,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             SupportsSearch = supportsSearch;
             SupportsStreaming = supportsStreaming;
             IsDeprecated = isDeprecated;
+            FreeTierUnavailable = freeTierUnavailable;
             Dropdowns = dropdowns;
         }
     }
@@ -150,23 +153,52 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     if (p == provider) { match = true; break; }
                 if (!match) continue;
                 ids.Add(m.ModelId);
-                labels.Add($"{m.DisplayName}  ({m.ModelId})");
+                labels.Add(DropdownLabel(m));
             }
 
             if (provider == LLMProviderType.Gemini && DynamicModels != null)
             {
                 var extra = new List<string>();
                 foreach (var kv in DynamicModels)
-                    if (!ids.Contains(kv.Key)) extra.Add(kv.Key);
+                {
+                    // 静的登録済みは飛ばす。ids ではなく StaticModels で判定するのが要点で、
+                    // ids で判定すると「あえてドロップダウンに出していない」モデルが復活する。
+                    if (StaticModels.ContainsKey(kv.Key)) continue;
+                    if (!LooksLikeChatModel(kv.Key)) continue;
+                    extra.Add(kv.Key);
+                }
                 extra.Sort(StringComparer.Ordinal);
                 foreach (var id in extra)
                 {
                     ids.Add(id);
-                    labels.Add($"{DynamicModels[id].DisplayName}  ({id})");
+                    labels.Add(DropdownLabel(DynamicModels[id]));
                 }
             }
 
             return (ids.ToArray(), labels.ToArray());
+        }
+
+        static string DropdownLabel(ModelCapability m)
+        {
+            string mark = m.FreeTierUnavailable ? " [課金必須]" : "";
+            return $"{m.DisplayName}{mark}  ({m.ModelId})";
+        }
+
+        /// <summary>
+        /// models.list は generateContent 対応というだけで TTS / 画像生成 / 埋め込み系まで返す。
+        /// チャットのドロップダウンにそれらを混ぜると 50 件超の使えない選択肢で埋まるので落とす。
+        /// 落としたモデルもカスタムモデル欄に直接書けば使える。
+        /// </summary>
+        static readonly string[] NonChatModelMarkers =
+        {
+            "-tts", "-image", "imagen", "veo", "embedding", "aqa", "-audio",
+        };
+
+        static bool LooksLikeChatModel(string modelId)
+        {
+            foreach (var marker in NonChatModelMarkers)
+                if (modelId.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            return true;
         }
 
         /// <summary>
@@ -188,28 +220,58 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             "gemini-1.0", "gemini-1.5", "gemini-2.0", "gemini-pro", "gemini-3-pro-preview",
         };
 
+        /// <summary>Gemini のチャットモデル ID がレジストリから見てどういう状態か。</summary>
+        internal enum GeminiModelStatus
+        {
+            /// <summary>登録済み、または判定対象外（Gemini 以外のモデル名）。</summary>
+            Ok,
+            /// <summary>Google が提供を終了したと分かっている。</summary>
+            Retired,
+            /// <summary>一覧に無い。綴り違いか、レジストリより新しいモデル。</summary>
+            Unlisted,
+        }
+
         /// <summary>
-        /// Gemini のモデル ID がレジストリに無い場合の注意文を返す。登録済みなら null。
+        /// Gemini のチャットモデル ID を分類する。
         ///
         /// 対象を "gemini" で始まる ID に限るのは、OpenAI 互換 / Ollama / カスタムエンドポイントでは
         /// 未登録のモデル名が正常だから。Gemini だけは Google の現行モデルを列挙できるので、
         /// 一覧に無い = 廃止済みか新モデルのどちらか、と言い切れる。
+        ///
+        /// なお呼び出す側は「Google AI のチャット」に限ること。Vertex AI はバージョン付き ID
+        /// (gemini-3.5-flash-002 など) を受け付け、画像生成は別系統のモデル ID を使うため、
+        /// そちらに当てると正常な設定を誤って警告する。
+        /// </summary>
+        internal static GeminiModelStatus ClassifyGeminiModel(string modelId)
+        {
+            if (string.IsNullOrEmpty(modelId)) return GeminiModelStatus.Ok;
+            if (!modelId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase)) return GeminiModelStatus.Ok;
+            if (GetRegistered(modelId) != null) return GeminiModelStatus.Ok;
+
+            foreach (var prefix in RetiredGeminiPrefixes)
+                if (modelId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return GeminiModelStatus.Retired;
+
+            return GeminiModelStatus.Unlisted;
+        }
+
+        /// <summary>
+        /// チャット欄のエラーに添える注意文。問題なければ null。
+        /// 設定 UI 側は L10n を通す必要があるので、こちらは使わず ClassifyGeminiModel を直接見ること。
         /// </summary>
         public static string DescribeUnknownGeminiModel(string modelId)
         {
-            if (string.IsNullOrEmpty(modelId)) return null;
-            if (!modelId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase)) return null;
-            if (GetRegistered(modelId) != null) return null;
-
-            foreach (var prefix in RetiredGeminiPrefixes)
+            switch (ClassifyGeminiModel(modelId))
             {
-                if (modelId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                case GeminiModelStatus.Retired:
                     return $"注意: モデル '{modelId}' は Google が提供を終了しています。" +
                            "設定画面で現行のモデル（Gemini 3.5 Flash / Gemini 3.5 Flash Lite など）に変更してください。";
+                case GeminiModelStatus.Unlisted:
+                    return $"注意: モデル '{modelId}' は UnityAgent のモデル一覧にありません。" +
+                           "綴り違いか、提供が終了した可能性があります。設定画面の「モデル一覧を更新」で現行のモデルを取得できます。";
+                default:
+                    return null;
             }
-
-            return $"注意: モデル '{modelId}' は UnityAgent のモデル一覧にありません。" +
-                   "綴り違いか、提供が終了した可能性があります。設定画面の「モデル一覧を更新」で現行のモデルを取得できます。";
         }
 
         // ─── Pattern inference for custom/unknown models ───
@@ -374,12 +436,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// Gemini models.list API からモデル情報を取得し DynamicModels を更新する。
         /// EditorCoroutineUtility.StartCoroutineOwnerless() で実行する。
         /// </summary>
-        public static IEnumerator FetchGeminiModels(string apiKey, string apiVersion, Action onComplete)
+        /// <param name="onComplete">
+        /// この呼び出しが成功したかを渡す。呼び出し側が HasDynamicGeminiModels で成否を判断すると、
+        /// 前回の取得結果が残っているせいで失敗を成功と誤認する。
+        /// </param>
+        public static IEnumerator FetchGeminiModels(string apiKey, string apiVersion, Action<bool> onComplete)
         {
             if (string.IsNullOrEmpty(apiKey))
             {
                 Debug.LogWarning("[ModelCapabilityRegistry] API キーが設定されていません。");
-                onComplete?.Invoke();
+                onComplete?.Invoke(false);
                 yield break;
             }
 
@@ -392,19 +458,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 if (req.result != UnityWebRequest.Result.Success)
                 {
                     Debug.LogError($"[ModelCapabilityRegistry] models.list 取得失敗: {req.error}");
-                    onComplete?.Invoke();
+                    onComplete?.Invoke(false);
                     yield break;
                 }
 
                 var models = ParseModelsListResponse(req.downloadHandler.text);
-                if (models.Count > 0)
+                if (models.Count == 0)
                 {
-                    DynamicModels = models;
-                    Debug.Log($"[ModelCapabilityRegistry] {models.Count} 個の Gemini モデルを取得しました。");
+                    Debug.LogWarning("[ModelCapabilityRegistry] models.list の応答からモデルを 1 件も読み取れませんでした。");
+                    onComplete?.Invoke(false);
+                    yield break;
                 }
+
+                DynamicModels = models;
+                Debug.Log($"[ModelCapabilityRegistry] {models.Count} 個の Gemini モデルを取得しました。");
             }
 
-            onComplete?.Invoke();
+            onComplete?.Invoke(true);
         }
 
         /// <summary>
@@ -526,8 +596,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 1048576, 65536, true, 0, 0, true, search: true);
             // 無料枠では一切使えない (公式 pricing の Free Tier が Not available)。
             // 選ぶと必ず失敗するので、ドロップダウンのラベルで分かるようにしておく。
-            Reg(d, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview [課金必須]",
-                1048576, 65536, true, 0, 0, true, search: true, dropdowns: gem);
+            Reg(d, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview",
+                1048576, 65536, true, 0, 0, true, search: true, dropdowns: gem, paidOnly: true);
 
             // ── Claude ── (ドロップダウンは最新3モデルのみ。旧モデルは性能照会用に登録)
             Reg(d, "claude-opus-4-8", "Claude Opus 4.8",
@@ -688,10 +758,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             int input, int output,
             bool thinking, int budgetMin, int budgetMax,
             bool imageInput, bool search = false, bool stream = true, bool deprecated = false,
-            LLMProviderType[] dropdowns = null)
+            LLMProviderType[] dropdowns = null, bool paidOnly = false)
         {
             list.Add(new ModelCapability(modelId, displayName,
-                input, output, thinking, budgetMin, budgetMax, imageInput, search, stream, deprecated, dropdowns));
+                input, output, thinking, budgetMin, budgetMax, imageInput, search, stream, deprecated, dropdowns, paidOnly));
         }
 
         // ─── Simple JSON helpers (no external dependency) ───

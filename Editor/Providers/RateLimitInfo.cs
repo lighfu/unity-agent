@@ -20,8 +20,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
     /// </summary>
     internal sealed class RateLimitInfo
     {
-        /// <summary>自動リトライで待ってよい上限秒数。これを超える指示が来たら待たずに打ち切る。</summary>
+        /// <summary>1 回の自動リトライで待ってよい上限秒数。これを超える指示が来たら待たずに打ち切る。</summary>
         public const float MaxAutoWaitSeconds = 60f;
+
+        /// <summary>
+        /// 1 リクエストの間に自動リトライで待ってよい合計秒数。
+        /// サーバー指定を優先するようにした結果、`Retry-After: 60` を 5 回言われると
+        /// 5 分固まる、という事故を防ぐための天井。
+        /// </summary>
+        public const float MaxTotalWaitSeconds = 90f;
 
         /// <summary>1 日あたりの枠を使い切っている。待っても当日は回復しない。</summary>
         public bool IsDailyQuota;
@@ -39,13 +46,35 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public string ServerMessage;
         /// <summary>error.status。例: "RESOURCE_EXHAUSTED"</summary>
         public string Status;
+        /// <summary>Retry-After ヘッダーの生の値。解釈できなかった場合もログに残せるよう保持する。</summary>
+        public string RetryAfterHeader;
         /// <summary>ログ専用。ユーザー向けメッセージには絶対に入れない。</summary>
         public string RawBody;
 
-        /// <summary>この 429 は待てば解消する見込みがあるか。</summary>
+        /// <summary>
+        /// Google 形式の構造化された枠情報 (QuotaFailure) が取れている。
+        /// リセット時刻や課金の案内は Google 固有なので、これが false のときは言わない。
+        /// </summary>
+        public bool HasGoogleQuotaDetail => QuotaId != null || QuotaMetric != null;
+
+        /// <summary>この 429 は原理的に待てば解消するか（合計待ち時間の予算は見ない）。</summary>
         public bool ShouldRetry =>
             !IsDailyQuota &&
             !(RetryAfterSeconds.HasValue && RetryAfterSeconds.Value > MaxAutoWaitSeconds);
+
+        /// <summary>
+        /// 次に待つ秒数を決める。打ち切るべきなら null。
+        /// リトライ可否の判断はここ 1 箇所に集約する（プロバイダー側で条件が分岐すると必ずズレる）。
+        /// </summary>
+        /// <param name="fallbackDelay">サーバー指定が無い場合に使う、呼び出し側の指数バックオフ値。</param>
+        /// <param name="alreadyWaited">このリクエストでこれまでに待った合計秒数。</param>
+        public float? PlanWait(float fallbackDelay, float alreadyWaited)
+        {
+            if (!ShouldRetry) return null;
+            float wait = NextDelaySeconds(fallbackDelay);
+            if (alreadyWaited + wait > MaxTotalWaitSeconds) return null;
+            return wait;
+        }
 
         /// <summary>次の待ち時間。サーバー指定があればそれを優先し、無ければ呼び出し側の指数バックオフ値を使う。</summary>
         public float NextDelaySeconds(float fallback)
@@ -63,19 +92,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// </summary>
         public static RateLimitInfo Parse(string body, string retryAfterHeader)
         {
-            var info = new RateLimitInfo { RawBody = body ?? "" };
+            var info = new RateLimitInfo
+            {
+                RawBody = body ?? "",
+                RetryAfterHeader = string.IsNullOrEmpty(retryAfterHeader) ? null : retryAfterHeader.Trim(),
+            };
 
             try { ParseBody(info, body); }
             catch (Exception ex)
             {
-                AgentLogger.Debug(LogTag.Provider,
-                    $"[RateLimit] 429 の本文をパースできませんでした ({ex.Message})。本文なしとして扱います。");
+                // Debug だと DebugMode オフのユーザーには何も残らず、
+                // 「なぜ無駄にリトライしたのか」が誰にも分からなくなる。Warning で出す。
+                AgentLogger.Warning(LogTag.Provider,
+                    $"[RateLimit] 429 の本文をパースできませんでした ({ex.Message})。" +
+                    "枠の種別が判定できないため、通常のレート超過として扱います。");
             }
 
             // RetryInfo が無い場合のみ Retry-After ヘッダーを見る（本文の指定のほうが具体的なため）。
             if (!info.RetryAfterSeconds.HasValue)
             {
-                float? fromHeader = ParseRetryAfterHeader(retryAfterHeader);
+                float? fromHeader = ParseRetryAfterHeader(info.RetryAfterHeader);
                 if (fromHeader.HasValue) info.RetryAfterSeconds = fromHeader;
             }
 
@@ -87,10 +123,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             if (string.IsNullOrEmpty(body)) return;
 
             string trimmed = body.TrimStart();
-            if (!trimmed.StartsWith("{", StringComparison.Ordinal)) return;
+            // Google は単一オブジェクトのことも配列 ([{"error":{...}}]) のこともある。両方受ける。
+            if (!trimmed.StartsWith("{", StringComparison.Ordinal) &&
+                !trimmed.StartsWith("[", StringComparison.Ordinal)) return;
 
             var root = JNode.Parse(trimmed);
-            // Google は配列で返すことがある: [{"error":{...}}]
             if (root.Type == JNode.JType.Array && root.Count > 0) root = root[0];
 
             var error = root["error"];
@@ -132,18 +169,34 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             info.IsFreeTier = Contains(info.QuotaId, "FreeTier") || Contains(info.QuotaMetric, "free_tier");
         }
 
+        /// <summary>分あたりの枠を表す綴り。日次判定より先に除外する。</summary>
+        static readonly string[] MinuteMarkers = { "PerMinute", "per_minute", "per minute", "per-minute" };
+
+        /// <summary>1 日あたりの枠を表す綴り。プロバイダーごとに表記が違うので候補を並べる。</summary>
+        static readonly string[] DayMarkers = { "PerDay", "per_day", "per day", "per-day" };
+
         /// <summary>
         /// 1 日あたりの枠かどうか。quotaId が最も信頼できる（例: ...PerDayPerProjectPerModel-FreeTier）。
-        /// 分あたりの枠（PerMinute）と明示的に取り違えないよう、そちらは先に除外する。
+        /// 構造化情報を返さないプロバイダー向けに error.message も見るが、そちらは綴りの揺れが大きい。
         /// </summary>
         static bool LooksDaily(RateLimitInfo info)
         {
-            if (Contains(info.QuotaId, "PerMinute") || Contains(info.QuotaMetric, "per_minute"))
+            if (ContainsAny(info.QuotaId, MinuteMarkers) || ContainsAny(info.QuotaMetric, MinuteMarkers))
                 return false;
-            if (Contains(info.QuotaId, "PerDay") || Contains(info.QuotaMetric, "per_day"))
+            if (ContainsAny(info.QuotaId, DayMarkers) || ContainsAny(info.QuotaMetric, DayMarkers))
                 return true;
-            // 構造化情報が無いプロバイダー向けの最後の手掛かり。
-            return Contains(info.ServerMessage, "per day");
+            if (info.HasGoogleQuotaDetail)
+                return false; // 構造化情報があるのに日次でないなら、message の推測に頼る必要はない
+            if (ContainsAny(info.ServerMessage, MinuteMarkers))
+                return false;
+            return ContainsAny(info.ServerMessage, DayMarkers);
+        }
+
+        static bool ContainsAny(string haystack, string[] needles)
+        {
+            foreach (var n in needles)
+                if (Contains(haystack, n)) return true;
+            return false;
         }
 
         static bool Contains(string haystack, string needle) =>
@@ -166,7 +219,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         static float? ParseRetryAfterHeader(string header)
         {
             if (string.IsNullOrEmpty(header)) return null;
-            header = header.Trim();
 
             if (float.TryParse(header, NumberStyles.Float, CultureInfo.InvariantCulture, out float secs) && secs >= 0f)
                 return secs;
@@ -188,7 +240,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// チャット欄に出す説明文を組み立てる。生の JSON は絶対に含めない
         /// （本文は呼び出し側が AgentLogger でログに出すこと）。
         /// </summary>
-        public string ToUserMessage(string providerLabel, string modelName, int attempts)
+        /// <param name="extraNote">
+        /// モデル名についての注意など、呼び出し側が足したい 1 行。
+        /// モデル一覧を持っているのはチャット系プロバイダーだけなので、ここでは自動生成しない。
+        /// </param>
+        public string ToUserMessage(string providerLabel, string modelName, int attempts, string extraNote = null)
         {
             var sb = new StringBuilder();
             sb.Append($"{providerLabel} がレート制限 (429) を返しました。");
@@ -202,12 +258,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 sb.Append(IsFreeTier ? "1 日あたりの無料枠" : "1 日あたりの上限");
                 if (!string.IsNullOrEmpty(QuotaValue))
                     sb.Append($"（{QuotaValue} リクエスト）");
-                sb.Append("を使い切っています。この枠は太平洋時間の 0 時（日本時間で 16〜17 時ごろ）にリセットされるため、");
-                sb.Append("待っても当日は回復しません。リトライは行いませんでした。");
-                sb.Append("\n上限はモデルごとに異なります。別のモデルに切り替えるか、");
-                sb.Append(IsFreeTier
-                    ? "Google Cloud プロジェクトで課金を有効にしてください。"
-                    : "しばらく時間を置いてから再送してください。");
+                sb.Append("を使い切っています。待っても当日は回復しないため、リトライは行いませんでした。");
+
+                if (HasGoogleQuotaDetail)
+                {
+                    sb.Append("\nこの枠は太平洋時間の 0 時（日本時間で 16〜17 時ごろ）にリセットされます。");
+                    sb.Append("\n上限はモデルごとに異なります。別のモデルに切り替えるか、");
+                    sb.Append(IsFreeTier
+                        ? "Google Cloud プロジェクトで課金を有効にしてください。"
+                        : "枠のリセットを待ってください。");
+                }
+                else
+                {
+                    // リセットの時刻も課金の導線もプロバイダーによって違うので、断定しない。
+                    sb.Append("\nリセットの時刻と上限の引き上げ方法は、利用しているサービスのプランを確認してください。");
+                }
             }
             else if (RetryAfterSeconds.HasValue && RetryAfterSeconds.Value > MaxAutoWaitSeconds)
             {
@@ -222,9 +287,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             if (!string.IsNullOrEmpty(ServerMessage))
                 sb.Append($"\n\nサーバーからの説明: {Summarize(ServerMessage, 300)}");
 
-            string modelNote = ModelCapabilityRegistry.DescribeUnknownGeminiModel(modelName);
-            if (modelNote != null)
-                sb.Append($"\n\n{modelNote}");
+            if (!string.IsNullOrEmpty(extraNote))
+                sb.Append($"\n\n{extraNote}");
 
             sb.Append("\n\n応答の全文は Unity Console のログに出力しています。");
             return sb.ToString();
@@ -239,6 +303,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             if (!string.IsNullOrEmpty(QuotaId)) sb.Append($", quotaId={QuotaId}");
             if (!string.IsNullOrEmpty(QuotaValue)) sb.Append($", quotaValue={QuotaValue}");
             if (RetryAfterSeconds.HasValue) sb.Append($", retryAfter={RetryAfterSeconds.Value:0.###}s");
+            if (!string.IsNullOrEmpty(RetryAfterHeader))
+                sb.Append($", retryAfterHeader=\"{RetryAfterHeader}\"");
             if (!string.IsNullOrEmpty(Status)) sb.Append($", status={Status}");
             sb.Append($"\nResponse: {(string.IsNullOrEmpty(RawBody) ? "(empty)" : RawBody)}");
             return sb.ToString();

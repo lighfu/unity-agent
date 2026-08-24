@@ -123,16 +123,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             // ── HTTP request with SSE streaming and retry ──
             float retryDelay = 1.0f;
             RateLimitInfo lastRateLimit = null;
+            float totalWaited = 0f;
+            float plannedWait = 1.0f;
 
             for (int attempt = 0; attempt <= MaxRetries; attempt++)
             {
                 if (attempt > 0)
                 {
-                    // サーバーが待ち時間を指定していればそれを優先する（機械的な倍々より正確）。
-                    float wait = lastRateLimit != null ? lastRateLimit.NextDelaySeconds(retryDelay) : retryDelay;
+                    // 待ち時間は前の 429 で PlanWait が承認済みの値（サーバー指定 > 指数バックオフ）。
+                    float wait = plannedWait;
                     string waitMsg = $"Claude API rate limit (429). Retrying in {wait:0.#}s... ({attempt}/{MaxRetries})";
                     AgentLogger.Warning(LogTag.Provider,
-                        $"{waitMsg}\n{lastRateLimit?.ToLogDetail("Claude", _modelName, attempt) ?? "(empty)"}");
+                        $"{waitMsg}\n{lastRateLimit.ToLogDetail("Claude", _modelName, attempt)}");
                     onStatus?.Invoke(waitMsg);
                     double t0 = EditorApplication.timeSinceStartup;
                     while (EditorApplication.timeSinceStartup - t0 < wait)
@@ -199,12 +201,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                         // 最終試行の 429 と、待っても回復しない 429 はここで打ち切る。
                         // 以前は `attempt < MaxRetries` を条件に含めていたため、最終試行の 429 が
                         // 汎用エラー分岐に落ちてループ後の専用メッセージが到達不能になっていた。
-                        if (attempt >= MaxRetries || !lastRateLimit.ShouldRetry)
+                        float? next = attempt >= MaxRetries
+                            ? null
+                            : lastRateLimit.PlanWait(retryDelay, totalWaited);
+                        if (next == null)
                         {
                             AgentLogger.Error(LogTag.Provider, lastRateLimit.ToLogDetail("Claude", _modelName, attempt + 1));
                             onError?.Invoke(lastRateLimit.ToUserMessage("Claude API", _modelName, attempt + 1));
                             yield break;
                         }
+                        plannedWait = next.Value;
+                        totalWaited += plannedWait;
                         continue;
                     }
                     else
