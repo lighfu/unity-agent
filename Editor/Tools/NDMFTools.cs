@@ -211,12 +211,152 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         // Error Report
         // ─────────────────────────────────────────────────────────────────
 
-        [AgentTool("Inspect NDMF's Error Report after a Manual Bake or build attempt. Lists every error/warning/info entry recorded by NDMF (typically populated by ModularAvatar / AAO / VRCFury during bake). Use this immediately after TriggerNDMFManualBake to diagnose why a build failed. Returns category counts and per-entry source plugin and message; degrades gracefully when no reports exist or NDMF is missing.")]
-        public static string InspectNDMFErrorReport()
+        [AgentTool("Inspect NDMF's Error Report after a Manual Bake or build attempt. This is the ONLY reliable way to " +
+                   "tell whether a bake succeeded: NDMF returns a baked GameObject even when processing failed, so " +
+                   "neither the returned object nor the word 'Success' proves anything. " +
+                   "Counts are reported per NDMF severity (internalError / error / nonFatal / information) plus " +
+                   "uploadBlocking=true|false — NDMF blocks the avatar upload for Error and InternalError only. " +
+                   "severity: 'all' (default) | 'internalError' | 'error' | 'nonFatal' | 'information'. " +
+                   "maxEntries: cap on listed entries (default 50, max 500). " +
+                   "Each entry carries the source plugin, the pass name, the avatar, the message, and the hierarchy " +
+                   "path of every scene object the error points at. Degrades gracefully when NDMF is missing.")]
+        public static string InspectNDMFErrorReport(int maxEntries = 50, string severity = "all")
         {
+            if (maxEntries <= 0) maxEntries = 50;
+            if (maxEntries > 500) maxEntries = 500;
+
+            string filter = ParseNdmfSeverityFilter(severity);
+            if (filter == null)
+                return $"Error: unknown severity '{severity}'. Use all | internalError | error | nonFatal | information.";
+
+            if (!TryCollectNdmfErrors(out var entries, out string diagnostic))
+                return diagnostic;
+
+            var counts = new NdmfErrorCounts();
+            foreach (var e in entries) Tally(ref counts, e.severity);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"NDMF Error Report: {counts.Format()}");
+
+            if (entries.Count == 0)
+            {
+                sb.AppendLine("  (no entries — bake has not produced any reports, or the report has been cleared)");
+                return sb.ToString().TrimEnd();
+            }
+
+            var shown = filter == "all"
+                ? entries
+                : entries.Where(e => e.severity == filter).ToList();
+
+            if (filter != "all")
+                sb.AppendLine($"  (severity filter '{filter}': {shown.Count} of {entries.Count} entries)");
+
+            if (shown.Count == 0)
+            {
+                sb.AppendLine("  (no entries at this severity)");
+                return sb.ToString().TrimEnd();
+            }
+
+            foreach (var e in shown.Take(maxEntries))
+            {
+                var head = new StringBuilder($"  [{e.severity}]");
+                head.Append(string.IsNullOrEmpty(e.plugin) ? " (no plugin context)" : " " + e.plugin);
+                if (!string.IsNullOrEmpty(e.pass)) head.Append(" / " + e.pass);
+                if (!string.IsNullOrEmpty(e.avatar)) head.Append(" @" + e.avatar);
+                sb.AppendLine(head.ToString());
+                sb.AppendLine("      " + e.message);
+                foreach (var path in e.objectPaths) sb.AppendLine("      → " + path);
+            }
+            if (shown.Count > maxEntries)
+                sb.AppendLine($"  … +{shown.Count - maxEntries} more entries not listed (raise maxEntries to see them)");
+
+            return sb.ToString().TrimEnd();
+        }
+
+        // ── Error report collection ──────────────────────────────────────────
+
+        /// <summary>
+        /// NDMF's own severities, most severe first. Matched by exact enum name: a substring test
+        /// folds "InternalError" into "Error" and makes uploadBlocking unanswerable.
+        /// </summary>
+        private static readonly string[] NdmfSeverityNames =
+            { "InternalError", "Error", "NonFatal", "Information" };
+
+        /// <summary>Per-severity tallies over NDMF's error report.</summary>
+        internal struct NdmfErrorCounts
+        {
+            public int internalError;
+            public int error;
+            public int nonFatal;
+            public int information;
+            public int unknown;
+            public int total;
+
+            /// <summary>NDMF blocks the avatar upload for Error and InternalError only.</summary>
+            public bool UploadBlocking => internalError > 0 || error > 0;
+
+            public string Format() =>
+                $"internalError={internalError}, error={error}, nonFatal={nonFatal}, information={information}"
+                + (unknown > 0 ? $", unknown={unknown}" : "")
+                + $", total={total}, uploadBlocking={(UploadBlocking ? "true" : "false")}";
+        }
+
+        private class NdmfErrorEntry
+        {
+            public string severity;
+            public string plugin;
+            public string pass;
+            public string avatar;
+            public string message;
+            public readonly List<string> objectPaths = new List<string>();
+        }
+
+        /// <summary>
+        /// Severity tallies only. Lets other tools report the outcome of a bake without
+        /// re-implementing the reflection walk.
+        /// </summary>
+        internal static bool TryGetErrorReportCounts(out NdmfErrorCounts counts, out string diagnostic)
+        {
+            counts = default;
+            if (!TryCollectNdmfErrors(out var entries, out diagnostic)) return false;
+            foreach (var e in entries) Tally(ref counts, e.severity);
+            return true;
+        }
+
+        private static void Tally(ref NdmfErrorCounts counts, string severity)
+        {
+            switch (severity)
+            {
+                case "InternalError": counts.internalError++; break;
+                case "Error": counts.error++; break;
+                case "NonFatal": counts.nonFatal++; break;
+                case "Information": counts.information++; break;
+                default: counts.unknown++; break;
+            }
+            counts.total++;
+        }
+
+        /// <summary>Returns the canonical severity name, "all", or null when unrecognised.</summary>
+        private static string ParseNdmfSeverityFilter(string severity)
+        {
+            string s = (severity ?? "all").Trim();
+            if (s.Length == 0 || string.Equals(s, "all", StringComparison.OrdinalIgnoreCase)) return "all";
+            if (string.Equals(s, "info", StringComparison.OrdinalIgnoreCase)) return "Information";
+            foreach (var name in NdmfSeverityNames)
+                if (string.Equals(s, name, StringComparison.OrdinalIgnoreCase)) return name;
+            return null;
+        }
+
+        private static bool TryCollectNdmfErrors(out List<NdmfErrorEntry> entries, out string diagnostic)
+        {
+            entries = null;
+
             var errorReportType = FindNdmfType(ErrorReportSimpleNames);
             if (errorReportType == null)
-                return "NDMF ErrorReport API not found. Either NDMF is not installed, or the API has moved.";
+            {
+                diagnostic = "NDMF ErrorReport API not found. Either NDMF is not installed, or the API has moved.";
+                return false;
+            }
 
             object reportsValue = TryFindStaticEnumerable(errorReportType,
                 new[] { "Reports", "_reports", "AllReports", "CurrentReports" });
@@ -230,58 +370,105 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     if (m is FieldInfo fi) sbDiag.AppendLine($"  field {fi.Name} : {fi.FieldType.Name}");
                     else if (m is PropertyInfo pi) sbDiag.AppendLine($"  prop  {pi.Name} : {pi.PropertyType.Name}");
                 }
-                return sbDiag.ToString().TrimEnd();
+                diagnostic = sbDiag.ToString().TrimEnd();
+                return false;
             }
 
-            var sb = new StringBuilder();
-            int total = 0;
-            int errors = 0, warnings = 0, infos = 0;
-            var lines = new List<string>();
-
+            entries = new List<NdmfErrorEntry>();
             foreach (var report in reports)
             {
                 if (report == null) continue;
+                string avatar = GetMemberValue(report, "AvatarName") as string;
 
-                object plugin = GetMemberValue(report, "Plugin") ?? GetMemberValue(report, "AssemblyName");
-                string pluginName = plugin?.ToString() ?? "?";
+                if (!(GetMemberValue(report, "Errors") is IEnumerable errorsCol)) continue;
 
-                var errorsCol = GetMemberValue(report, "Errors") as IEnumerable;
-                if (errorsCol == null) continue;
-
-                foreach (var err in errorsCol)
+                foreach (var ctx in errorsCol)
                 {
-                    if (err == null) continue;
-                    total++;
-                    object severity = GetMemberValue(err, "TheError")?.GetType().GetProperty("Severity")?.GetValue(GetMemberValue(err, "TheError"))
-                                       ?? GetMemberValue(err, "Severity");
-                    string sev = severity?.ToString() ?? "Error";
-                    if (sev.IndexOf("Warning", StringComparison.OrdinalIgnoreCase) >= 0) warnings++;
-                    else if (sev.IndexOf("Info", StringComparison.OrdinalIgnoreCase) >= 0) infos++;
-                    else errors++;
+                    if (ctx == null) continue;
 
-                    object inner = GetMemberValue(err, "TheError") ?? err;
-                    string title = GetMemberValue(inner, "TitleKey") as string
-                                   ?? InvokeMember(inner, "FormatTitle") as string
-                                   ?? inner.GetType().Name;
-                    string detail = InvokeMember(inner, "FormatDetails") as string
-                                    ?? GetMemberValue(inner, "DetailsKey") as string;
+                    // ErrorContext is a struct carrying { TheError, Plugin, PassName,
+                    // ExtensionContext }. The plugin hangs off the CONTEXT, not off the report —
+                    // reading report.Plugin is what made every entry print its plugin as "?".
+                    object inner = GetMemberValue(ctx, "TheError") ?? ctx;
 
-                    string detailTrim = detail != null && detail.Length > 200 ? detail.Substring(0, 200) + "…" : detail;
-                    lines.Add($"  [{sev}] {pluginName}: {title}{(detailTrim != null ? $" — {detailTrim}" : "")}");
+                    var entry = new NdmfErrorEntry
+                    {
+                        severity = CanonicalNdmfSeverity(
+                            GetMemberValue(inner, "Severity") ?? GetMemberValue(ctx, "Severity")),
+                        plugin = DescribeNdmfPlugin(GetMemberValue(ctx, "Plugin")),
+                        pass = GetMemberValue(ctx, "PassName") as string,
+                        avatar = avatar,
+                        message = DescribeNdmfError(inner),
+                    };
+                    CollectNdmfReferencePaths(inner, entry.objectPaths);
+                    entries.Add(entry);
                 }
             }
 
-            sb.AppendLine($"NDMF Error Report ({total} entries: {errors} error(s), {warnings} warning(s), {infos} info):");
-            if (lines.Count == 0)
+            diagnostic = null;
+            return true;
+        }
+
+        private static string CanonicalNdmfSeverity(object severityValue)
+        {
+            if (severityValue == null) return "Unknown";
+            string name = severityValue.ToString();
+            foreach (var s in NdmfSeverityNames)
+                if (string.Equals(name, s, StringComparison.OrdinalIgnoreCase)) return s;
+            return "Unknown";
+        }
+
+        private static string DescribeNdmfPlugin(object plugin)
+        {
+            if (plugin == null) return null;
+            return GetMemberValue(plugin, "DisplayName") as string
+                   ?? GetMemberValue(plugin, "QualifiedName") as string
+                   ?? plugin.GetType().Name;
+        }
+
+        private static string DescribeNdmfError(object inner)
+        {
+            if (inner == null) return "(no error object)";
+
+            string title = InvokeMember(inner, "FormatTitle") as string
+                           ?? GetMemberValue(inner, "TitleKey") as string;
+            string detail = InvokeMember(inner, "FormatDetails") as string
+                            ?? GetMemberValue(inner, "DetailsKey") as string;
+
+            if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(detail))
             {
-                sb.AppendLine("  (no entries — bake has not produced any reports, or the report has been cleared)");
+                // Every IError implements ToMessage() for the Unity log; fall back to it rather
+                // than printing a bare type name.
+                return InvokeMember(inner, "ToMessage") as string ?? inner.GetType().Name;
             }
-            else
+
+            if (string.IsNullOrEmpty(title)) title = inner.GetType().Name;
+            if (!string.IsNullOrEmpty(detail) && detail.Length > 200) detail = detail.Substring(0, 200) + "…";
+            return string.IsNullOrEmpty(detail) ? title : $"{title} — {detail}";
+        }
+
+        private static void CollectNdmfReferencePaths(object inner, List<string> into)
+        {
+            var refs = GetMemberValue(inner, "References") as IEnumerable
+                       ?? GetMemberValue(inner, "_references") as IEnumerable;
+            if (refs == null) return;
+
+            foreach (var r in refs)
             {
-                foreach (var l in lines.Take(50)) sb.AppendLine(l);
-                if (lines.Count > 50) sb.AppendLine($"  … +{lines.Count - 50} more entries");
+                if (r == null) continue;
+
+                // ObjectReference.Path is the path relative to the avatar root and stays readable
+                // after the bake has destroyed the clone, so prefer it over walking the transform.
+                string path = GetMemberValue(r, "Path") as string;
+                if (string.IsNullOrEmpty(path))
+                {
+                    var obj = GetMemberValue(r, "Object") as UnityEngine.Object;
+                    var go = obj as GameObject ?? (obj as Component)?.gameObject;
+                    if (go == null) continue;   // an asset, not a scene object — no hierarchy path
+                    path = AvatarAnatomyTools.GetHierarchyPathInternal(go);
+                }
+                if (!string.IsNullOrEmpty(path) && !into.Contains(path)) into.Add(path);
             }
-            return sb.ToString().TrimEnd();
         }
 
         [AgentTool("Clear the NDMF Error Report buffer. Useful before re-running TriggerNDMFManualBake so InspectNDMFErrorReport only shows fresh entries. Returns the number of cleared entries; degrades gracefully when NDMF is missing.")]

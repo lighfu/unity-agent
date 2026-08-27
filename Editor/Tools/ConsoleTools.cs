@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using AjisaiFlow.UnityAgent.SDK;
@@ -42,6 +43,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                    "keyword: case-insensitive substring filter on the message (optional). " +
                    "includeStackTrace: include the callstack attached to each entry (default false). " +
                    "sinceIndex: return only entries NEWER than this console index (default -1 = all). " +
+                   "regex: .NET regular expression, matched case-insensitively against the entry's FIRST line " +
+                   "(the text the Console window shows on the row) — not the stack trace. Combined with keyword as AND. " +
+                   "An invalid pattern returns 'Error:', never an empty result, so a broken filter can never be " +
+                   "mistaken for a clean console. " +
                    "Every response ends with 'nextSinceIndex=N' — pass that back on the next call to see " +
                    "only what appeared since, instead of trying to tell old errors from new ones by eye. " +
                    "Indices reset when the console is cleared, so treat a smaller total than expected as a reset. " +
@@ -51,7 +56,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             int maxEntries = 50,
             string keyword = "",
             bool includeStackTrace = false,
-            int sinceIndex = -1)
+            int sinceIndex = -1,
+            string regex = "")
         {
             if (maxEntries <= 0) maxEntries = 50;
             if (maxEntries > 500) maxEntries = 500;
@@ -59,6 +65,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             int severityMask = ParseSeverityMask(severity);
             if (severityMask == 0)
                 return $"Error: unknown severity '{severity}'. Use all | error | warning | info.";
+
+            if (!TryCompileFilter(regex, out Regex rx, out string rxError))
+                return rxError;
 
             if (!TryGetLogEntriesReflection(out var refl, out string err))
                 return $"Error: {err}";
@@ -111,6 +120,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
                     if ((mode & severityMask) == 0) continue;
                     if (kw != null && (message ?? "").ToLowerInvariant().IndexOf(kw, StringComparison.Ordinal) < 0)
+                        continue;
+                    // keyword scans the whole entry (stack trace included, unchanged behaviour);
+                    // regex deliberately sees only the row text, so '$' and '^' anchor to the
+                    // message the way the caller reads it in the Console window.
+                    if (rx != null && !rx.IsMatch(FirstLine(message ?? "")))
                         continue;
 
                     rows.Add(new ConsoleRow
@@ -176,35 +190,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
 
         [AgentTool("Count Unity Console entries by severity. Returns 'errors=N, warnings=N, info=N, total=N'. " +
-                   "Quick no-payload check for build / compile status before running a more expensive query.")]
-        public static string CountConsoleLogs()
+                   "Quick no-payload check for build / compile status before running a more expensive query. " +
+                   "keyword: case-insensitive substring filter (optional). " +
+                   "regex: .NET regular expression matched case-insensitively against each entry's first line (optional); " +
+                   "combined with keyword as AND. An invalid pattern returns 'Error:' rather than a count of 0, " +
+                   "so a broken filter cannot be read as 'nothing wrong'. " +
+                   "With a filter active the matched counts are returned plus the unfiltered console total, " +
+                   "which is what you want for 'how many warnings did MY plugin emit'.")]
+        public static string CountConsoleLogs(string keyword = "", string regex = "")
         {
-            if (!TryGetLogEntriesReflection(out var refl, out string err))
+            if (!TryCompileFilter(regex, out Regex rx, out string rxError))
+                return rxError;
+
+            string kw = string.IsNullOrWhiteSpace(keyword) ? null : keyword.ToLowerInvariant();
+            if (!TryCountBySeverity(kw, rx, out var counts, out string err))
                 return $"Error: {err}";
 
-            refl.StartGettingEntries.Invoke(null, null);
-            try
-            {
-                int total = (int)refl.GetCount.Invoke(null, null);
-                int errorCount = 0, warnCount = 0, infoCount = 0;
-
-                for (int i = 0; i < total; i++)
-                {
-                    var entry = Activator.CreateInstance(refl.LogEntryType);
-                    refl.GetEntryInternal.Invoke(null, new object[] { i, entry });
-                    int mode = (int)refl.ModeField.GetValue(entry);
-                    string sev = ClassifySeverity(mode);
-                    if (sev == "error") errorCount++;
-                    else if (sev == "warning") warnCount++;
-                    else infoCount++;
-                }
-
-                return $"errors={errorCount}, warnings={warnCount}, info={infoCount}, total={total}";
-            }
-            finally
-            {
-                refl.EndGettingEntries.Invoke(null, null);
-            }
+            string line = $"errors={counts.errors}, warnings={counts.warnings}, info={counts.infos}, total={counts.matched}";
+            if (kw == null && rx == null) return line;
+            return line + $" (filtered; console total={counts.total}, exceptions among matches={counts.exceptions})";
         }
 
         [AgentTool("Clear the Unity Console. Matches the Clear button in the Console window. " +
@@ -229,7 +233,93 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             finally { refl.EndGettingEntries.Invoke(null, null); }
         }
 
+        /// <summary>
+        /// Severity tallies over the console, optionally restricted to entries matching a filter.
+        /// <c>total</c> is always the whole console; <c>matched</c> is what passed the filter
+        /// (equal to <c>total</c> when no filter is given).
+        /// </summary>
+        internal struct ConsoleCounts
+        {
+            public int total;
+            public int matched;
+            public int errors;
+            public int warnings;
+            public int infos;
+            public int exceptions;
+        }
+
+        /// <summary>Unfiltered severity tallies. Used by tools that need a before/after snapshot.</summary>
+        internal static bool TryCountBySeverity(out ConsoleCounts counts, out string error)
+            => TryCountBySeverity(null, null, out counts, out error);
+
+        internal static bool TryCountBySeverity(string lowerKeyword, Regex rx, out ConsoleCounts counts, out string error)
+        {
+            counts = default;
+            if (!TryGetLogEntriesReflection(out var refl, out error)) return false;
+
+            refl.StartGettingEntries.Invoke(null, null);
+            try
+            {
+                int total = (int)refl.GetCount.Invoke(null, null);
+                counts.total = total;
+
+                for (int i = 0; i < total; i++)
+                {
+                    var entry = Activator.CreateInstance(refl.LogEntryType);
+                    refl.GetEntryInternal.Invoke(null, new object[] { i, entry });
+                    int mode = (int)refl.ModeField.GetValue(entry);
+
+                    if (lowerKeyword != null || rx != null)
+                    {
+                        string message = (string)refl.MessageField.GetValue(entry) ?? "";
+                        if (lowerKeyword != null
+                            && message.ToLowerInvariant().IndexOf(lowerKeyword, StringComparison.Ordinal) < 0)
+                            continue;
+                        if (rx != null && !rx.IsMatch(FirstLine(message)))
+                            continue;
+                    }
+
+                    counts.matched++;
+                    string sev = ClassifySeverity(mode);
+                    if (sev == "error") counts.errors++;
+                    else if (sev == "warning") counts.warnings++;
+                    else counts.infos++;
+                    if ((mode & ModeScriptingException) != 0) counts.exceptions++;
+                }
+
+                error = null;
+                return true;
+            }
+            finally
+            {
+                refl.EndGettingEntries.Invoke(null, null);
+            }
+        }
+
         // ── internals ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Compiles the caller-supplied pattern. A malformed pattern must surface as an error:
+        /// silently treating it as "no matches" would let a caller gating on the count read a
+        /// broken filter as a clean console.
+        /// </summary>
+        private static bool TryCompileFilter(string pattern, out Regex rx, out string error)
+        {
+            rx = null;
+            error = null;
+            if (string.IsNullOrWhiteSpace(pattern)) return true;
+
+            try
+            {
+                rx = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                return true;
+            }
+            catch (ArgumentException ex)
+            {
+                error = $"Error: invalid regex '{pattern}': {ex.Message}";
+                return false;
+            }
+        }
 
         private class ConsoleRow
         {

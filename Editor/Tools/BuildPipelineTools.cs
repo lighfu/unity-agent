@@ -13,11 +13,70 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     public static class BuildPipelineTools
     {
         private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
-        [AgentTool("Trigger NDMF manual bake on an avatar. This processes all NDMF plugins (MA, AAO, etc.) and shows the result in scene. Use avatarRootName to specify the avatar.")]
+        [AgentTool("Trigger NDMF manual bake on an avatar. This processes all NDMF plugins (MA, AAO, etc.) and shows " +
+                   "the result in scene. Use avatarRootName to specify the avatar. " +
+                   "A successful call appends elapsedMs, the baked root's hierarchy path, the NDMF error-report " +
+                   "counts per severity, and how many console errors / exceptions / warnings appeared DURING the bake " +
+                   "(measured as a delta, so no ClearConsole call is needed first). " +
+                   "Judge the outcome by those counts: NDMF hands back a baked GameObject even when a pass failed, so " +
+                   "the word 'Success' here only means 'returned without throwing'.")]
         public static string TriggerNDMFManualBake(string avatarRootName)
         {
             var go = FindGO(avatarRootName);
             if (go == null) return $"Error: GameObject '{avatarRootName}' not found.";
+
+            // Snapshot the console before starting. NDMF and its plugins report through Debug.Log,
+            // so diffing the counts is the only way to attribute a warning to THIS bake without
+            // forcing every caller to ClearConsole first (which throws away context they may need).
+            bool haveBefore = ConsoleTools.TryCountBySeverity(out var before, out _);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            string result = RunNdmfManualBake(go, avatarRootName, out GameObject baked);
+            sw.Stop();
+
+            if (result.StartsWith("Error:", StringComparison.Ordinal)) return result;
+
+            var sb = new StringBuilder(result);
+            sb.AppendLine();
+            sb.AppendLine($"elapsedMs={sw.ElapsedMilliseconds}");
+            sb.AppendLine($"bakedRootPath={(baked != null ? AvatarAnatomyTools.GetHierarchyPathInternal(baked) : "(not reported by this NDMF code path)")}");
+
+            if (NDMFTools.TryGetErrorReportCounts(out var ndmf, out string ndmfDiag))
+                sb.AppendLine($"ndmf: {ndmf.Format()}");
+            else
+                sb.AppendLine($"ndmf: unavailable — {SingleLine(ndmfDiag)}");
+
+            if (haveBefore && ConsoleTools.TryCountBySeverity(out var after, out _))
+            {
+                // The index goes backwards when "Clear on Recompile" (or the user) wipes the
+                // console mid-bake; a negative delta would read as "fewer errors than before".
+                if (after.total < before.total)
+                    sb.AppendLine($"console: errors={after.errors}, exceptions={after.exceptions}, warnings={after.warnings} " +
+                                  "(the console was cleared during the bake — these are absolute counts, not a delta)");
+                else
+                    sb.AppendLine($"console: errors={after.errors - before.errors}, " +
+                                  $"exceptions={after.exceptions - before.exceptions}, " +
+                                  $"warnings={after.warnings - before.warnings} (new during this bake)");
+            }
+            else
+            {
+                sb.AppendLine("console: unavailable (UnityEditor.LogEntries could not be read)");
+            }
+
+            sb.Append("note: judge success by the counts above, not by the word 'Success'.");
+            return sb.ToString();
+        }
+
+        private static string SingleLine(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "(no detail)";
+            int nl = s.IndexOf('\n');
+            return (nl >= 0 ? s.Substring(0, nl) : s).TrimEnd();
+        }
+
+        private static string RunNdmfManualBake(GameObject go, string avatarRootName, out GameObject baked)
+        {
+            baked = null;
 
             // Try to find NDMF AvatarProcessor
             var processorType = FindType("nadena.dev.ndmf.AvatarProcessor");
@@ -72,7 +131,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         && m.GetParameters()[0].ParameterType == typeof(GameObject));
                 if (manualMethod != null)
                 {
-                    var baked = InvokeStaticWithGameObject(manualMethod, go) as GameObject;
+                    baked = InvokeStaticWithGameObject(manualMethod, go) as GameObject;
                     if (baked != null)
                     {
                         Selection.activeGameObject = baked;
@@ -92,6 +151,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 if (processMethod != null)
                 {
                     processMethod.Invoke(null, new object[] { go });
+                    baked = go;   // this overload processes the avatar in place
                     return $"Success: NDMF ProcessAvatar completed for '{avatarRootName}'.";
                 }
 

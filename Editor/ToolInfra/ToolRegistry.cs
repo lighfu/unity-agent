@@ -128,6 +128,13 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (attr.Risk == ToolRisk.Safe || attr.Risk == ToolRisk.Dangerous)
                 return attr.Risk;
 
+            // Caution は属性の既定値でもあるため「Caution を指定した」と「未指定」を値だけでは
+            // 区別できない。RiskExplicit を立てたときだけ指定として扱い、名前による分類を飛ばす。
+            // 既定値を変えて区別する手もあるが、Risk = ToolRisk.Caution と書きつつ実際は名前判定に
+            // 頼っている既存ツールが 20 件以上あり、そちらのリスクが黙って下がってしまう。
+            if (attr.RiskExplicit)
+                return attr.Risk;
+
             return ClassifyByMethodName(methodName);
         }
 
@@ -160,6 +167,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             result.Url = attrType.GetProperty("Url")?.GetValue(rawAttr) as string;
             var riskVal = attrType.GetProperty("Risk")?.GetValue(rawAttr);
             if (riskVal != null) result.Risk = (ToolRisk)(int)riskVal;
+            // 古い SDK でビルドされた外部ツールには RiskExplicit が無い。無ければ false のまま。
+            var riskExplicitVal = attrType.GetProperty("RiskExplicit")?.GetValue(rawAttr);
+            if (riskExplicitVal is bool riskExplicit) result.RiskExplicit = riskExplicit;
             return result;
         }
 

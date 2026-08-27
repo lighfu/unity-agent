@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - シェーダーのパスを一覧する `ListShaderPasses`。索引 / パス名 / LightMode タグ / 持っているシェーダーステージを返す (#16)
   - `materialPath` を渡すと、そのマテリアルでパスが有効かどうかも並べる。マテリアル側の切り替えは LightMode 値で引くので、タグのないパスは `n/a` と出す
 - Gemini のモデル一覧に `gemini-3.5-flash-lite` を追加 (#19)。Flash-Lite は無料枠の 1 日あたり上限が最も大きく、無料枠で使うなら第一候補になるモデルだった
+- EditorPrefs を読み書き・列挙する `GetEditorPref` / `SetEditorPref` / `DeleteEditorPref` / `ListEditorPrefKeys` (#24)
+  - 「未設定」と「false / 0 / 空文字」を区別して返す。既定値を getter 側に持たせて「キー削除 = 既定値に戻す」と設計している拡張で、リセットが効いたかどうかを判定できるようにするため
+  - EditorPrefs はプロジェクトではなくマシン共通の設定で、API キーやトークンを置いているパッケージが実在する。キー名が資格情報に見える場合 (`apikey` / `token` / `password` / `secret` など) は値を伏せ、書き込みと削除は拒否する
+  - `ListEditorPrefKeys` は Windows 専用。Unity にキーを列挙する API が無いため、レジストリの `HKCU\Software\Unity Technologies\Unity Editor 5.x` を直接読み、Unity が付ける `_h<数字>` の接尾辞を剥がす。値は返さない
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
@@ -35,6 +39,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - TTS / 画像生成 / 埋め込みなどチャットに使えないモデルは一覧から除く。カスタムモデル欄に直接書けば従来どおり使える
   - 取得に失敗したときに「更新しました」と表示していたのをやめ、失敗として伝えるようにした
 - 無料枠では使えない `gemini-3.1-pro-preview` を、ドロップダウン上で `[課金必須]` と分かるようにした (#19)
+- `GetConsoleLogs` / `CountConsoleLogs` が `regex` 引数を受け取るようになった (#21)。`keyword` との併用は AND
+  - 正規表現は各エントリの 1 行目 (Console のその行に表示されている文字列) に大文字小文字を無視して当てる。スタックトレースには当てない
+  - パターンが不正なときは 0 件ではなく `Error:` を返す。件数でゲートを組んでいる側が、壊れたフィルターを「問題なし」と誤認しないようにするため
+  - `CountConsoleLogs` にも `keyword` / `regex` を追加。「自分のプラグインが出した警告だけ数える」が payload なしでできる
+- `InspectNDMFErrorReport` が NDMF 自身の 4 段階 severity で集計するようになった (#22)。`severity` と `maxEntries` で絞り込める
+  - 先頭に `internalError=N, error=N, nonFatal=N, information=N, total=N, uploadBlocking=true/false` を出す。`uploadBlocking` は `Error` 以上が 1 件でもあるかどうかで、NDMF がアップロードを止める条件そのもの
+  - エントリごとにプラグイン名・pass 名・アバター名・メッセージに加えて、エラーが指しているシーン上のオブジェクトの階層パスを並べる
+- `TriggerNDMFManualBake` が結果の末尾に実測値を添えるようになった (#23)。既存の文言は変えていない
+  - `elapsedMs` / `bakedRootPath` / NDMF の severity 別件数 / bake 中に増えた Console の error・exception・warning 件数
+  - Console は開始前後の差分で数えるので、事前に `ClearConsole` を呼ぶ必要がない。bake 中にクリアされた場合はその旨を明示して絶対値で返す
+  - NDMF は処理に失敗しても bake 済みオブジェクトを返すため、`Success` の字面は「例外なく終わった」以上の意味を持たない。件数で判定するよう結果にも明記した
+- `[AgentTool]` に `RiskExplicit` を追加 (#24)。`Risk = ToolRisk.Caution` を「明示した」と扱わせ、メソッド名による分類を飛ばす
+  - `Caution` は属性の既定値でもあるため、値だけでは「指定した」と「未指定」を区別できず、`Delete` で始まるツールが一律 `Dangerous` に落ちて既定の `MCPServerExposeRisk` では MCP から呼べなかった
+  - 既定値そのものを変える案は採らなかった。`Risk = ToolRisk.Caution` と書きつつ実際は名前判定に頼っている既存ツールが 20 件以上あり、そちらのリスクが黙って下がるため
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)
@@ -50,6 +68,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - UnityAgent ウィンドウを開くと Unity ごと応答しなくなる問題。`UnityAgentWindow` が `minSize` を設定していなかったため、UI Toolkit が `EditorWindow` の既定サイズ 100x100 で最初のレイアウトを走らせ、その幅にチャット UI を押し込んだレイアウト計算からメインスレッドが戻ってこなくなっていた。`minSize` を 360x300 に設定して、実用上ありえない幅でレイアウトさせないようにした
   - `OnEnable` / `CreateGUI` 自体は 0.3 秒で完了しており、停止していたのはその後のレイアウト計算。描画 (`generateVisualContent`) には 1 要素も到達していなかった
   - 100px 幅で無限に止まる理由自体は未特定。`minSize` は引き金を踏ませない対策で、狭い幅で壊れる脆さは残っている。MD3SDK 側にも起票した (lighfu/unity-md3sdk#4)
+- `InspectNDMFErrorReport` が `InternalError` を `Error` に丸めていた問題 (#22)。severity を「`Error` を含む文字列か」で判定していたため、アップロードを止める内部エラーを機械判定できなかった。NDMF の enum 名との完全一致で分類するようにした
+- `InspectNDMFErrorReport` のプラグイン名が常に `?` になっていた問題 (#22)。プラグインは `ErrorReport` ではなく各エントリの `ErrorContext` 側にぶら下がっているため、`report.Plugin` は常に取れなかった
 
 ## [0.15.0] - 2026-08-19
 
