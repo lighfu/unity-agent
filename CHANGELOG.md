@@ -47,6 +47,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - ツールバーの履歴アイコンが □ で表示されていた問題。MD3Icon に存在しないコードポイント `\ue889` を直書きしていた (正しくは `MD3Icon.History` = `\ue8b3`)
   - 欠落グリフは Static アトラスでは実行時に補えず、レイアウトのたびにフォント解決へ失敗する。エディターが応答しなくなる事象と相関していたため、MD3SDK 側にも起票した (lighfu/unity-md3sdk#3)
   - あわせて残り 2 箇所の生のコードポイント直書きも `MD3Icon.AttachFile` / `MD3Icon.Stop` に置き換えた。同種の打ち間違いを構造的に防ぐため
+- UnityAgent ウィンドウを開くと Unity ごと応答しなくなる問題。`UnityAgentWindow` が `minSize` を設定していなかったため、UI Toolkit が `EditorWindow` の既定サイズ 100x100 で最初のレイアウトを走らせ、その幅にチャット UI を押し込んだレイアウト計算からメインスレッドが戻ってこなくなっていた。`minSize` を 360x300 に設定して、実用上ありえない幅でレイアウトさせないようにした
+  - `OnEnable` / `CreateGUI` 自体は 0.3 秒で完了しており、停止していたのはその後のレイアウト計算。描画 (`generateVisualContent`) には 1 要素も到達していなかった
+  - 100px 幅で無限に止まる理由自体は未特定。`minSize` は引き金を踏ませない対策で、狭い幅で壊れる脆さは残っている。MD3SDK 側にも起票した (lighfu/unity-md3sdk#4)
 
 ## [0.15.0] - 2026-08-19
 
