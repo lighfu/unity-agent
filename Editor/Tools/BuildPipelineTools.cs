@@ -19,7 +19,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                    "counts per severity, and how many console errors / exceptions / warnings appeared DURING the bake " +
                    "(measured as a delta, so no ClearConsole call is needed first). " +
                    "Judge the outcome by those counts: NDMF hands back a baked GameObject even when a pass failed, so " +
-                   "the word 'Success' here only means 'returned without throwing'.")]
+                   "the word 'Success' here only means 'returned without throwing'. " +
+                   "A real avatar takes tens of seconds (62 s measured for a mid-weight one with Avatar Optimizer), " +
+                   "and a heavy one will outlast the 120 s MCP transport limit — the bake still finishes, but the " +
+                   "measurements above are then unreachable. Call it through RunEditorScriptAsync + GetJobResult " +
+                   "when you need the numbers back.")]
         public static string TriggerNDMFManualBake(string avatarRootName)
         {
             var go = FindGO(avatarRootName);
