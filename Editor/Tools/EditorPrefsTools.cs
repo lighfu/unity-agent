@@ -328,11 +328,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return false;
             }
 
-            object hkcu = registryType.GetProperty("CurrentUser", BindingFlags.Public | BindingFlags.Static)
-                                      ?.GetValue(null);
+            // Registry.CurrentUser is a static readonly FIELD on .NET Framework / Mono and a
+            // static PROPERTY on .NET Core. Unity runs Mono, so the field comes first, but try
+            // both rather than depending on which BCL the editor happens to ship.
+            const BindingFlags StaticPublic = BindingFlags.Public | BindingFlags.Static;
+            object hkcu = registryType.GetField("CurrentUser", StaticPublic)?.GetValue(null)
+                          ?? registryType.GetProperty("CurrentUser", StaticPublic)?.GetValue(null);
             if (hkcu == null)
             {
-                error = "Microsoft.Win32.Registry.CurrentUser could not be read.";
+                error = "Microsoft.Win32.Registry.CurrentUser could not be read " +
+                        $"(resolved type: {registryType.AssemblyQualifiedName}).";
                 return false;
             }
 
