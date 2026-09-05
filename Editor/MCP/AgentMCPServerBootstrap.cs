@@ -33,6 +33,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             AssemblyReloadEvents.beforeAssemblyReload += StopBeforeReload;
             EditorApplication.quitting += StopBeforeReload;
+
+            // モーダル自動応答のルールはファイルに持つので、リロードのたびに読み直して
+            // ポーラーを張り直す。MCP の有効/無効とは独立 (チャット UI からも使うため)。
+            EditorApplication.delayCall += ModalAutoAnswer.Initialize;
+            AssemblyReloadEvents.beforeAssemblyReload += ModalAutoAnswer.Shutdown;
+            EditorApplication.quitting += ModalAutoAnswer.Shutdown;
         }
 
         /// <summary>

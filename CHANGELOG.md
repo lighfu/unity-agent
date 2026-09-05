@@ -31,6 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `titleContains` で対象を絞る。一致しなければ何も押さずにダイアログの説明だけ返す (別のダイアログを誤って押さないため)
   - 押した内容は Console にも残す。押した後ダイアログが消えたかどうかを返すが、メインスレッドの復帰は `GetEditorState` で確認すること
   - Risk は `Caution` を明示 (`RiskExplicit`)。`Dangerous` にすると既定の `MCPServerExposeRisk` では MCP から見えず、無人セッションから呼べない
+- 後で出るモーダルへの応答を事前登録する `SetModalAutoAnswer` / `ListModalAutoAnswers` / `ClearModalAutoAnswers` (#27)。Play 遷移や NDMF / VRCFury のビルドのように「いつ出るか分からない」場面向け
+  - 専用スレッドが 250 ms ごとにモーダルを見て、`titleContains` / `messageContains` に一致したら `AnswerModalDialog` と同じ経路で押す。押した内容は Console と `GetEditorState` の `lastAutoAnswer` に残る
+  - `titleContains` か `messageContains` のどちらかを必須にし、全ダイアログに一致するルールは受け付けない。`ttlSeconds` (既定 600、最大 3600) で必ず期限切れになる
+  - ルールは `Library/UnityAgent/ModalAutoAnswers.json` に持つ。想定場面の Play 遷移がドメインリロードそのもので、静的フィールドでは登録が消えるため。リロードのたびに読み直してポーラーを張り直す
+  - `GetEditorState` に `autoAnswerRules` / `lastAutoAnswer` の 2 行を追加。モーダルの verdict に `AnswerModalDialog` の案内も添えた
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)

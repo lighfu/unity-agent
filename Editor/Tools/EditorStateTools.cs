@@ -106,13 +106,19 @@ modalDialog is read live from the OS, so it is accurate even while everything el
             sb.AppendLine($"modalDialog: {(hasModal ? modalDesc : "(none)")}");
             sb.AppendLine($"inFlightTool: {inFlightTool ?? "(none)"}");
             sb.AppendLine($"autoRefresh: {autoRefresh ?? "unknown (not sampled yet)"}");
+            // Auto-answer state travels with the editor state so an unattended run's log shows
+            // both "a dialog was up" and "a rule pressed it" in the same place.
+            int armed = ModalAutoAnswer.Snapshot().Count;
+            sb.AppendLine($"autoAnswerRules: {armed} armed");
+            sb.AppendLine($"lastAutoAnswer: {ModalAutoAnswer.LastAutoAnswer ?? "(none)"}");
 
             sb.Append("verdict: ");
             if (hasModal)
             {
                 sb.Append(LooksLikeProgress(modalTitle)
                     ? "a PROGRESS window is up — Unity is busy on its own, retry shortly, no human needed."
-                    : "a DIALOG is waiting for an answer — a human must dismiss it in the Unity window. Every queued tool call is blocked until then.");
+                    : "a DIALOG is waiting for an answer. Every queued tool call is blocked until then — " +
+                      "AnswerModalDialog(dryRun=true) shows what it says, and AnswerModalDialog(button=...) presses it.");
             }
             else if (!everPumped)
             {

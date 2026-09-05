@@ -345,6 +345,9 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             // ── Modal dialog ──
             { "AnswerModalDialog", "メインスレッドを止めているモーダルダイアログのボタンを押す（Windowsのみ・メインスレッドを待たない）" },
+            { "SetModalAutoAnswer", "後で出るモーダルダイアログへの応答を事前登録（title/message で一致・TTL 付き）" },
+            { "ListModalAutoAnswers", "登録済みのモーダル自動応答ルールと直近の自動応答を表示" },
+            { "ClearModalAutoAnswers", "モーダル自動応答ルールをすべて解除" },
 
             // ── Skill ──
             { "ListSkills", "利用可能なスキル一覧" },

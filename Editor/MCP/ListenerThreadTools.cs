@@ -45,6 +45,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         Flag(args, "dryRun"));
                     return true;
 
+                // Read-only view of the auto-answer rules; useful while a dialog is up to see
+                // why (or why not) it was answered. Set/Clear stay on the main thread — they are
+                // for arming before the run, and they write to the store.
+                case "ListModalAutoAnswers":
+                    text = Tools.ModalDialogTools.ListModalAutoAnswers();
+                    return true;
+
                 default:
                     text = null;
                     return false;
