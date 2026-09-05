@@ -314,13 +314,13 @@ namespace AjisaiFlow.UnityAgent.Editor
             { "StartTestSession", "プログラム制御用テストセッションを作成（[TEST]プレフィックス、最大4並列）" },
             { "SendTestPrompt", "テストセッションにprompt送信、AI完了まで同期待機、結果をJSONで返却" },
             { "GetSessionState", "テストセッションの状態取得（メッセージ数/処理中フラグ/モデル/経過）" },
-            { "GetConsoleLogs", "Unity Consoleの最近のログを取得（rolling buffer最大1000件）" },
+            { "GetConsoleLogs", "Unity Consoleの最近のログを取得（keyword/regexで絞り込み可）" },
             { "SwitchModel", "既存テストセッションのプロバイダー/モデルを切替（履歴保持）" },
             { "DiscardTestSession", "テストセッションを破棄して同時実行枠を解放" },
 
             // ── Build ──
             { "TriggerVRChatBuildTest", "VRChat Build & Test を実行" },
-            { "TriggerNDMFManualBake", "NDMFの手動ベイクを実行" },
+            { "TriggerNDMFManualBake", "NDMFの手動ベイクを実行（所要時間・NDMF/Consoleの件数つき）" },
             { "ValidatePreBuild", "ビルド前の検証" },
             { "ValidateAvatar", "アバターの総合検証" },
             { "CheckWriteDefaults", "Write Defaultsの整合性チェック" },
@@ -331,11 +331,17 @@ namespace AjisaiFlow.UnityAgent.Editor
             { "ListNDMFParameters", "NDMF経由のビルド時パラメータ一覧" },
             { "ListNDMFPlugins", "NDMFプラグイン一覧（文字列マッチ）" },
             { "ListNDMFPluginRegistry", "NDMF Plugin Registry を直接列挙（PluginBase継承）" },
-            { "InspectNDMFErrorReport", "NDMF Error Reportのエラー/警告を表示" },
+            { "InspectNDMFErrorReport", "NDMF Error Reportをseverity別に集計（アップロード阻害の有無つき）" },
             { "ClearNDMFErrorReport", "NDMF Error Reportをクリア" },
             { "OpenNDMFConsole", "NDMF Console ウィンドウを開く" },
             { "SetNDMFPreviewEnabled", "NDMFプレビュー表示の有効/無効を切替" },
             { "ListNDMFPreviewFilters", "NDMFプレビューに登録されたIRenderFilter一覧" },
+
+            // ── EditorPrefs ──
+            { "GetEditorPref", "EditorPrefsの値を取得（未設定と既定値を区別する）" },
+            { "SetEditorPref", "EditorPrefsに値を書き込む（マシン共通設定）" },
+            { "DeleteEditorPref", "EditorPrefsのキーを削除して既定値に戻す" },
+            { "ListEditorPrefKeys", "EditorPrefsのキー名を列挙（Windowsのみ・値は返さない）" },
 
             // ── Skill ──
             { "ListSkills", "利用可能なスキル一覧" },

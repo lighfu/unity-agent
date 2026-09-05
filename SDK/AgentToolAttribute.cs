@@ -19,6 +19,21 @@ namespace AjisaiFlow.UnityAgent.SDK
         public string Url { get; set; }
         public ToolRisk Risk { get; set; } = ToolRisk.Caution;
 
+        /// <summary>
+        /// Treat <see cref="Risk"/> as an explicit choice even when it is <see cref="ToolRisk.Caution"/>.
+        ///
+        /// Caution is also the property's default value, so a built-in tool cannot otherwise say
+        /// "I really am Caution" — the resolver can't tell that apart from "not specified" and
+        /// falls back to classifying by method-name prefix. That prefix rule sends anything named
+        /// Delete*/Remove*/Reset*/Run*/Trigger* to Dangerous, which hides it from MCP clients under
+        /// the default expose level. Set this when the prefix over-states the real risk (deleting a
+        /// single EditorPrefs key is not deleting a GameObject).
+        ///
+        /// Ignored for Safe and Dangerous, which are already unambiguous, and for external tools,
+        /// whose Risk value is always taken at face value.
+        /// </summary>
+        public bool RiskExplicit { get; set; }
+
         public AgentToolAttribute(string description) => Description = description;
     }
 }

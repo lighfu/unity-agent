@@ -210,6 +210,13 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private void OnEnable()
         {
+            // 最小サイズを与えないと EditorWindow の既定 100x100 で最初のレイアウトが走り、
+            // その幅にチャット UI (9 個のアイコンボタンを並べたツールバー、入れ子の MD3Row、
+            // 履歴ぶんの ChatEntryView) を押し込んだレイアウト計算からメインスレッドが
+            // 戻ってこなくなる。ウィンドウを開くと Unity ごと固まる症状の直接の引き金なので、
+            // 実用上ありえない幅で一度もレイアウトさせないこと。
+            minSize = new Vector2(360, 300);
+
             LoadSettings();
             InitializeAgent();
             CollectRecentQueries();

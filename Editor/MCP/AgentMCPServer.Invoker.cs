@@ -26,29 +26,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             // ── Meta-tools (SearchUnityTool / DescribeUnityTool / ExecuteUnityTool) ──
-            if (call.ToolName == "SearchUnityTool")
-            {
-                string query = call.Arguments["query"].AsString ?? "";
-                int limit = 20;
-                var limNode = call.Arguments["limit"];
-                if (limNode != null && limNode.Type == JNode.JType.Number) limit = limNode.AsInt;
-                var sw = Stopwatch.StartNew();
-                string res = Handlers.ImplSearchTool(query, limit);
-                sw.Stop();
-                AgentLogger.Debug(LogTag.MCP, $"meta SearchUnityTool query=\"{Truncate(query, 80)}\" limit={limit} textBytes={res.Length} elapsed={sw.ElapsedMilliseconds}ms");
-                call.SetResult(res);
-                return;
-            }
-            if (call.ToolName == "DescribeUnityTool")
-            {
-                string name = call.Arguments["name"].AsString ?? "";
-                var sw = Stopwatch.StartNew();
-                string res = Handlers.ImplDescribeTool(name);
-                sw.Stop();
-                AgentLogger.Debug(LogTag.MCP, $"meta DescribeUnityTool name={name} textBytes={res.Length} elapsed={sw.ElapsedMilliseconds}ms");
-                call.SetResult(res);
-                return;
-            }
+            if (TryInvokeMetaTool(call)) return;
+
             if (call.ToolName == "ExecuteUnityTool")
             {
                 string targetName = call.Arguments["name"].AsString ?? "";
@@ -58,6 +37,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     call.SetError("ExecuteUnityTool: 'name' is required.", null, -32602);
                     return;
                 }
+                if (targetName == "ExecuteUnityTool")
+                {
+                    // 再入は深さ 1 で打ち切る。通せば name をどこまでも入れ子にできてしまう
+                    AgentLogger.Warning(LogTag.MCP, "ExecuteUnityTool called with name='ExecuteUnityTool' (nesting refused).");
+                    call.SetError("ExecuteUnityTool cannot invoke itself.",
+                        "Pass the Unity tool's own name as 'name' — e.g. ExecuteUnityTool(name=\"ListRootObjects\", arguments={}).",
+                        -32602);
+                    return;
+                }
                 JNode targetArgs = call.Arguments["arguments"];
                 if (targetArgs == null || targetArgs.Type != JNode.JType.Object)
                     targetArgs = JNode.Obj();
@@ -65,7 +53,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 AgentLogger.Debug(LogTag.MCP, $"meta ExecuteUnityTool → rewrite target={targetName} argsBytes={targetArgs.ToJson().Length}");
                 // 元の call を rewrite して通常のディスパッチパスに再入
                 call.Rewrite(targetName, targetArgs);
-                // fall through to normal dispatch
+
+                // rewrite 後にもう一度だけメタツールを見る (#25)。DescribeUnityTool の出力は
+                // 毎回 "Usage: ExecuteUnityTool(name=...)" で締まるので、呼び出し側は
+                // 「Unity 側の道具は全部 ExecuteUnityTool 経由」と学習し、検索までその経路に
+                // 載せてくる。ここで拾わないと FindTool に落ちて "not found" になり、似た名前の
+                // Unity ツールも無いので "Did you mean" すら出ない。
+                if (TryInvokeMetaTool(call)) return;
+                // fall through to normal dispatch (GetUnityAgentInfo は通常ツールとして登録
+                // されているので、ここから FindTool で普通に見つかる)
             }
 
             var toolInfo = FindTool(call.ToolName);
@@ -469,6 +465,41 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             if (node.Type == JNode.JType.Bool) return node.AsBool ? 1 : 0;
             throw new FormatException("Expected numeric value.");
+        }
+
+        // ─── Meta-tools ───
+
+        /// <summary>
+        /// SearchUnityTool / DescribeUnityTool を name で判定して実行する。該当しなければ false。
+        /// トップレベルの呼び出しと、ExecuteUnityTool が rewrite した後の両方から呼ばれる。
+        /// ExecuteUnityTool 自体はここでは扱わない (rewrite の前に Invoke 側で処理する)。
+        /// </summary>
+        static bool TryInvokeMetaTool(PendingCall call)
+        {
+            if (call.ToolName == "SearchUnityTool")
+            {
+                string query = call.Arguments["query"].AsString ?? "";
+                int limit = 20;
+                var limNode = call.Arguments["limit"];
+                if (limNode != null && limNode.Type == JNode.JType.Number) limit = limNode.AsInt;
+                var sw = Stopwatch.StartNew();
+                string res = Handlers.ImplSearchTool(query, limit);
+                sw.Stop();
+                AgentLogger.Debug(LogTag.MCP, $"meta SearchUnityTool query=\"{Truncate(query, 80)}\" limit={limit} textBytes={res.Length} elapsed={sw.ElapsedMilliseconds}ms");
+                call.SetResult(res);
+                return true;
+            }
+            if (call.ToolName == "DescribeUnityTool")
+            {
+                string name = call.Arguments["name"].AsString ?? "";
+                var sw = Stopwatch.StartNew();
+                string res = Handlers.ImplDescribeTool(name);
+                sw.Stop();
+                AgentLogger.Debug(LogTag.MCP, $"meta DescribeUnityTool name={name} textBytes={res.Length} elapsed={sw.ElapsedMilliseconds}ms");
+                call.SetResult(res);
+                return true;
+            }
+            return false;
         }
 
         // ─── Tool lookup ───

@@ -9,7 +9,8 @@
 //	                                long-lived                       reloads, reconnects
 //
 // The bridge owns the public MCP HTTP endpoint for one MCP client. It accepts a single Unity
-// TCP connection. When Unity disconnects (domain reload), pending tool-call requests are held
+// TCP connection. When Unity disconnects (domain reload), calls already sent to Unity fail at
+// once with an error naming the cause (-32003), while not-yet-sent tool-call requests are held
 // in a queue and re-dispatched when Unity reconnects.
 //
 // P1 SCOPE: skeleton only. Just enough to:
@@ -78,6 +79,11 @@ type pendingCall struct {
 	Args     json.RawMessage // tool arguments
 	Response chan callResult // closed when Unity responds (or timeout)
 	Created  time.Time
+	// The Unity connection this call was written to, nil while it sits in queueWhenDown.
+	// Lets the connection's cleanup fail exactly the calls that died with it — not the ones
+	// still queued, and not ones already re-dispatched on a newer connection. Guarded by
+	// Bridge.mu.
+	DispatchedOn net.Conn
 }
 
 type callResult struct {
@@ -85,7 +91,15 @@ type callResult struct {
 	Text    string
 	Error   string
 	ErrCode int
+	Data    string // JSON-RPC error.data: guidance for the caller, never shown on success
 }
+
+// Error code for a call that was dispatched to Unity and then orphaned by the connection
+// closing underneath it. Distinct from -32001 (Timeout) so a client can tell "Unity went
+// away" from "the tool is slow" without waiting callTimeout to find out, and from -32002,
+// which the Unity side already uses for "main thread blocked" (AgentMCPBridgeClient /
+// AgentMCPServer reject a call up front when a modal dialog holds the main thread).
+const errCodeInterrupted = -32003
 
 // Bridge holds the routing state. There is exactly one of these per process.
 type Bridge struct {
@@ -190,6 +204,11 @@ func (b *Bridge) swapUnityConn(newConn net.Conn) {
 }
 
 func (b *Bridge) handleUnityConn(conn net.Conn) {
+	// Set from the "shutdown" message, if Unity sends one before the socket closes. Local to
+	// this connection on purpose: a reason announced on one connection must never be
+	// attributed to another.
+	shutdownReason := ""
+
 	defer func() {
 		_ = conn.Close()
 		b.mu.Lock()
@@ -205,6 +224,15 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 		b.lastActivity = time.Now()
 		b.mu.Unlock()
 		log.Printf("[bridge] unity connection closed")
+
+		// Calls already written to this connection can never be answered: the Unity that
+		// received them is gone (domain reload wipes its pending table; a crash wipes
+		// everything). Left alone they sit in `pending` until the HTTP handler's
+		// callTimeout fires, so the caller waits the full 120 s to learn nothing. Fail
+		// them now, and say why, so the caller can move straight to the post-reload
+		// checks. They are NOT re-sent: the typical victim is the call that caused the
+		// reload (RefreshAssetDatabase), which would then run twice.
+		b.failInterruptedCalls(conn, shutdownReason)
 	}()
 
 	scanner := bufio.NewScanner(conn)
@@ -248,10 +276,12 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 		case "result":
 			b.deliverResult(msg.ID, callResult{OK: true, Text: msg.Text})
 		case "error":
-			b.deliverResult(msg.ID, callResult{OK: false, Error: msg.Message, ErrCode: msg.Code})
+			b.deliverResult(msg.ID, callResult{OK: false, Error: msg.Message, ErrCode: msg.Code, Data: msg.Data})
 		case "shutdown":
 			log.Printf("[bridge] unity announced shutdown (reason=%s)", msg.Reason)
-			// Connection will close shortly — let the deferred cleanup handle it.
+			// Connection will close shortly — the deferred cleanup fails the in-flight
+			// calls and uses this reason to tell a planned reload from a lost connection.
+			shutdownReason = msg.Reason
 		default:
 			log.Printf("[bridge] unknown message type from unity: %s", msg.Type)
 		}
@@ -335,10 +365,75 @@ func (b *Bridge) dispatchToUnity(call *pendingCall) error {
 		return err
 	}
 	bytes = append(bytes, '\n')
+	// Mark before writing: if the write itself fails the caller drops the call from pending
+	// anyway, and marking late would leave a window where the connection dies between the
+	// write and the mark and the call is never failed.
+	call.DispatchedOn = b.unityConn
 	if _, err := b.unityWriter.Write(bytes); err != nil {
 		return err
 	}
 	return b.unityWriter.Flush()
+}
+
+// failInterruptedCalls answers every call that was dispatched on `conn` and is still
+// unanswered, with an error that names the cause. reason is the "shutdown" reason Unity
+// announced, or "" if the socket closed without one.
+func (b *Bridge) failInterruptedCalls(conn net.Conn, reason string) {
+	b.mu.Lock()
+	var interrupted []*pendingCall
+	for id, call := range b.pending {
+		if call.DispatchedOn == conn {
+			interrupted = append(interrupted, call)
+			delete(b.pending, id)
+		}
+	}
+	b.mu.Unlock()
+	if len(interrupted) == 0 {
+		return
+	}
+
+	now := time.Now()
+	for _, call := range interrupted {
+		age := now.Sub(call.Created).Round(100 * time.Millisecond)
+		var res callResult
+		if reason == "domain_reload" {
+			res = callResult{
+				OK:      false,
+				ErrCode: errCodeInterrupted,
+				Error:   "Unity reloaded the app domain while this call was running",
+				Data: fmt.Sprintf("Tool '%s' was interrupted by a domain reload after %s. "+
+					"Unity usually reconnects within ~10 s. Calls made while Unity is disconnected "+
+					"are queued and answered on reconnect, so call CompareAssemblyBaseline / "+
+					"GetConsoleLogs now instead of polling. The interrupted call was NOT re-sent.",
+					call.Tool, age),
+			}
+		} else {
+			res = callResult{
+				OK:      false,
+				ErrCode: errCodeInterrupted,
+				Error:   "Unity connection lost while this call was running",
+				Data: fmt.Sprintf("Tool '%s' was interrupted after %s: the Unity connection closed "+
+					"without a shutdown notice, so this was not a planned reload — Unity may have "+
+					"crashed or been killed. The call was NOT re-sent."+
+					"%s", call.Tool, age, reasonSuffix(reason)),
+			}
+		}
+		log.Printf("[bridge] failing interrupted call id=%s tool=%s age=%s reason=%q",
+			call.ID, call.Tool, age, reason)
+		select {
+		case call.Response <- res:
+		default:
+			// HTTP handler already gave up (timeout) — nobody is listening.
+		}
+	}
+}
+
+// reasonSuffix renders an unexpected shutdown reason for the error data, or nothing.
+func reasonSuffix(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (Unity announced shutdown with reason=%q.)", reason)
 }
 
 func (b *Bridge) deliverResult(id string, result callResult) {
@@ -807,7 +902,7 @@ func (b *Bridge) handleToolsCall(w http.ResponseWriter, req rpcRequest) {
 	select {
 	case res := <-call.Response:
 		if !res.OK {
-			writeJSONRPCError(w, req.ID, res.ErrCode, res.Error, "")
+			writeJSONRPCError(w, req.ID, res.ErrCode, res.Error, res.Data)
 			return
 		}
 		writeJSONRPCResult(w, req.ID, map[string]any{

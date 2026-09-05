@@ -138,7 +138,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             inputRow.style.alignItems = Align.Center;
 
             // Attach button
-            _attachBtn = new MD3IconButton("\ue226", MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
+            _attachBtn = new MD3IconButton(MD3Icon.AttachFile, MD3IconButtonStyle.Standard, MD3IconButtonSize.Small);
             _attachBtn.style.flexShrink = 0;
             _attachBtn.clicked += () => OnAttachClicked?.Invoke();
             inputRow.Add(_attachBtn);
@@ -175,7 +175,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             inputRow.Add(_sendBtn);
 
             // Stop button (hidden by default)
-            _stopBtn = new MD3IconButton("\ue047", MD3IconButtonStyle.Tonal, MD3IconButtonSize.Small);
+            _stopBtn = new MD3IconButton(MD3Icon.Stop, MD3IconButtonStyle.Tonal, MD3IconButtonSize.Small);
             _stopBtn.style.flexShrink = 0;
             _stopBtn.style.display = DisplayStyle.None;
             _stopBtn.clicked += () => OnStopClicked?.Invoke();
