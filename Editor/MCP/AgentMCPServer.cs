@@ -583,18 +583,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         JNode args = paramsNode["arguments"];
                         string argsJson = (args ?? JNode.Obj()).ToJson();
 
-                        // GetEditorState だけはここで答える。メインスレッドが詰まっている理由を
-                        // 報告するためのツールなので、キューに積むと報告対象と同じ運命をたどる。
-                        // UI イベント (RaiseCallStart/Finish) は発火しない — リスナースレッドから
-                        // UI Toolkit を触るとエディタごと壊れるため、意図的に GUI ログには載せない。
-                        if (string.Equals(toolName, "GetEditorState", StringComparison.Ordinal))
+                        // GetEditorState / AnswerModalDialog はここで答える。メインスレッドが詰まって
+                        // いる理由を報告し、それを解くためのツールなので、キューに積むと報告対象と
+                        // 同じ運命をたどる。UI イベント (RaiseCallStart/Finish) は発火しない —
+                        // リスナースレッドから UI Toolkit を触るとエディタごと壊れるため、意図的に
+                        // GUI ログには載せない。対象の一覧は ListenerThreadTools が持つ (Bridge と共通)。
+                        if (ListenerThreadTools.TryInvoke(toolName, args, out string fastText))
                         {
-                            TraceLog("  tools/call fast-path tool=GetEditorState (off main thread)");
-                            string state = Tools.EditorStateTools.GetEditorState();
+                            TraceLog($"  tools/call fast-path tool={toolName} (off main thread)");
                             WriteJsonRpcResult(resp, idNode, JNode.Obj(
                                 ("content", JNode.Arr(JNode.Obj(
                                     ("type", JNode.Str("text")),
-                                    ("text", JNode.Str(state))))),
+                                    ("text", JNode.Str(fastText))))),
                                 ("isError", JNode.Bool(false))));
                             return;
                         }

@@ -343,6 +343,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             { "DeleteEditorPref", "EditorPrefsのキーを削除して既定値に戻す" },
             { "ListEditorPrefKeys", "EditorPrefsのキー名を列挙（Windowsのみ・値は返さない）" },
 
+            // ── Modal dialog ──
+            { "AnswerModalDialog", "メインスレッドを止めているモーダルダイアログのボタンを押す（Windowsのみ・メインスレッドを待たない）" },
+
             // ── Skill ──
             { "ListSkills", "利用可能なスキル一覧" },
             { "ReadSkill", "スキルの内容を読み取り" },

@@ -267,9 +267,34 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         static extern int GetClassName(IntPtr hWnd, StringBuilder name, int count);
 
         /// <summary>
-        /// A Windows modal dialog disables its owner. That is a far more reliable signal than
-        /// matching window class names, because Unity draws its dialogs itself rather than using
-        /// the OS "#32770" dialog class.
+        /// The handle of the modal popup currently disabling the main window, or Zero when the
+        /// main window is enabled (no modal) or the popup cannot be identified. Lets
+        /// <see cref="ModalDialogNative"/> act on the same window this class reports.
+        /// </summary>
+        internal static IntPtr GetModalPopupHandle()
+        {
+            IntPtr main = _mainWindow;
+            if (main == IntPtr.Zero) return IntPtr.Zero;
+            try
+            {
+                if (IsWindowEnabled(main)) return IntPtr.Zero;
+                IntPtr popup = GetLastActivePopup(main);
+                if (popup == IntPtr.Zero || popup == main || !IsWindowVisible(popup)) return IntPtr.Zero;
+                return popup;
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+        }
+
+        /// <summary>
+        /// A Windows modal dialog disables its owner. That is a more reliable signal than
+        /// matching window class names: EditorUtility.DisplayDialog IS an OS "#32770" dialog
+        /// (measured on 2022.3.22f1 — it has real Button children, which is what
+        /// <see cref="ModalDialogNative"/> relies on), but Unity's own modal windows
+        /// (ShowModalUtility, progress bars) are UnityContainerWndClass, so the class alone
+        /// would miss half of them.
         /// </summary>
         static bool TryDescribeModalWindow(out string description, out string title)
         {
@@ -307,6 +332,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
         }
 #else
+        internal static IntPtr GetModalPopupHandle() => IntPtr.Zero;
+
         static bool TryDescribeModalWindow(out string description, out string title)
         {
             description = null;

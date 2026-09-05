@@ -24,6 +24,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - 「未設定」と「false / 0 / 空文字」を区別して返す。既定値を getter 側に持たせて「キー削除 = 既定値に戻す」と設計している拡張で、リセットが効いたかどうかを判定できるようにするため
   - EditorPrefs はプロジェクトではなくマシン共通の設定で、API キーやトークンを置いているパッケージが実在する。キー名が資格情報に見える場合 (`apikey` / `token` / `password` / `secret` など) は値を伏せ、書き込みと削除は拒否する
   - `ListEditorPrefKeys` は Windows 専用。Unity にキーを列挙する API が無いため、レジストリの `HKCU\Software\Unity Technologies\Unity Editor 5.x` を直接読み、Unity が付ける `_h<数字>` の接尾辞を剥がす。値は返さない
+- メインスレッドを止めているモーダルダイアログのボタンを押す `AnswerModalDialog` (#27)。Windows 専用
+  - `GetEditorState` と同じくメインスレッドを待たずにリスナースレッド (Bridge モードでは reader スレッド) で答える。モーダルで全ツールが止まっている最中に呼ぶためのもの
+  - `dryRun=true` でダイアログの title / message / ボタン一覧 / 子ウィンドウ一覧を返す。何が出ているか分からないときはまずこれ
+  - `button` は表示文字 (`OK` / `Cancel` / `はい`) か左から 0 始まりの index。`EditorUtility.DisplayDialog` は OS ネイティブの `#32770` で `Button` の子ウィンドウを持つことを実測で確認し、`BM_CLICK` で押す (123 ms で消えた)。Win32 のボタンを持たない自前描画のダイアログ向けに `enter` / `escape` / `close` の特別値も用意した
+  - `titleContains` で対象を絞る。一致しなければ何も押さずにダイアログの説明だけ返す (別のダイアログを誤って押さないため)
+  - 押した内容は Console にも残す。押した後ダイアログが消えたかどうかを返すが、メインスレッドの復帰は `GetEditorState` で確認すること
+  - Risk は `Caution` を明示 (`RiskExplicit`)。`Dangerous` にすると既定の `MCPServerExposeRisk` では MCP から見えず、無人セッションから呼べない
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
@@ -61,6 +68,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `error.data` に、中断されたツール名・経過時間・次に呼ぶべきもの (`CompareAssemblyBaseline` / `GetConsoleLogs`) を書く。呼び出し側は自前の復帰ポーリングを組まなくてよい
   - 中断された呼び出しは再送しない。典型例が `RefreshAssetDatabase` のように「リロードを起こした呼び出しそのもの」で、再送すると二重に走る。Unity 切断中に届いた未送信の呼び出しは従来どおりキューに残して再接続時に流す
   - Unity 側の `error` メッセージの `data` もブリッジが捨てずに MCP クライアントへ通すようになった
+- リスナースレッドで答えるツールの一覧を `ListenerThreadTools` に集約し、InProc と Bridge の両経路が同じ一覧を見るようにした (#27)。従来 Bridge モードには `GetEditorState` の fast-path 自体が無かった。Bridge モードでも `GetEditorState` が reader スレッドで答える
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)
@@ -78,6 +86,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - 100px 幅で無限に止まる理由自体は未特定。`minSize` は引き金を踏ませない対策で、狭い幅で壊れる脆さは残っている。MD3SDK 側にも起票した (lighfu/unity-md3sdk#4)
 - `InspectNDMFErrorReport` が `InternalError` を `Error` に丸めていた問題 (#22)。severity を「`Error` を含む文字列か」で判定していたため、アップロードを止める内部エラーを機械判定できなかった。NDMF の enum 名との完全一致で分類するようにした
 - `InspectNDMFErrorReport` のプラグイン名が常に `?` になっていた問題 (#22)。プラグインは `ErrorReport` ではなく各エントリの `ErrorContext` 側にぶら下がっているため、`report.Plugin` は常に取れなかった
+- `GetEditorState` の「メインスレッドを待たない」fast-path が、4 メタツール経由の MCP クライアントでは一度も効いていなかった問題 (#27)。クライアントは `ExecuteUnityTool(name="GetEditorState")` の形で呼ぶので届くツール名は `ExecuteUnityTool` になり、名前の一致判定を素通りして stall 判定に落ち、モーダル中は `Unity main thread blocked` で拒否されていた (拒否メッセージにモーダルの説明が含まれていたため、結果的に状態は読めていた)。`ListenerThreadTools` が `ExecuteUnityTool` を 1 段だけ剥がして判定するようにした
 
 ## [0.15.0] - 2026-08-19
 

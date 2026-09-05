@@ -269,6 +269,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     // ログ・RaiseCallStart・統計の 3 箇所で使うので、ここで 1 度だけ作る。
                     call.ArgsJson = call.Args.ToJson() ?? "{}";
 
+                    // GetEditorState / AnswerModalDialog は reader スレッドで答える (#27)。InProc の
+                    // fast-path と同じ一覧 (ListenerThreadTools)。モーダルで止まっている最中に
+                    // 状態を読み、ボタンを押すためのツールなので、下の stall 判定より先に見ないと
+                    // 「止まっている」と拒否されて肝心の場面で使えない。
+                    if (ListenerThreadTools.TryInvoke(call.Tool, call.Args, out string fastText))
+                    {
+                        AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] fast-path id={call.ID} tool={call.Tool} (off main thread)");
+                        SendResultFrame(call.ID, call.Tool, fastText);
+                        continue;
+                    }
+
                     // メインスレッドが詰まっているなら即座に原因を返す。キューに積むと
                     // タイムアウトまで待たされたうえ "Timeout" としか分からない。
                     if (MainThreadWatchdog.TryDescribeStall(MainThreadStallThresholdMs, out string stallMsg))
@@ -409,6 +420,40 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             catch (Exception ex)
             {
                 AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] failed to send error frame id={id} tool={tool}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Writes a text result frame without going through <see cref="PendingCall"/>. The reader-
+        /// thread counterpart of <see cref="SendErrorFrame"/>: raises no events, touches no Unity
+        /// API, so the listener-thread tools can answer while the main thread is held.
+        /// </summary>
+        void SendResultFrame(string id, string tool, string text)
+        {
+            if (!_connected || _writer == null)
+            {
+                AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] result frame dropped (disconnected) id={id} tool={tool}");
+                return;
+            }
+            try
+            {
+                var msg = JNode.Obj(
+                    ("type", JNode.Str("result")),
+                    ("id", JNode.Str(id ?? "")),
+                    ("ok", JNode.Bool(true)),
+                    ("text", JNode.Str(text ?? ""))
+                );
+                string wire = msg.ToJson();
+                lock (_writeLock)
+                {
+                    if (_writer == null) return;
+                    _writer.WriteLine(wire);
+                }
+                AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] send result (fast-path) id={id} tool={tool} bytes={wire.Length}");
+            }
+            catch (Exception ex)
+            {
+                AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] failed to send result frame id={id} tool={tool}: {ex.Message}");
             }
         }
 
