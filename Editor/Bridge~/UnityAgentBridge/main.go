@@ -10,7 +10,7 @@
 //
 // The bridge owns the public MCP HTTP endpoint for one MCP client. It accepts a single Unity
 // TCP connection. When Unity disconnects (domain reload), calls already sent to Unity fail at
-// once with an error naming the cause (-32002), while not-yet-sent tool-call requests are held
+// once with an error naming the cause (-32003), while not-yet-sent tool-call requests are held
 // in a queue and re-dispatched when Unity reconnects.
 //
 // P1 SCOPE: skeleton only. Just enough to:
@@ -96,8 +96,10 @@ type callResult struct {
 
 // Error code for a call that was dispatched to Unity and then orphaned by the connection
 // closing underneath it. Distinct from -32001 (Timeout) so a client can tell "Unity went
-// away" from "the tool is slow" without waiting callTimeout to find out.
-const errCodeInterrupted = -32002
+// away" from "the tool is slow" without waiting callTimeout to find out, and from -32002,
+// which the Unity side already uses for "main thread blocked" (AgentMCPBridgeClient /
+// AgentMCPServer reject a call up front when a modal dialog holds the main thread).
+const errCodeInterrupted = -32003
 
 // Bridge holds the routing state. There is exactly one of these per process.
 type Bridge struct {

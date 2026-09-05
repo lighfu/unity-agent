@@ -57,7 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `DescribeUnityTool` の出力が毎回 `Usage: ExecuteUnityTool(name=...)` で締まるため、呼び出し側は「Unity 側の道具は全部 `ExecuteUnityTool` 経由」と学習して検索までその経路に載せてくる。従来はそこで `not found` になり、似た名前の Unity ツールも無いので `Did you mean` すら出なかった
   - `ExecuteUnityTool` → `ExecuteUnityTool` の入れ子だけは深さ 1 で拒否する。`GetUnityAgentInfo` は通常ツールとして登録してあるので従来から通る
 - MCP ブリッジが、ドメインリロードで途切れた実行中の呼び出しを 120 秒のタイムアウトを待たずに即座にエラーで返すようになった (#26)
-  - Unity に送信済みで未応答の呼び出しは、接続が閉じた時点で JSON-RPC エラー `-32002` を返す。`shutdown` 通知 (reason=domain_reload) を受けていれば `Unity reloaded the app domain while this call was running`、通知なしに切れた場合は `Unity connection lost while this call was running` として区別する。後者はクラッシュの疑いとして扱える
+  - Unity に送信済みで未応答の呼び出しは、接続が閉じた時点で JSON-RPC エラー `-32003` を返す (`-32002` は Unity 側の「main thread blocked」拒否が既に使っている)。`shutdown` 通知 (reason=domain_reload) を受けていれば `Unity reloaded the app domain while this call was running`、通知なしに切れた場合は `Unity connection lost while this call was running` として区別する。後者はクラッシュの疑いとして扱える
   - `error.data` に、中断されたツール名・経過時間・次に呼ぶべきもの (`CompareAssemblyBaseline` / `GetConsoleLogs`) を書く。呼び出し側は自前の復帰ポーリングを組まなくてよい
   - 中断された呼び出しは再送しない。典型例が `RefreshAssetDatabase` のように「リロードを起こした呼び出しそのもの」で、再送すると二重に走る。Unity 切断中に届いた未送信の呼び出しは従来どおりキューに残して再接続時に流す
   - Unity 側の `error` メッセージの `data` もブリッジが捨てずに MCP クライアントへ通すようになった
