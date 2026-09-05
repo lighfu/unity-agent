@@ -118,8 +118,15 @@ Each direction is line-delimited JSON. One object per line.
 
 - **Bridge spawn**: Unity's `AgentMCPServerBootstrap` checks for an existing `Library/UnityAgent/Bridge.lock`
   pid; if missing or stale, spawns a new process detached from Unity. Lockfile holds the bridge pid.
-- **Domain reload**: Unity sends `shutdown`, closes TCP, restarts itself. Bridge keeps running,
-  queues any in-flight tool calls.
+- **Domain reload**: Unity sends `shutdown`, closes TCP, restarts itself. Bridge keeps running.
+  Calls that were **already sent to Unity** fail immediately with JSON-RPC error `-32002`
+  (`Unity reloaded the app domain while this call was running`), because the Unity that
+  received them no longer exists — waiting the 120 s timeout would only tell the caller
+  "timeout", which it cannot tell apart from a slow tool or a hung editor. They are **not**
+  re-sent: the usual victim is the call that triggered the reload (`RefreshAssetDatabase`),
+  which would otherwise run twice. If the socket closes with no `shutdown` notice, the message
+  is `Unity connection lost while this call was running` instead — treat that as a possible
+  crash. Calls that arrived while Unity was away (never sent) are queued as before.
 - **Unity reconnect**: After reload, Unity reconnects, sends `hello` again, queue is flushed.
   Queued calls older than the 120 s per-call timeout are **dropped instead of dispatched** — the
   HTTP side already gave up and answered its client, so running them would execute a tool nobody
