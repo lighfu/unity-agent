@@ -47,6 +47,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - 非アクティブなアバターも開始前に拒否する。SDK はこれをエクスポートを最後まで終えた後の検証で初めて弾くので、実アバターでは数分のビルドが結果の分かりきった失敗に使われる
   - Risk は `Caution` を明示。ローカルでビルドするだけでアップロードはしないので、既定の `MCPServerExposeRisk` で呼べるようにした
   - `GetEditorState` に、ビルド実行中だけ `vrchatBuildTest` 行を出す。ビルド中は実行中のツールが無いままメインスレッドが止まるので、原因の分からない停止に見えないようにするため
+- チャットのプロバイダーに Antigravity CLI (`agy`) を追加。Google が 2026-06-18 に個人アカウントでの Gemini CLI の提供を終え、その後継として出した CLI
+  - 応答 1 回ごとに agy をヘッドレスモード (`--input-format stream-json --output-format stream-json`) で起動する。会話を 1 行の JSON にして stdin に渡して閉じ、`step_update` の `text_delta` を逐次表示し、`result` の `response` を最終結果にする
+  - agy にはシステムプロンプトを渡す口が無い。Gemini CLI で `GEMINI_SYSTEM_MD` に置いていた指示は、本文の先頭に入れる
+  - agy の出力は Go の JSON で、`<` `>` `&` が `<` などにエスケープされて届く。行ごとに JSON として読み直さないと、ツール呼び出しの `<tool>` を取りこぼす
+  - 推論の強さは `--effort` (low / medium / high) で渡す。`gemini-3.8-flash-high` のように強さを含むモデル名のときは渡さない
+  - モデルの選択肢は agy 1.1.20 の `agy models` の一覧。agy 自身のツールの許可をまとめて通す `--dangerously-skip-permissions` は付けない
+  - MCP 設定画面に、agy 向けの登録コマンド (`agy mcp add --header ...`) と `~/.gemini/config/mcp_config.json` の書き方を追加。agy は `url` ではなく `serverUrl` を読むので、Claude 向けの例はそのままでは使えない
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
@@ -86,6 +93,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - Unity 側の `error` メッセージの `data` もブリッジが捨てずに MCP クライアントへ通すようになった
 - リスナースレッドで答えるツールの一覧を `ListenerThreadTools` に集約し、InProc と Bridge の両経路が同じ一覧を見るようにした (#27)。従来 Bridge モードには `GetEditorState` の fast-path 自体が無かった。Bridge モードでも `GetEditorState` が reader スレッドで答える
 - Bridge モードで、リスナースレッドで答えるツールを reader スレッドではなく ThreadPool で実行するようにした (#29)。`GetVRChatBuildTestResult` の `waitSeconds` で reader が止まると、後続の呼び出しが全部その間待たされるため。あわせて、そこで出た例外が reader まで上がって接続ごと切れることもなくなった
+- Gemini CLI の表示名を「Gemini CLI (legacy)」にし、設定画面の説明に、個人アカウントでは使えなくなったことと移行先 (Antigravity CLI) を書いた。API キーや法人向けの利用者は引き続き使えるので、プロバイダーとしては残している
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)

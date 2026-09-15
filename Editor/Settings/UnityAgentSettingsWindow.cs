@@ -2112,37 +2112,61 @@ namespace AjisaiFlow.UnityAgent.Editor
                     "  }\n" +
                     "}";
 
-                var snippetFoldout = new MD3Foldout(M("クライアント設定例 (claude_desktop_config.json)"), false);
-                snippetFoldout.style.marginLeft = 4;
-                snippetFoldout.style.marginRight = 4;
-                snippetFoldout.style.marginTop = 8;
+                AddSnippetFoldout(parent, M("クライアント設定例 (claude_desktop_config.json)"),
+                    snippet, snippet, M("設定をコピー"));
 
-                var snippetLabel = new Label(snippet);
-                snippetLabel.style.fontSize = 11;
-                snippetLabel.style.color = _theme.OnSurfaceVariant;
-                snippetLabel.style.backgroundColor = _theme.SurfaceContainerLowest;
-                snippetLabel.style.paddingLeft = 8;
-                snippetLabel.style.paddingRight = 8;
-                snippetLabel.style.paddingTop = 6;
-                snippetLabel.style.paddingBottom = 6;
-                snippetLabel.style.borderTopLeftRadius = 6;
-                snippetLabel.style.borderTopRightRadius = 6;
-                snippetLabel.style.borderBottomLeftRadius = 6;
-                snippetLabel.style.borderBottomRightRadius = 6;
-                snippetLabel.style.whiteSpace = WhiteSpace.Normal;
-                snippetLabel.enableRichText = false;
-                snippetFoldout.Content.Add(snippetLabel);
-
-                var copySnipBtn = new MD3Button(M("設定をコピー"), MD3ButtonStyle.Text, size: MD3ButtonSize.Small);
-                copySnipBtn.clicked += () =>
-                {
-                    EditorGUIUtility.systemCopyBuffer = snippet;
-                    ShowSnackbar(M("設定をコピーしました"));
-                };
-                snippetFoldout.Content.Add(copySnipBtn);
-
-                parent.Add(snippetFoldout);
+                // Antigravity CLI (agy) also reads mcpServers, but the endpoint key is serverUrl, and its
+                // docs reject url / httpUrl, so the snippet above does not load there. `agy mcp add`
+                // writes the right shape by itself, so the command comes first and is what gets copied.
+                string agyCommand = "agy mcp add --header \"Authorization: Bearer " + AgentSettings.MCPServerToken +
+                                    "\" unity-agent " + endpointForSnippet;
+                string agyJson =
+                    "{\n" +
+                    "  \"mcpServers\": {\n" +
+                    "    \"unity-agent\": {\n" +
+                    "      \"serverUrl\": \"" + endpointForSnippet + "\",\n" +
+                    "      \"headers\": { \"Authorization\": \"Bearer " + AgentSettings.MCPServerToken + "\" }\n" +
+                    "    }\n" +
+                    "  }\n" +
+                    "}";
+                AddSnippetFoldout(parent, M("Antigravity CLI (agy) の設定例"),
+                    agyCommand + "\n\n" + M("または ~/.gemini/config/mcp_config.json に次を書く:") + "\n" + agyJson,
+                    agyCommand, M("コマンドをコピー"));
             }
+        }
+
+        private void AddSnippetFoldout(VisualElement parent, string title, string text, string copyText, string copyLabel)
+        {
+            var foldout = new MD3Foldout(title, false);
+            foldout.style.marginLeft = 4;
+            foldout.style.marginRight = 4;
+            foldout.style.marginTop = 8;
+
+            var label = new Label(text);
+            label.style.fontSize = 11;
+            label.style.color = _theme.OnSurfaceVariant;
+            label.style.backgroundColor = _theme.SurfaceContainerLowest;
+            label.style.paddingLeft = 8;
+            label.style.paddingRight = 8;
+            label.style.paddingTop = 6;
+            label.style.paddingBottom = 6;
+            label.style.borderTopLeftRadius = 6;
+            label.style.borderTopRightRadius = 6;
+            label.style.borderBottomLeftRadius = 6;
+            label.style.borderBottomRightRadius = 6;
+            label.style.whiteSpace = WhiteSpace.Normal;
+            label.enableRichText = false;
+            foldout.Content.Add(label);
+
+            var copyBtn = new MD3Button(copyLabel, MD3ButtonStyle.Text, size: MD3ButtonSize.Small);
+            copyBtn.clicked += () =>
+            {
+                EditorGUIUtility.systemCopyBuffer = copyText;
+                ShowSnackbar(M("設定をコピーしました"));
+            };
+            foldout.Content.Add(copyBtn);
+
+            parent.Add(foldout);
         }
 
         private static string MaskToken(string token)

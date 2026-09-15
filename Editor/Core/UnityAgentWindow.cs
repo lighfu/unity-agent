@@ -121,7 +121,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private static readonly string[] TransientStatusPrefixes = {
             "Streaming from:", "Requesting to:", "Rate limit",
             "Connecting to", "Starting ", "Claude CLI ", "Gemini CLI ",
-            "Codex CLI ", "Web ブラウザで応答を生成中",
+            "Codex CLI ", "Antigravity CLI ", "Web ブラウザで応答を生成中",
         };
 
         private static bool IsTransientProviderStatus(string s)

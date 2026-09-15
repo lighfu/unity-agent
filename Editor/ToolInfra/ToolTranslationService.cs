@@ -571,6 +571,12 @@ namespace AjisaiFlow.UnityAgent.Editor
                 string model = SettingsStore.GetString("UnityAgent_GeminiCliModelName", "");
                 return new GeminiCliProvider(cliPath, model);
             }
+            else if (providerType == (int)LLMProviderType.Antigravity_CLI)
+            {
+                string cliPath = SettingsStore.GetString("UnityAgent_AntigravityCliPath", "agy");
+                string model = SettingsStore.GetString("UnityAgent_AntigravityCliModelName", "");
+                return new AntigravityCliProvider(cliPath, model);
+            }
             else // OpenAI Compatible
             {
                 string baseUrl = SettingsStore.GetString("UnityAgent_BaseUrl", "http://localhost:1234/v1");

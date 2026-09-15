@@ -40,7 +40,7 @@ Control the Unity Editor in natural language — **400+ tools** specialized for 
 
 | Type | Providers |
 |---|---|
-| **LLM** | Anthropic Claude · OpenAI · Google Gemini (incl. Vertex AI) · OpenAI-compatible endpoints · Claude / Codex / Gemini **CLI** |
+| **LLM** | Anthropic Claude · OpenAI · Google Gemini (incl. Vertex AI) · OpenAI-compatible endpoints · Claude / Codex / Antigravity (agy) / Gemini **CLI** |
 | **Image (texture gen)** | Google Gemini · OpenAI · **ComfyUI** (local img2img) |
 
 ### 🔗 Optional integrations (auto-detected when installed)

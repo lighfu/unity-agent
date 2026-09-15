@@ -40,7 +40,7 @@
 
 | 類型 | 提供者 |
 |---|---|
-| **LLM** | Anthropic Claude · OpenAI · Google Gemini(含 Vertex AI) · OpenAI 相容端點 · Claude / Codex / Gemini **CLI** |
+| **LLM** | Anthropic Claude · OpenAI · Google Gemini(含 Vertex AI) · OpenAI 相容端點 · Claude / Codex / Antigravity (agy) / Gemini **CLI** |
 | **影像(貼圖生成)** | Google Gemini · OpenAI · **ComfyUI**(本機 img2img) |
 
 ### 🔗 整合(安裝後自動偵測)

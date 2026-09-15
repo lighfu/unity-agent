@@ -565,6 +565,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             LLMProviderType[] gem    = { LLMProviderType.Gemini, LLMProviderType.Vertex_AI };
             LLMProviderType[] gemCli = { LLMProviderType.Gemini, LLMProviderType.Vertex_AI, LLMProviderType.Gemini_CLI };
             LLMProviderType[] claude = { LLMProviderType.Claude_API, LLMProviderType.Claude_CLI };
+            LLMProviderType[] claudeAgy = { LLMProviderType.Claude_API, LLMProviderType.Claude_CLI, LLMProviderType.Antigravity_CLI };
+            LLMProviderType[] agy    = { LLMProviderType.Antigravity_CLI };
             LLMProviderType[] oa     = { LLMProviderType.OpenAI };
             LLMProviderType[] oaCdx  = { LLMProviderType.OpenAI, LLMProviderType.Codex_CLI };
             LLMProviderType[] cdx    = { LLMProviderType.Codex_CLI };
@@ -599,13 +601,33 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Reg(d, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview",
                 1048576, 65536, true, 0, 0, true, search: true, dropdowns: gem, paidOnly: true);
 
+            // ── Antigravity CLI (agy) ──
+            // ID は agy 1.1.20 の `agy models` が返す slug そのまま (2026-09-16 時点。Claude Sonnet 4.6 は上の Claude 節と共有)。
+            // Gemini 系の -high / -medium / -low は推論の強さの違い。系列名だけ (gemini-3.8-flash) を渡して --effort で
+            // 強さを選ぶこともでき、実機で確認した。その場合はカスタムモデルに書く。
+            // agy 経由の入力上限は公開されていない。UnityAgent 側で履歴を詰める目安にしか使わないので、控えめな値を置く。
+            Reg(d, "gemini-3.8-flash-high",   "Gemini 3.8 Flash (High)",   128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.8-flash-low",    "Gemini 3.8 Flash (Low)",    128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.7-flash-high",   "Gemini 3.7 Flash (High)",   128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.7-flash-medium", "Gemini 3.7 Flash (Medium)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.7-flash-low",    "Gemini 3.7 Flash (Low)",    128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.6-flash-high",   "Gemini 3.6 Flash (High)",   128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.6-flash-medium", "Gemini 3.6 Flash (Medium)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.6-flash-low",    "Gemini 3.6 Flash (Low)",    128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.1-pro-high",     "Gemini 3.1 Pro (High)",     128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.1-pro-low",      "Gemini 3.1 Pro (Low)",      128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gpt-oss-120b-medium",     "GPT-OSS 120B (Medium)",     128000, 8192, true, 0, 0, false, dropdowns: agy);
+
             // ── Claude ── (ドロップダウンは最新3モデルのみ。旧モデルは性能照会用に登録)
             Reg(d, "claude-opus-4-8", "Claude Opus 4.8",
                 200000, 128000, true, 1024, 128000, true, dropdowns: claude);
             Reg(d, "claude-opus-4-7", "Claude Opus 4.7",
                 200000, 128000, true, 1024, 128000, true);
+            // agy も同じ ID で Claude Sonnet 4.6 を出すので、Antigravity CLI のドロップダウンにも載せる
             Reg(d, "claude-sonnet-4-6", "Claude Sonnet 4.6",
-                200000, 64000, true, 1024, 128000, true, dropdowns: claude);
+                200000, 64000, true, 1024, 128000, true, dropdowns: claudeAgy);
             Reg(d, "claude-haiku-4-5-20251001", "Claude Haiku 4.5",
                 200000, 64000, true, 1024, 128000, true, dropdowns: claude);
             Reg(d, "claude-opus-4-6", "Claude Opus 4.6",

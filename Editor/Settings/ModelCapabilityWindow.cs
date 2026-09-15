@@ -155,6 +155,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 (type: LLMProviderType.Claude_CLI,  label: "Claude CLI",  stream: true),
                 (type: LLMProviderType.Gemini_CLI,  label: "Gemini CLI",  stream: false),
                 (type: LLMProviderType.Codex_CLI,   label: "Codex CLI",   stream: true),
+                (type: LLMProviderType.Antigravity_CLI, label: "Antigravity CLI", stream: true),
             };
             var descriptors = ProviderRegistry.Descriptors;
 

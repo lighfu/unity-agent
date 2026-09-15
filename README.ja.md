@@ -40,7 +40,7 @@
 
 | 種類 | プロバイダー |
 |---|---|
-| **LLM** | Anthropic Claude · OpenAI · Google Gemini(Vertex AI 含む) · OpenAI 互換エンドポイント · Claude / Codex / Gemini **CLI** |
+| **LLM** | Anthropic Claude · OpenAI · Google Gemini(Vertex AI 含む) · OpenAI 互換エンドポイント · Claude / Codex / Antigravity (agy) / Gemini **CLI** |
 | **画像(テクスチャ生成)** | Google Gemini · OpenAI · **ComfyUI**(ローカル img2img) |
 
 ### 🔗 連携(インストール時に自動検出)

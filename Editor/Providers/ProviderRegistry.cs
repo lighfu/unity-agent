@@ -25,6 +25,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// 主導するモード。UnityAgent は LLM を呼ばず、UI 側で対話を受け取るだけ。
         /// </summary>
         MCPServer,
+        /// <summary>Antigravity CLI (agy)。Gemini CLI の後継。末尾に追加 (上の注意のとおり)。</summary>
+        Antigravity_CLI,
     }
 
     /// <summary>
@@ -37,7 +39,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         ClaudeApi,               // Claude API
         Gemini,                  // Gemini (Google AI)
         VertexAI,                // Vertex AI
-        CliProvider,             // Claude CLI, Gemini CLI, Codex CLI
+        CliProvider,             // Claude CLI, Gemini CLI, Codex CLI, Antigravity CLI
         BrowserBridge,           // Gemini_Web
         Clipboard,               // Clipboard
     }
@@ -169,7 +171,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             "Gemini (Google AI)",
             "OpenAI Compatible (LM Studio etc.)",
             "Claude CLI",
-            "Gemini CLI",
+            "Gemini CLI (legacy)",
             "Clipboard (Manual)",
             "Claude API",
             "OpenAI",
@@ -183,6 +185,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             "Vertex AI",
             "Codex CLI",
             "MCP Server (External Agent)",
+            "Antigravity CLI (agy)",
         };
 
         // ─── Model preset arrays ───
@@ -256,7 +259,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 },
                 [LLMProviderType.Gemini_CLI] = new ProviderDescriptor
                 {
-                    DisplayName = "Gemini CLI", ShortName = "Gemini CLI",
+                    DisplayName = "Gemini CLI (legacy)", ShortName = "Gemini CLI",
                     SettingsKind = ProviderSettingsKind.CliProvider,
                     EmptyModelOptionLabel = "(CLIデフォルト)",
                     DefaultModel = "",
@@ -264,7 +267,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     ThinkingHintKey = "Gemini 2.5+ で適用 (settings.json 経由)",
                     SupportsModelSelection = true,
                     SectionTitle = "Gemini CLI",
-                    DescriptionKey = "ローカルにインストールされた Gemini CLI を使用します。",
+                    DescriptionKey = "ローカルにインストールされた Gemini CLI を使用します。Google は 2026-06-18 に個人アカウント (無料枠・Google AI Pro / Ultra) での Gemini CLI の提供を終了しました。個人アカウントなら Antigravity CLI (agy) を選んでください。",
                     SettingsKeyCliPath = "UnityAgent_GeminiCliPath",
                     SettingsKeyModelName = "UnityAgent_GeminiCliModelName",
                 },
@@ -434,6 +437,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     SupportsModelSelection = false,
                     SectionTitle = "MCP Server",
                     DescriptionKey = "外部エージェント (Claude Code, Cursor 等) が MCP 経由で UnityAgent を操作します。UnityAgent 側のチャット入力は無効化されますが、メッシュ選択などの UI インタラクションは外部エージェントからの要求に応じて引き続き動作します。",
+                },
+                [LLMProviderType.Antigravity_CLI] = new ProviderDescriptor
+                {
+                    DisplayName = "Antigravity CLI (agy)", ShortName = "Antigravity CLI",
+                    SettingsKind = ProviderSettingsKind.CliProvider,
+                    EmptyModelOptionLabel = "(CLIデフォルト)",
+                    DefaultModel = "",
+                    ThinkingMode = ThinkingMode.Effort,
+                    ThinkingHintKey = "--effort (low / medium / high) として適用。-high などの付いたモデルでは使わない",
+                    SupportsModelSelection = true,
+                    SectionTitle = "Antigravity CLI",
+                    DescriptionKey = "ローカルにインストールされた Antigravity CLI (agy) を使用します。Gemini CLI の後継で、Google アカウントでログインして使います。",
+                    SettingsKeyCliPath = "UnityAgent_AntigravityCliPath",
+                    SettingsKeyModelName = "UnityAgent_AntigravityCliModelName",
                 },
             };
 
@@ -668,6 +685,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     return new CodexCliProvider(cfg.CliPath, cfg.ModelName,
                         useThinking ? effortLevel : -1);
 
+                case LLMProviderType.Antigravity_CLI:
+                    return new AntigravityCliProvider(cfg.CliPath, cfg.ModelName,
+                        useThinking ? effortLevel : -1);
+
                 case LLMProviderType.Clipboard:
                     return new ClipboardProvider();
 
@@ -795,6 +816,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 case LLMProviderType.Claude_CLI: return "claude";
                 case LLMProviderType.Gemini_CLI: return "gemini";
                 case LLMProviderType.Codex_CLI: return "codex";
+                case LLMProviderType.Antigravity_CLI: return "agy";
                 default: return "";
             }
         }
