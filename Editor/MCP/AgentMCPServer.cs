@@ -588,8 +588,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         // 同じ運命をたどる。UI イベント (RaiseCallStart/Finish) は発火しない —
                         // リスナースレッドから UI Toolkit を触るとエディタごと壊れるため、意図的に
                         // GUI ログには載せない。対象の一覧は ListenerThreadTools が持つ (Bridge と共通)。
-                        if (ListenerThreadTools.TryInvoke(toolName, args, out string fastText))
+                        // このリクエストは既に ThreadPool 上なので、待つ処理 (GetVRChatBuildTestResult
+                        // の waitSeconds) をここで実行しても他のリクエストは止まらない。
+                        var fastWork = ListenerThreadTools.Match(toolName, args);
+                        if (fastWork != null)
                         {
+                            string fastText = fastWork();
                             TraceLog($"  tools/call fast-path tool={toolName} (off main thread)");
                             WriteJsonRpcResult(resp, idNode, JNode.Obj(
                                 ("content", JNode.Arr(JNode.Obj(

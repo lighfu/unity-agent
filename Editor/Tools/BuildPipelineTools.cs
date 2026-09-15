@@ -425,26 +425,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Execute a VRChat SDK build and test (local test in VRChat). Requires VRChat SDK.")]
-        public static string TriggerVRChatBuildTest(string avatarRootName)
-        {
-            var go = FindGO(avatarRootName);
-            if (go == null) return $"Error: GameObject '{avatarRootName}' not found.";
-
-            Selection.activeGameObject = go;
-
-            // Try to invoke VRChat SDK build
-            try
-            {
-                bool result = EditorApplication.ExecuteMenuItem("VRChat SDK/Build & Test New Build");
-                if (result) return $"Success: VRChat Build & Test triggered for '{avatarRootName}'.";
-                return "Error: Could not execute 'VRChat SDK/Build & Test New Build' menu item.";
-            }
-            catch (Exception e)
-            {
-                return $"Error: VRChat build failed: {e.Message}";
-            }
-        }
+        // Kept under its old name so existing callers keep working. It used to fire the menu item
+        // "VRChat SDK/Build & Test New Build", which current SDKs (3.10.x) no longer have, so it
+        // could only ever report "Could not execute" (#29).
+        [AgentTool("Old name of StartVRChatBuildTest, kept for compatibility: starts the VRChat SDK Build & Test for an avatar and returns a jobId " +
+                   "at once. Read the outcome with GetVRChatBuildTestResult. Prefer StartVRChatBuildTest.")]
+        public static System.Collections.IEnumerator TriggerVRChatBuildTest(string avatarRootName)
+            => VRChatBuildTestTools.StartVRChatBuildTest(avatarRootName);
 
         // ===== Helpers =====
 

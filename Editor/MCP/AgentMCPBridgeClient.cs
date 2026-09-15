@@ -273,10 +273,22 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     // fast-path と同じ一覧 (ListenerThreadTools)。モーダルで止まっている最中に
                     // 状態を読み、ボタンを押すためのツールなので、下の stall 判定より先に見ないと
                     // 「止まっている」と拒否されて肝心の場面で使えない。
-                    if (ListenerThreadTools.TryInvoke(call.Tool, call.Args, out string fastText))
+                    var fastWork = ListenerThreadTools.Match(call.Tool, call.Args);
+                    if (fastWork != null)
                     {
                         AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] fast-path id={call.ID} tool={call.Tool} (off main thread)");
-                        SendResultFrame(call.ID, call.Tool, fastText);
+                        // reader はこのスレッド 1 本だけ。GetVRChatBuildTestResult は waitSeconds まで
+                        // 待つので、ここで実行すると後続の呼び出しが全部その間止まる。ThreadPool で
+                        // 答えを作り、そこから書き戻す (SendResultFrame は _writeLock で直列化される)。
+                        // 例外もここで受ける。reader まで上がるとループごと終わって接続が切れる。
+                        string fastId = call.ID, fastTool = call.Tool;
+                        ThreadPool.QueueUserWorkItem(_ =>
+                        {
+                            string fastText;
+                            try { fastText = fastWork(); }
+                            catch (Exception ex) { fastText = $"Error: {fastTool} failed off the main thread: {ex.GetType().Name}: {ex.Message}"; }
+                            SendResultFrame(fastId, fastTool, fastText);
+                        });
                         continue;
                     }
 

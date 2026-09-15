@@ -29,13 +29,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     {
         private const string ApiUserTypeName = "VRC.Core.APIUser";
         private const string ApiCredentialsTypeName = "VRC.Core.ApiCredentials";
-        private const string PipelineManagerTypeName = "VRC.Core.PipelineManager";
+        internal const string PipelineManagerTypeName = "VRC.Core.PipelineManager";
         // VRCSdkControlPanel lives in the global namespace.
         private const string ControlPanelTypeName = "VRCSdkControlPanel";
         private const string VrcApiTypeName = "VRC.SDKBase.Editor.Api.VRCApi";
         private const string VrcAvatarTypeName = "VRC.SDKBase.Editor.Api.VRCAvatar";
         private const string VrcWorldTypeName = "VRC.SDKBase.Editor.Api.VRCWorld";
-        private const string AvatarBuilderInterfaceName = "VRC.SDK3A.Editor.IVRCSdkAvatarBuilderApi";
+        internal const string AvatarBuilderInterfaceName = "VRC.SDK3A.Editor.IVRCSdkAvatarBuilderApi";
         private const string WorldBuilderInterfaceName = "VRC.SDK3.Editor.IVRCSdkWorldBuilderApi";
         private const string SceneDescriptorTypeName = "VRC.SDKBase.VRC_SceneDescriptor";
 
@@ -815,7 +815,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return null;
         }
 
-        private static string EnsureControlPanelOpen()
+        internal static string EnsureControlPanelOpen()
         {
             var panelType = VRChatTools.FindVrcType(ControlPanelTypeName);
             if (panelType == null)
@@ -884,7 +884,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ─── internals: SDK builder / task plumbing ───
 
-        private static object GetSdkBuilder(Type builderInterface, out string error)
+        internal static object GetSdkBuilder(Type builderInterface, out string error)
         {
             error = null;
             var panelType = VRChatTools.FindVrcType(ControlPanelTypeName);
@@ -1177,7 +1177,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             catch { return null; }
         }
 
-        private static string Describe(Exception ex)
+        internal static string Describe(Exception ex)
         {
             while (true)
             {

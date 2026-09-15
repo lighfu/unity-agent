@@ -36,6 +36,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `titleContains` か `messageContains` のどちらかを必須にし、全ダイアログに一致するルールは受け付けない。`ttlSeconds` (既定 600、最大 3600) で必ず期限切れになる
   - ルールは `Library/UnityAgent/ModalAutoAnswers.json` に持つ。想定場面の Play 遷移がドメインリロードそのもので、静的フィールドでは登録が消えるため。リロードのたびに読み直してポーラーを張り直す
   - `GetEditorState` に `autoAnswerRules` / `lastAutoAnswer` の 2 行を追加。モーダルの verdict に `AnswerModalDialog` の案内も添えた
+- VRChat SDK の Build & Test を開始して受付番号を返す `StartVRChatBuildTest` と、進捗・結果を取る `GetVRChatBuildTestResult` (#29)。実アバターのビルドは数分かかり、MCP の 1 呼び出し (120 秒) では完了まで待てないため、開始と結果取得を分けた
+  - SDK の公開 API `IVRCSdkAvatarBuilderApi.BuildAndTest` でビルドする。NDMF などのビルド処理は Control Panel のボタンを押したときと同じく走り、SDK のローカルテスト用アバター一覧に追加される。アップロードはしない
+  - 結果は `running` / `finishing` / `succeeded` / `failed` / `lost`。実行中は経過時間・SDK のビルド状態・直近の進捗メッセージ、完了後はエラー内容・バンドルのパス・NDMF の severity 別件数・ビルド中に増えた Console の error / exception / warning 件数と、その行を読むための `sinceIndex` を返す
+  - SDK はビルドの大半でメインスレッドを占有するため、`GetVRChatBuildTestResult` はリスナースレッドで答える。`waitSeconds` (最大 110 秒) で完了を待てる。モーダルが出ていれば結果にその名前を出す (質問のダイアログなら、ビルドはそこで止まっている)
+  - 受付番号はドメインリロードで消えるが、記録を SessionState に残す。リロード後に問い合わせると、完了済みならその結果を、実行中に中断されたなら `lost` を返す
+  - batch mode では拒否する (SDK やビルド処理のダイアログが自動で承認されるため)。ビルドターゲットが Windows / Android / iOS 以外なら開始前に拒否する。SDK はこの確認をビルド状態を Building にした後で行い、状態を戻さずに例外を投げるため
+  - Risk は `Caution` を明示。ローカルでビルドするだけでアップロードはしないので、既定の `MCPServerExposeRisk` で呼べるようにした
+  - `GetEditorState` に、ビルド実行中だけ `vrchatBuildTest` 行を出す。ビルド中は実行中のツールが無いままメインスレッドが止まるので、原因の分からない停止に見えないようにするため
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
@@ -74,6 +82,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - 中断された呼び出しは再送しない。典型例が `RefreshAssetDatabase` のように「リロードを起こした呼び出しそのもの」で、再送すると二重に走る。Unity 切断中に届いた未送信の呼び出しは従来どおりキューに残して再接続時に流す
   - Unity 側の `error` メッセージの `data` もブリッジが捨てずに MCP クライアントへ通すようになった
 - リスナースレッドで答えるツールの一覧を `ListenerThreadTools` に集約し、InProc と Bridge の両経路が同じ一覧を見るようにした (#27)。従来 Bridge モードには `GetEditorState` の fast-path 自体が無かった。Bridge モードでも `GetEditorState` が reader スレッドで答える
+- Bridge モードで、リスナースレッドで答えるツールを reader スレッドではなく ThreadPool で実行するようにした (#29)。`GetVRChatBuildTestResult` の `waitSeconds` で reader が止まると、後続の呼び出しが全部その間待たされるため。あわせて、そこで出た例外が reader まで上がって接続ごと切れることもなくなった
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)
@@ -92,6 +101,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `InspectNDMFErrorReport` が `InternalError` を `Error` に丸めていた問題 (#22)。severity を「`Error` を含む文字列か」で判定していたため、アップロードを止める内部エラーを機械判定できなかった。NDMF の enum 名との完全一致で分類するようにした
 - `InspectNDMFErrorReport` のプラグイン名が常に `?` になっていた問題 (#22)。プラグインは `ErrorReport` ではなく各エントリの `ErrorContext` 側にぶら下がっているため、`report.Plugin` は常に取れなかった
 - `GetEditorState` の「メインスレッドを待たない」fast-path が、4 メタツール経由の MCP クライアントでは一度も効いていなかった問題 (#27)。クライアントは `ExecuteUnityTool(name="GetEditorState")` の形で呼ぶので届くツール名は `ExecuteUnityTool` になり、名前の一致判定を素通りして stall 判定に落ち、モーダル中は `Unity main thread blocked` で拒否されていた (拒否メッセージにモーダルの説明が含まれていたため、結果的に状態は読めていた)。`ListenerThreadTools` が `ExecuteUnityTool` を 1 段だけ剥がして判定するようにした
+- `TriggerVRChatBuildTest` が必ず失敗していた問題 (#29)。存在しないメニュー `VRChat SDK/Build & Test New Build` を実行しようとしていた (VRChat SDK 3.10.4 には無い)。名前はそのままに `StartVRChatBuildTest` と同じ処理へ付け替え、受付番号を返すようにした
 
 ## [0.15.0] - 2026-08-19
 

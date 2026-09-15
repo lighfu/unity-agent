@@ -111,6 +111,10 @@ modalDialog is read live from the OS, so it is accurate even while everything el
             int armed = ModalAutoAnswer.Snapshot().Count;
             sb.AppendLine($"autoAnswerRules: {armed} armed");
             sb.AppendLine($"lastAutoAnswer: {ModalAutoAnswer.LastAutoAnswer ?? "(none)"}");
+            // A VRChat Build & Test holds the main thread with no tool in flight (the tool that
+            // started it has already returned), which would otherwise read as an unexplained stall.
+            string buildTest = VRChatBuildTestTools.DescribeRunningForEditorState();
+            if (buildTest != null) sb.AppendLine($"vrchatBuildTest: {buildTest}");
 
             sb.Append("verdict: ");
             if (hasModal)
@@ -127,6 +131,11 @@ modalDialog is read live from the OS, so it is accurate even while everything el
             else if (stalledMs >= 1000 && inFlightTool != null)
             {
                 sb.Append($"the main thread is inside '{inFlightTool}'. This is a slow tool, not a wedge — wait for it.");
+            }
+            else if (stalledMs >= 1000 && buildTest != null)
+            {
+                sb.Append("the main thread is inside the VRChat SDK Build & Test (vrchatBuildTest above). This is the build, not a wedge — " +
+                          "GetVRChatBuildTestResult(waitSeconds=...) reports when it ends.");
             }
             else if (stalledMs >= 1000)
             {

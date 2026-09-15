@@ -319,7 +319,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             { "DiscardTestSession", "テストセッションを破棄して同時実行枠を解放" },
 
             // ── Build ──
-            { "TriggerVRChatBuildTest", "VRChat Build & Test を実行" },
+            { "StartVRChatBuildTest", "VRChat Build & Test を開始して受付番号を返す（結果は GetVRChatBuildTestResult で取得）" },
+            { "GetVRChatBuildTestResult", "VRChat Build & Test の進捗・結果を取得（ビルド中もメインスレッドを待たずに答える）" },
+            { "TriggerVRChatBuildTest", "StartVRChatBuildTest の旧名（互換用）。Build & Test を開始して受付番号を返す" },
             { "TriggerNDMFManualBake", "NDMFの手動ベイクを実行（所要時間・NDMF/Consoleの件数つき）" },
             { "ValidatePreBuild", "ビルド前の検証" },
             { "ValidateAvatar", "アバターの総合検証" },
