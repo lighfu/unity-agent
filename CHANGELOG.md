@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+このプロジェクトの主な変更点をこのファイルに記録する。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/).
+書式は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、バージョン番号は [Semantic Versioning](https://semver.org/lang/ja/spec/v2.0.0.html) に従う。
 
 ## [Unreleased]
 
@@ -95,7 +95,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - リスナースレッドで答えるツールの一覧を `ListenerThreadTools` に集約し、InProc と Bridge の両経路が同じ一覧を見るようにした (#27)。従来 Bridge モードには `GetEditorState` の fast-path 自体が無かった。Bridge モードでも `GetEditorState` が reader スレッドで答える
 - Bridge モードで、リスナースレッドで答えるツールを reader スレッドではなく ThreadPool で実行するようにした (#29)。`GetVRChatBuildTestResult` の `waitSeconds` で reader が止まると、後続の呼び出しが全部その間待たされるため。あわせて、そこで出た例外が reader まで上がって接続ごと切れることもなくなった
 - Gemini CLI の表示名を「Gemini CLI (legacy)」にし、設定画面の説明に、個人アカウントでは使えなくなったことと移行先 (Antigravity CLI) を書いた。API キーや法人向けの利用者は引き続き使えるので、プロバイダーとしては残している
-- 使われていなかった `ToolDescriptionsJP.cs` を削除した。日本語のツール説明は `localization/tools/ja.json` から表示されていて、このクラスはどこからも参照されていなかった
+
+### Removed
+- 使われていなかった `ToolDescriptionsJP.cs`。日本語のツール説明は `localization/tools/ja.json` から表示されていて、このクラスはどこからも参照されていなかった
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)
@@ -124,6 +126,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.15.0] - 2026-08-19
 
+> キャプチャ関連の変更は、リリースの時点ではコンパイルの確認だけで、Unity エディタ上では動かしていない。とくにリフレクション経由の処理と `PrintWindow` の実際の挙動は、ビルドでは確かめられない。
+
 ### Added
 - ツール呼び出しの統計ウィンドウ。時系列・ツール別ランキング・カテゴリ別内訳・文字数と所要時間の 4 グラフ。ツールバーのアイコンから開く
 - `GetUnityAgentInfo` — バージョン / ツール内訳 / 導入パッケージ / MCP 状態を 1 コールで返す。`detail='full'` で詳細版
@@ -151,6 +155,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - ブリッジに `--idle-quit` フラグを追加（既定 5 分、`0` 以下で無効）
 - `ModifyBranchProperties` に `branchIndices` を追加。`all` / `0-13` / `0,2,4` でまとめて設定できる
 - FaceEmo の一覧に GUID 先頭 8 桁、詳細にアセットパスを併記。同名クリップを識別できるようにした
+- ブリッジのバイナリを `build.ps1 -All` で 4 環境向けに作り直して同梱した
 
 ### Fixed
 - Ollama など OpenAI 互換プロバイダで `\uXXXX` がデコードされず、ツールが 1 つも実行できなかった（#5）。Claude API / Claude CLI / Codex CLI にも同じ欠陥があり併せて修正
@@ -163,10 +168,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - 多角度キャプチャの角度名が反対側を指し、真上・真下でセルの向きが不定になり、セルのラベルが描かれず、グリッド行列がツール間で食い違い、フレーミングが FOV を無視していた
 - `CaptureMeshIsolated` がシーン全 Renderer と対象の祖先の `SetActive` を無条件に書き換えていた
 - デバッグダンプが固定名で上書きされ、キャプチャでない画像が保持窓を押し出していた
-
-### Notes
-- キャプチャ関連の変更は Unity Editor 上での実機未検証（コンパイル検証のみ）。とくにリフレクション経路と `PrintWindow` の実挙動はビルドでは確かめられない
-- ブリッジのバイナリは `build.ps1 -All` で 4 RID を再ビルドしたものを同梱している。`main.go` を触ったら再ビルドすること
 
 ## [0.14.0] - 2026-08-09
 
@@ -241,17 +242,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.11.0] - 2026-05-22
 
-### Added — Plan C: Gesture-Aware Expression Workflow
-- FaceEmoPlanC 名前空間に 10 ツール。Discovery（`ResolveTargetAvatar` / `InspectFaceEmoState` / `AutoSetupFaceEmoForAvatar`）、Gesture（`ListGestureBindings` / `FindBranchByCondition` / `DetectGestureConflicts` / `AssignClipToGesture`）、Curation（`SuggestCandidateShapes` / `ApplyExpressionVariation` / `ListExpressionVariations`）
+### Added
+- ジェスチャーに連動する表情ワークフロー。FaceEmoPlanC 名前空間に 10 ツール
+  - 探索: `ResolveTargetAvatar` / `InspectFaceEmoState` / `AutoSetupFaceEmoForAvatar`
+  - ジェスチャー: `ListGestureBindings` / `FindBranchByCondition` / `DetectGestureConflicts` / `AssignClipToGesture`
+  - 仕上げ: `SuggestCandidateShapes` / `ApplyExpressionVariation` / `ListExpressionVariations`
+- 表情セッションとサムネイル連携
+  - `OpenExpressionSession` / `ReadExpressionFromWindow` / `CommitExpressionSession` / `CloseExpressionSession`
+  - サムネイル 3 種と MainView の更新 `CaptureFaceEmoModeThumbnail` / `CaptureFaceEmoGestureTable` / `CaptureFaceEmoExMenuThumbnail` / `RefreshFaceEmoMainView`。出力は `Library/UnityAgent/face-thumbnails/`
+  - 取り残された FaceEmo プレビューアバターを掃除する `CleanupFaceEmoPreviewAvatars`
 - Session API を拡張。`OpenForBranch` / `CommitAsBranchOf`（6 段階のアトミックなコミットとロールバック）/ `CommitInPlace` / `GetCurrentValuesWithPaths`
 - `OpenExpressionSession` に `editMode`（`new-mode` / `create-branch-clip` / `edit-existing-clip`）を追加。CreateBranchClip 用に `CommitExpressionSessionToBranch` を新設
 - Ctrl+Z でターン全体をロールバックできるようにした
-- 設計と計画は `docs/superpowers/` 配下
-
-### Added — Plan B: Thumbnail Integration / Expression Session
-- `OpenExpressionSession` / `ReadExpressionFromWindow` / `CommitExpressionSession` / `CloseExpressionSession`
-- サムネイル 3 種と MainView 更新 `CaptureFaceEmoModeThumbnail` / `CaptureFaceEmoGestureTable` / `CaptureFaceEmoExMenuThumbnail` / `RefreshFaceEmoMainView`。出力は `Library/UnityAgent/face-thumbnails/`
-- 取り残された FaceEmo プレビューアバターを掃除する `CleanupFaceEmoPreviewAvatars`
 
 ### Changed
 - 表情編集に FaceEmo を必須にした。未導入・ランチャー未設定・TargetAvatar 未設定では実行を拒否する
@@ -267,69 +269,354 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - VRCQuestTools 2.7.0 より前のバージョンでコンパイルが壊れる問題。`MaterialSwap` は 2.7.0 で追加された型なので `VRC_QUEST_TOOLS_MATERIAL_SWAP` で切り分けた
 - モデル定義を `ModelCapabilityRegistry` に一本化。ドロップダウンの手書きリストと二重管理になっていて食い違っていた（xAI から選べないモデル、容量誤り、未登録の Perplexity モデル、廃止済みの Vertex AI 既定）
 
-### Notes
-- Plan B（サムネイル統合）もこのリリースに含む
+## [0.10.6] - 2026-05-15
 
-## [0.10.4] — 2026-05-11
-
-### Added
-- **TestRunner** ツール群 — 外部 CI/スクリプトから MCP 経由で UnityAgent を駆動可能: `StartTestSession` / `SendTestPrompt` / `GetSessionState` / `SwitchModel` / `DiscardTestSession`。テストセッションはアクティブな UnityAgentWindow に live 表示 (UI hijack) され、user prompt と AI 応答が通常のチャット UI でリアルタイム確認可能。
-- **`CaptureMeshIsolated`** — 特定 mesh/GameObject を**シーン全体 isolation** で多角度 (front/left/right/back) からキャプチャ。inactive な outfit メッシュも一時 activate して撮影可能。
-- Group A capture ツール群 (CaptureSceneView / CaptureMultiAngle / CaptureFacePreview / CaptureExpressionPreview / ScanAvatarMeshes) に画質オプションを統一追加: `maxWidth` (downscale), `format='png'|'jpg'`, `jpgQuality`, `saveToPath`。デフォルト解像度を 512→1024 に引き上げ。
-- 全 capture ツールが `%TEMP%\unity-agent-last-capture.{png,jpg}` にデバッグダンプ。AI クライアントが MCP image attachment を表示できない環境でも Read ツールで画像確認可能。
-- ScanAvatarMeshes の各 cell に **`[N] mesh-name` の TextMesh ラベル**を埋め込み。
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
 
 ### Fixed
-- `CaptureMultiAngle` の bounds 計算 — 非アクティブ衣装メッシュの runtime SMR bounds 合算で camera が遠ざかる問題を修正 (アクティブ renderer のみ + tight mesh.bounds 使用)。
-- `CaptureFacePreview` のフレーミング — SMR runtime bounds の平均値で center が胸部にずれる問題を修正 (headBone 基準 + sharedMesh.bounds size)。
-- `ScanAvatarMeshes` のシーン全体 isolation — 同じシーンに複数アバターが Active な場合、target 以外が裏で描画されて全 cell が似た見た目になっていた問題を修正。
+- Editor のツール群を 4 回に分けて監査し、挙動の不具合を多数直した
+  - 失敗したのに「成功」と返していたツール
+  - テクスチャの編集・合成・生成ツールのメモリリーク
+  - 検査系ツールがテクスチャの Read/Write 設定を書き換えたまま戻していなかった
+  - メッシュ・ウェイトの編集ツールが、編集のたびに不要なアセットを作り続けていた
+  - lilToon マテリアルの変更が保存されないことがあった
+- `RunEditorScript` が長いコマンドラインで失敗していた
+- 多くのツールの説明文を、実際の挙動に合わせて訂正した
 
-### Changed
-- `CaptureExpressionPreview` を `CaptureFacePreview` に統合 — SceneView を動かす副作用がなくなり、再現性のある安定キャプチャに統一。両ツールはバイト単位で同じ出力を返す。
+## [0.10.5] - 2026-05-12
 
-## [0.10.3] — 2026-05-11
-
-### Added
-- **Window Capture** ツール群 (Windows Editor のみ): `ListEditorWindows` / `ListMonitors` / `CaptureEditorWindow` / `CaptureMonitor`。AI が Unity 内部の任意 EditorWindow（設定パネル / Inspector / Console / カスタムウィンドウ）や物理モニター全体をスクリーンショット可能。
-- Per-monitor DPI 自動検出・補正 (`Shcore.dll!GetDpiForMonitor`)。4K@150% + 1080p@100% のような混在環境でも各モニターのスケールに合わせて正しい物理 px でキャプチャ。
-- `maxWidth` パラメータ — 長辺の上限を指定して bilinear ダウンスケール（4K → 1280px で 5 倍以上の容量削減）
-- `format='jpg'` + `jpgQuality` — JPG 出力で UI スクショの容量を大幅圧縮
-- `saveToPath` — 任意のパスへの追加保存
-- `waitForRepaint=true` — リフレクションで `HostView.RepaintImmediately()` を呼び出し、docked タブ切替を 1 回呼び出しで反映
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
 
 ### Added
-- **Avatar Optimizer Window** (`UnityAgent > Avatar Optimizer`) — MD3SDK / UI Toolkit ベースの統合最適化 UI。1 画面で Performance 解析 / AAO TraceAndOptimize 設定 / NDMF Mesh Simplifier / テクスチャ最適化を操作。アバター ルートは Selection から自動検出 (VRCAvatarDescriptor → Animator フォールバック)
-- **NDMF Tester Window** (`UnityAgent > NDMF Tester`) — NDMFTools / BuildPipelineTools / AvatarPerformanceAnalyzer の各 API をボタンから直接呼び出してデバッグするウィンドウ
-- `AnalyzeAvatarPerformance` — bake 不要のパフォーマンス解析ツール (`Editor/Tools/AvatarPerformanceAnalyzer.cs`)。VRC SDK 公式の `AvatarPerformance.CalculatePerformanceStats` (AAO もこれを利用) と NDMF `ParameterInfo.ForUI` を組み合わせ、シーン現在状態と post-build パラメータ予測を 1 レポートに統合
-- `BakeAmbientOcclusion` — Raycast ベースの AO ベイクツール。`mode="texel"` (UV 展開 → PNG 出力) / `mode="vertex"` (mesh.colors → 新規 .asset + Renderer 差替) の 2 モード対応。SkinnedMeshRenderer の scale double-apply 回避済み
-- `IdentifyBodySmr` / `IdentifyFaceSmr` — 誤差ゼロで Body / Face SkinnedMeshRenderer を特定 (多段ヒューリスティクス: 名前マッチ → 骨領域多様性 → viseme BlendShape → fallback)。BoundBonePro のアルゴリズムを独立移植。Risk=Safe
-- TexTransTool (TTT) AI integration tools behind `NET_RS64_TTT` version define:
-  - Tier 1 (read-only, Risk=Safe): `TttDescribePhases`, `TttListStableComponents`, `TttListComponents`
-  - Tier 2 (authoring, Risk=Caution): `TttAddSimpleDecal`, `TttAddTextureBlender`, `TttAddAtlasTexture`
-  - Tier 3 (pipeline, Risk=Caution/Safe): `TttManualBake`, `TttExitPreviews`
-- New sub-assembly `AjisaiFlow.UnityAgent.TexTransTool.Editor` (`Editor/Tools/TexTransTool/`) gated on `net.rs64.tex-trans-tool [1.0.0,2.0.0)` presence
-- `nadena.dev.ndmf` / `nadena.dev.ndmf.runtime` / `nadena.dev.ndmf.vrchat` を `AjisaiFlow.UnityAgent.Editor.asmdef` の必須参照に追加 (NDMF を hard dependency 化)
-- `VRChatPerformanceTools.GetAvatarPerformanceStatsForGameObject` / `AvatarValidationTools.ValidateAvatarForGameObject` / `TextureMemoryAnalysisTools.AnalyzeTextureMemoryForGameObject` — それぞれ GameObject を直接受け取る internal overload (外部から clone 等を解析するための再利用パス)
+- エージェントからアセンブリを再読み込みさせる `TriggerDomainReload`
 
 ### Changed
-- メニューを `Window > 紫陽花広場 > *` から最上位 `UnityAgent > *` に集約 (例: `UnityAgent > AO Bake (Test)`)
-- `ToolRegistry` now treats first-party sub-assemblies (`AjisaiFlow.UnityAgent.*`) as internal tools. Optional-package-gated modules like TexTransTool ship built-in and no longer require external-tool opt-in.
-- `ToolRegistry.ResolveRisk` honors `[AgentTool(Risk=Safe|Dangerous)]` for internal tools when explicitly set; falls back to method-name-prefix heuristic only when attribute risk is the default `Caution`.
-- Side effect: `AjisaiFlow.UnityAgent.World.Editor` tools (World/Template 系 21 件) previously required external-tool opt-in; they are now internal by default. Users who intentionally disabled them must re-disable via settings UI.
+- AnimatorAsCode 連携を Buildup API に作り替えた。AI が AAC の C# を直接書く形になる
+- `ConfigureCollider` の `isTrigger` で -1 を「変更しない」として扱うようにした（ほかの引数と揃えた）
+- `SetParent` が localRotation をリセットする仕様を説明文に明記した
+
+### Fixed
+- AvatarMask 系のツールが、綴りの違う部位名や未登録のパスを黙って読み飛ばしていた。エラーを返すようにした
+- `SetAvatarMaskTransformsFromAvatar` を、Unity 公式の Import Skeleton と同じ結果になるようにした
+- `CreateBlendTree` が古い BlendTree のサブアセットを残していた
+- `AacExecuteScript` が、Windows のコマンドライン長の上限（32K）に引っかかって失敗していた。渡す参照アセンブリを絞った
+- 真偽値の引数の解釈がツールごとにばらばらだったのを、1 か所に揃えた
+- 空の catch で握りつぶしていたエラーを、ログに出すようにした
+
+## [0.10.4] - 2026-05-11
+
+### Added
+- TestRunner ツール群 `StartTestSession` / `SendTestPrompt` / `GetSessionState` / `SwitchModel` / `DiscardTestSession`。外部の CI やスクリプトから、MCP 経由で UnityAgent を動かせる。テストセッションは開いている UnityAgent ウィンドウにそのまま表示され、プロンプトと AI の応答を通常のチャット画面で確認できる
+- 特定のメッシュや GameObject だけを残して、前・左・右・後ろの多角度から撮る `CaptureMeshIsolated`。非アクティブな衣装メッシュも、一時的にアクティブにして撮れる
+- キャプチャ系ツール（`CaptureSceneView` / `CaptureMultiAngle` / `CaptureFacePreview` / `CaptureExpressionPreview` / `ScanAvatarMeshes`）に、画質の引数 `maxWidth` / `format='png'|'jpg'` / `jpgQuality` / `saveToPath` を揃えて追加した。既定の解像度は 512 から 1024 に上げた
+- すべてのキャプチャを `%TEMP%\unity-agent-last-capture.{png,jpg}` にも書き出す。MCP の画像添付を表示できないクライアントでも、このファイルを読めば確認できる
+- `ScanAvatarMeshes` の各セルに `[N] メッシュ名` のラベルを描き込む
+
+### Changed
+- `CaptureExpressionPreview` を `CaptureFacePreview` に統合した。SceneView を動かす副作用がなくなり、両ツールはバイト単位で同じ画像を返す
+
+### Fixed
+- `CaptureMultiAngle` の範囲計算に非アクティブな衣装メッシュまで入り、カメラが遠ざかっていた。アクティブな Renderer と、メッシュ自身の bounds だけを使うようにした
+- `CaptureFacePreview` のフレーミングが胸元にずれていた。頭のボーンを基準にした
+- `ScanAvatarMeshes` で、同じシーンにアクティブなアバターが複数あると対象以外も写り込み、全セルが似た見た目になっていた
+
+## [0.10.3] - 2026-05-11
+
+### Added
+- Windows エディタ向けのウィンドウキャプチャ `ListEditorWindows` / `ListMonitors` / `CaptureEditorWindow` / `CaptureMonitor`。Unity 内の任意の EditorWindow（設定パネル・Inspector・Console・自作のウィンドウ）や、物理モニター全体を撮れる
+  - モニターごとの DPI を検出して補正する（`Shcore.dll!GetDpiForMonitor`）。4K@150% と 1080p@100% が混在していても、それぞれのモニターの実ピクセルで撮れる
+  - `maxWidth` で長辺を縮小し、`format='jpg'` と `jpgQuality` で容量を抑えられる。`saveToPath` で任意の場所にも保存する
+  - `waitForRepaint=true` で、ドッキングされたタブの切り替えを 1 回の呼び出しで反映してから撮る
+
+## [0.10.2] - 2026-05-03
+
+> 0.10.1 の内容を、アップデート通知の文面を付けて配布し直した版。コードの変更はない。
+
+## [0.10.1] - 2026-05-03
+
+> リリース時に CHANGELOG へ記載されなかったため、git 履歴と 0.10.2 のアップデート通知の文面から後追いで再構成した。
+
+### Added
+- 最適化の統合ウィンドウ `UnityAgent > Avatar Optimizer`。パフォーマンス・検証・テクスチャ VRAM の解析、AAO TraceAndOptimize の設定、NDMF Mesh Simplifier の操作、テクスチャ最適化の提案を 1 画面で扱える。対象のアバターは選択中のオブジェクトから自動で決める
+- NDMF の API をボタンから試せるデバッグ用ウィンドウ `UnityAgent > NDMF Tester`
+- bake せずに解析する `AnalyzeAvatarPerformance`。VRChat SDK 公式の `AvatarPerformance.CalculatePerformanceStats` と NDMF の `ParameterInfo` を組み合わせ、今のシーンの状態とビルド後のパラメータの予測を 1 つのレポートにまとめる
+
+### Changed
+- メニューを `Window > 紫陽花広場 > *` から、最上位の `UnityAgent > *` に集めた
+- NDMF（`nadena.dev.ndmf` / `nadena.dev.ndmf.runtime` / `nadena.dev.ndmf.vrchat`）を必須の参照にした
+
+## [0.10.0] - 2026-04-30
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- 表情の作り方を刷新した。まつげ・舌・歯など複数の SkinnedMeshRenderer に対応したプロファイルと、9 種のプリセット（smile / angry / surprised / sad / cry / wink / sleep / kiss / shy）を用意し、日本語のキーワードから BlendShape の組み合わせを作れる。専用カメラ `FaceCameraCapture` で、SceneView に左右されないプレビュー画像を撮る
+- AnimatorController の編集ツール 8 種。Layer / State / Parameter の名前変更・削除・移動・複製と、Parameter の既定値の設定。Parameter の名前を変えると、遷移の条件と BlendTree の参照も追従する
+- GraphView でスキルを組み立てるノーコードのフローチャート
+- 必須の API キーが未設定のとき、チャットに案内のバナーを出す
+- 開発者向けのチャット共有が有効なとき、チャットに警告を出す
+- マテリアルの値を MaterialPropertyBlock も含めて読むようにし、複数サブメッシュの AO ベイクに対応した
+
+### Changed
+- 設定画面のタイトルを、テーマに合わせたロゴバナーにした
+- 製品名の表記を UnityAgent に統一した
+- VRChat の PhysBone 関連ツールを `PhysBoneTools` にまとめ、VRChat 関連のツール名に `VRC` を付けた。旧名で呼んでいたスキルやスクリプトは新しい名前に直す必要がある
+
+### Fixed
+- VRChat の Permission の True と False が逆に設定されていた
+
+## [0.9.7] - 2026-04-23
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- Play モードや Gesture Manager のプレビュー中の状態を観測するツール群。Animator のパラメータと現在のステート、BlendTree のブレンド値、マテリアルの Vector4 の一括取得、Contact Receiver の現在値、`Physics.Raycast` のシミュレーション、エディタの状態など
+- AI から Gesture Manager の「Enter Play-Mode」「Exit Play-Mode」を実行できるようにした。非アクティブなアバターは自動でアクティブにし、Undo に記録する
+- Gesture Manager の PlayableGraph 内の FX / Gesture / Action レイヤーを調べる `GetGmAnimatorCurrentStateInfo`
+
+### Fixed
+- `ListMaterialProperties` で Vector4 の値が `?` と表示されていた
+
+## [0.9.6] - 2026-04-23
+
+> 0.9.5 の内容を、アップデート通知の文面を直して配布し直した版。コードの変更はない。
+
+## [0.9.5] - 2026-04-23
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- MCP Bridge モードを Linux / macOS でも使えるようにした。ブリッジのバイナリを CI で 4 環境（win-x64 / linux-x64 / osx-x64 / osx-arm64）向けにビルドし、配布 zip に同梱する
+
+### Changed
+- MCP の各層（SSE / Bridge / Bootstrap / Manager / Client）の診断ログを大幅に増やした。外向きの呼び出し、OAuth discovery、リスナーの停止、状態の遷移を追えるようにし、それまで何も出さずに失敗していた経路もログに出す
+- 呼び出しごとの開始と完了のログを、Info から Debug に下げた
+
+### Fixed
+- Linux / macOS で MCP Bridge モードが起動しなかった
+
+## [0.9.4] - 2026-04-18
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Changed
+- MCP サーバー・Bridge・Invoker のログを AgentLogger に集めた。DebugMode を有効にすると、詳細なトレースを AgentLogWindow で確認できる
+- `ListRenderers` の出力に、`ScanAvatarMeshes` を使うよう案内を足した
+- `Editor/` 直下のファイルを役割ごとのフォルダに整理した（内部の整理で、動作は変わらない）
+
+## [0.9.3] - 2026-04-18
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- レイキャストで AO をベイクする `BakeAmbientOcclusion`。`mode="texel"` は UV を展開して PNG に、`mode="vertex"` は頂点カラーに書き込み、新しいメッシュアセットと差し替える。SkinnedMeshRenderer のスケールが二重にかからないようにしてある
+- Body と Face の SkinnedMeshRenderer を特定する `IdentifyBodySmr` / `IdentifyFaceSmr`。名前、骨の領域の広がり、viseme 用の BlendShape の順に段階的に判定し、紛らわしい命名でも外さない
+
+## [0.9.2] - 2026-04-18
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- TexTransTool 連携。`net.rs64.tex-trans-tool` が入っていると、サブアセンブリ `AjisaiFlow.UnityAgent.TexTransTool.Editor`（`NET_RS64_TTT`）がコンパイルされ、8 ツールが使えるようになる
+  - 読み取り（Risk=Safe）: `TttDescribePhases` / `TttListStableComponents` / `TttListComponents`
+  - 作成（Risk=Caution）: `TttAddSimpleDecal` / `TttAddTextureBlender` / `TttAddAtlasTexture`
+  - パイプライン: `TttManualBake` / `TttExitPreviews`
+- Unity の Console を読む・数える・消す `GetConsoleLogs` / `CountConsoleLogs` / `ClearConsole`。エージェントが自分でエラーや警告に気づけるようにした
+
+### Changed
+- 同梱のサブアセンブリ（`AjisaiFlow.UnityAgent.*`）のツールを、外部ツールではなく内蔵ツールとして扱うようにした。オプションのパッケージがあるときだけ有効になるモジュールも、外部ツールの許可なしで使える
+- 内蔵ツールでも `[AgentTool(Risk=Safe|Dangerous)]` の明示指定を優先するようにした。名前からの推定は、指定が既定の `Caution` のときだけ使う
+- その影響で、World / Template 系の 21 ツールが外部ツールから内蔵ツールに変わった。意図して無効にしていた場合は、設定画面でもう一度無効にする必要がある
+
+### Fixed
+- `CaptureSceneView` などが撮った画像が、外部の MCP クライアント（Claude Code など）に画像として届いていなかった。MCP の image content block で返すようにした
+
+## [0.9.1] - 2026-04-17
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- Mesh Painter v2 に、編集リスト、部分的な Undo、「すべて適用」ボタンを追加
+- Mesh Painter v2 に、Modular Avatar で非破壊に適用するトグルを追加（ModularAvatarMaterialSetter 経由）
+- もちふぃった～で、BOOTH のアバター商品ページが対応を明記している「本体」のエントリに対応
+
+### Changed
+- Mesh Painter v2 のスライダーは即時に反映せず、「適用」ボタンで履歴に加える方式にした
+- Mesh Painter v2 で、SMR やタブを切り替えるときの未コミットの確認ダイアログをなくした
+- Mesh Painter v2 の選択ハイライトを半透明にし、何もないところをクリックすると選択を解除するようにした
+- もちふぃった～のグリッド表示を仮想化し、大量のカタログでも軽く動くようにした。サムネイルのキャッシュには上限を設け、メモリを使いすぎないようにした
+
+### Fixed
+- Mesh Painter v2 で、スケールの付いた SMR だとクリックした位置がずれていた
+
+## [0.9.0] - 2026-04-16
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- もちふぃった～のプロファイルカタログ。BOOTH の商品 305 件を収録し、グリッドとリストの切り替え、変換の種類と価格での絞り込み、サムネイルの遅延読み込みに対応
+- AI 向けのもちふぃった～連携ツール。アバターの対応確認、シーンのスキャン、プロファイルの推薦
+- チャットで BOOTH の URL をリンクプレビューのカードで表示する
+- チャットのリンクを開く前の確認ダイアログ。信頼済みのドメインかどうかを判定して表示する
+
+## [0.8.3] - 2026-04-16
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Fixed
+- Mesh Painter のグラデーションで、開始と終了の範囲の外にあるピクセルに色が付かなかった
+
+## [0.8.2] - 2026-04-15
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- Mesh Painter v2 ウィンドウ（MD3 UI、サイズを変えられる分割レイアウト）
+- Mesh Painter のライブプレビュー。スライダーの操作をすぐメッシュに反映し、ディスクへの書き出しは適用したときだけにした
+
+### Changed
+- MCP Bridge モードを有効にした直後や切り替えた直後に、状態の表示が「Bridge starting…」から「connected」へ自動で変わるようにした
+
+### Fixed
+- Scene ビューでメッシュをクリックしたとき、半透明マテリアルのメッシュを正しく最前面として選べていなかった
+- Scene ビューでのペイントで、メッシュの境界をまたぐとストロークが途切れていた
+- 1 つのメッシュを編集したあとの Undo で、関係のない別のメッシュの色まで戻っていた
+- タブを切り替えると StackOverflow で落ちていた
+- ドメインリロードの直後にフォントが抜けていた（UIRStylePainter の NullReferenceException）
+
+## [0.8.1] - 2026-04-14
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Fixed
+- ドメインリロードの後に、中身の空のツールカードが残り続けていた。中断されたツール実行は、灰色の「Cancelled」カードで表示する
+- プロバイダーの進捗メッセージ（Streaming from: / Requesting to: / Rate limit / Connecting など）がチャット履歴に残っていた。以後はアクティビティパネルに一時的に表示するだけにした
+- リロードの前に出ていた AskUser の選択肢が、リロードの後に押しても反応しなかった。答えないまま残っていた選択は、自動でキャンセル扱いにする
+- `CurrentSession.json` が毎回旧形式（v1）で保存され、変換が毎回やり直されていた。v2 で保存するようにした
+- リロード後の新しいツール実行の ID が、古いツールカードと衝突することがあった
+
+## [0.8.0] - 2026-04-14
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- エージェントの応答に含まれるコードブロックのシンタックスハイライト（C# / JSON / Python / Shader / JS）
+- エージェントの吹き出しに、ホバーで出るコピーボタンと相対時刻（「5秒前」など）
+- 思考過程のライブ表示（Claude / Gemini / OpenAI 互換 API の構造化 SSE イベント）
+- ツールカードの履歴をドメインリロードをまたいで保存し、1 枚のカードとして復元する
+
+### Changed
+- 思考過程の折りたたみ表示を作り直した（脳のアイコン、行数のバッジ、専用の背景）
+- 旧形式（v1）のセッションを、新しい形式に自動で変換する。変換前のファイルは `v1.bak` として残す
+
+## [0.7.2] - 2026-04-14
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Changed
+- チャット画面を刷新した。ツールの実行を 1 枚のカードにまとめ、実行中から成功・エラーへの状態の変化、実行時間、引数と結果の折りたたみ、アセットへのリンクを表示する
+- 読み込み中の表示の文言を 1.5 秒ごとに切り替える（考え中… / 接続中… / 応答を待っています… / 処理しています…）
+- 実行中のツールカードに、左端の強調線とスピナーを付けた。カスタムテーマでも見える色で表示する
+
+## [0.7.1] - 2026-04-14
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Fixed
+- カスタムテーマを使うと、アップデート通知のバナー（「新しいバージョンが利用可能です」）の背景と文字が透明になって読めなかった。テーマの ErrorContainer / OnErrorContainer が未定義でも表示されるようにした
+
+## [0.7.0] - 2026-04-14
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- MCP Bridge（別プロセス）。スクリプトの編集で Unity のドメインリロードが起きても、Claude Code や codex などの外部 MCP クライアントとの接続が切れない
+- チャット履歴、LLM との会話の文脈、選択待ちのダイアログを、ドメインリロードをまたいで保存する。スクリプトを編集するたびにチャットが消えていた問題を解消した
+- ドメインリロードで中断された LLM の応答を、自動で再開する（1 セッションにつき 1 回まで）
+- ツールの引数に、Python のような三重引用符の文字列 `"""..."""` を使えるようにした。C# スクリプトなどのファイルの中身を、エスケープせずに渡せる
+- MCP 設定タブに「サーバーモード」（InProc / Bridge）の選択を追加した。Bridge モードのポートは、プロジェクトのパスから自動で決まる
+- Windows 用のビルド済みブリッジ（`UnityAgentBridge.exe`）を同梱
+
+### Changed
+- ユーザーの入力待ちでリロードが起きたとき、AI が勝手に応答を再開しないよう判定を厳しくした
+- 自動再開のときも、読み込み中の表示・ストリーミング表示・ツールの確認ダイアログが通常どおり動くようにした
+
+### Fixed
+- 時間のかかるリロードのあとに、アイドル監視がブリッジを止めてしまっていた
+
+## [0.6.0] - 2026-04-12
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- MCP サーバーを内蔵した。Claude Code や Cursor などの外部 AI エージェントから、HTTP で UnityAgent の 400 以上のツールを呼べる
+- 「MCP Server (External Agent)」プロバイダー。外部エージェントが会話を進め、AskUser やメッシュ選択のやり取りは UnityAgent の画面で行う
+- MCP サーバーの OAuth 2.1 discovery。Claude Code などが自動で認証できる
+- 設定画面に MCP サーバーのタブ（ポート / Bearer トークン / 公開するリスクの上限）
+
+## [0.5.1] - 2026-04-07
+
+> リリース時に CHANGELOG へ記載されなかったため、アップデート通知に載せた文面と git 履歴から後追いで再構成した。
+
+### Added
+- ロギングの仕組み `AgentLogger`。全プロバイダーのログを詳しくし、429 のリトライ時の記録も増やした
+
+### Changed
+- 設定の再読み込みを減らした
+
+### Fixed
+- OpenAI の新しいモデルが要求する `max_completion_tokens` に対応した
+- 画像の MIME タイプが分からないときの既定値を用意した
 
 ## [0.5.0] - 2026-04-02
 
-### Changed
-- VPM distribution switched from compiled DLL to **source code**
-- Removed Obfuscar obfuscation — full source transparency
-- Repository open-sourced under MIT license
-
 ### Added
-- Update notification banner in main window
-- Post-update changelog dialog (shown once per version)
-- Claude CLI activity panel with live thinking/tool display
-- Expressive loading animation during AI processing
+- メインウィンドウのアップデート通知バナー
+- アップデート後に 1 度だけ出る変更点のダイアログ
+- Claude CLI の考え中の内容とツールの実行をライブで表示するアクティビティパネル
+- AI の処理中に表示するアニメーション
+
+### Changed
+- VPM での配布を、コンパイル済みの DLL からソースコードに切り替えた
+- リポジトリを MIT ライセンスで公開した
+
+### Removed
+- Obfuscar による難読化をやめた。ソースはすべて公開している
 
 ### Fixed
-- Claude CLI provider now correctly streams real-time output
-- Inactivity-based timeout replaces fixed timeout (prevents false timeouts during active responses)
+- Claude CLI プロバイダーが出力をリアルタイムに流していなかった
+- 固定のタイムアウトを、無応答の時間で判定するタイムアウトに変えた。応答中なのにタイムアウトする誤判定を防ぐ
+
+[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.15.0...HEAD
+[0.15.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.14.0...editor-v0.15.0
+[0.14.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.13.0...editor-v0.14.0
+[0.13.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.12.1...editor-v0.13.0
+[0.12.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.12.0...editor-v0.12.1
+[0.12.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.11.1...editor-v0.12.0
+[0.11.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.11.0...editor-v0.11.1
+[0.11.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.10.6...editor-v0.11.0
+[0.10.6]: https://github.com/lighfu/unity-agent/compare/editor-v0.10.5...editor-v0.10.6
+[0.10.5]: https://github.com/lighfu/unity-agent/compare/editor-v0.10.4...editor-v0.10.5
+[0.10.4]: https://github.com/lighfu/unity-agent/compare/editor-v0.10.3...editor-v0.10.4
+[0.10.3]: https://github.com/lighfu/unity-agent/compare/editor-v0.10.2...editor-v0.10.3
+[0.10.2]: https://github.com/lighfu/unity-agent/compare/editor-v0.10.1...editor-v0.10.2
+[0.10.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.10.0...editor-v0.10.1
+[0.10.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.7...editor-v0.10.0
+[0.9.7]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.6...editor-v0.9.7
+[0.9.6]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.5...editor-v0.9.6
+[0.9.5]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.4...editor-v0.9.5
+[0.9.4]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.3...editor-v0.9.4
+[0.9.3]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.2...editor-v0.9.3
+[0.9.2]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.1...editor-v0.9.2
+[0.9.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.9.0...editor-v0.9.1
+[0.9.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.8.3...editor-v0.9.0
+[0.8.3]: https://github.com/lighfu/unity-agent/compare/editor-v0.8.2...editor-v0.8.3
+[0.8.2]: https://github.com/lighfu/unity-agent/compare/editor-v0.8.1...editor-v0.8.2
+[0.8.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.8.0...editor-v0.8.1
+[0.8.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.7.2...editor-v0.8.0
+[0.7.2]: https://github.com/lighfu/unity-agent/compare/editor-v0.7.1...editor-v0.7.2
+[0.7.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.7.0...editor-v0.7.1
+[0.7.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.6.0...editor-v0.7.0
+[0.6.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.5.1...editor-v0.6.0
+[0.5.1]: https://github.com/lighfu/unity-agent/releases/tag/editor-v0.5.1
+[0.5.0]: https://github.com/lighfu/vpm/releases/tag/editor-v0.5.0
