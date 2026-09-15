@@ -55,7 +55,7 @@ Upload directly with the upload tool. Visibility defaults to **private**:
 - NEW avatars (no blueprint ID) also require `contentName` and `thumbnailPath`.
 - `visibility=public` is only allowed after the user explicitly approved it — ask with `AskUser` first, then pass `confirmPublic=true`. A native confirmation dialog is shown to the user as a final gate.
 - The SDK may show its copyright-agreement dialog once per session; the user must answer it.
-- For local testing instead of uploading, start `StartVRChatBuildTest` and poll `GetVRChatBuildTestResult(jobId, waitSeconds=100)` until it reports `succeeded` or `failed`. The start call returns at once; the build itself takes minutes.
+- For local testing instead of uploading, start `StartVRChatBuildTest` and poll `GetVRChatBuildTestResult(jobId, waitSeconds=50)` until it reports `succeeded` or `failed`. The start call returns at once; the build itself takes minutes.
 - To review or edit already-uploaded content, use `ListVRChatUploadedContent` / `GetVRChatContentInfo` / `UpdateVRChatContentInfo`.
 
 ## Performance Rank Thresholds (PC)

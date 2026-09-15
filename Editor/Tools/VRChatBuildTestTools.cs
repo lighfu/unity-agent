@@ -159,6 +159,15 @@ reports the job as lost.",
                 yield break;
             }
 
+            // The SDK rejects a disabled avatar only in its validation pass, which runs after the
+            // whole export: minutes of building, on a real avatar, for a known "no".
+            if (!go.activeInHierarchy)
+            {
+                yield return $"Error: '{avatarRootName}' is disabled in the scene hierarchy. The VRChat SDK refuses to build a disabled avatar, " +
+                             "but only after the whole export has run. Enable it first (and disable it again afterwards if it should stay hidden).";
+                yield break;
+            }
+
             string note = null;
             var pmType = VRChatTools.FindVrcType(VRChatUploadTools.PipelineManagerTypeName);
             if (pmType != null && go.GetComponent(pmType) == null)
@@ -223,7 +232,7 @@ reports the job as lost.",
             sb.AppendLine($"avatar: {job.AvatarPath}");
             sb.AppendLine("state: starting (the SDK build begins a few editor ticks after this reply)");
             if (note != null) sb.AppendLine($"note: {note}");
-            sb.AppendLine($"Poll with GetVRChatBuildTestResult(jobId:'{job.Id}', waitSeconds:100) until state is succeeded or failed.");
+            sb.AppendLine($"Poll with GetVRChatBuildTestResult(jobId:'{job.Id}', waitSeconds:50) until state is succeeded or failed.");
             sb.Append("The SDK holds the editor's main thread for most of the build, so other tools will queue until it ends. " +
                       "GetVRChatBuildTestResult and GetEditorState keep answering. The jobId does not survive a domain reload.");
             yield return sb.ToString();
@@ -243,8 +252,9 @@ needed), plus the sinceIndex to read those entries with GetConsoleLogs.
 This is answered off the main thread, so it works while the SDK build holds the main thread.
 
 waitSeconds: wait up to this long for the build to finish before answering (default 0 = answer now,
-  capped at 110 s so the reply beats the transport's 120 s limit). A build usually takes minutes:
-  call again with waitSeconds until the state is succeeded or failed.
+  capped at 110 s so the reply beats the transport's 120 s limit). Use 50: MCP clients may give up
+  on a call well before 120 s (a 100 s wait timed out on the client side in testing, 55 s did not).
+  A build usually takes minutes, so call again until the state is succeeded or failed.
 jobId: omit for the most recent build.
 
 After a domain reload the in-memory job is gone. The answer then comes from the editor-session
