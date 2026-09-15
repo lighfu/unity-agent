@@ -54,6 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - 推論の強さは `--effort` (low / medium / high) で渡す。`gemini-3.8-flash-high` のように強さを含むモデル名のときは渡さない
   - モデルの選択肢は agy 1.1.20 の `agy models` の一覧。agy 自身のツールの許可をまとめて通す `--dangerously-skip-permissions` は付けない
   - MCP 設定画面に、agy 向けの登録コマンド (`agy mcp add --header ...`) と `~/.gemini/config/mcp_config.json` の書き方を追加。agy は `url` ではなく `serverUrl` を読むので、Claude 向けの例はそのままでは使えない
+- 統計ウィンドウとモデル案内の UI 文字列 39 件 (英語・簡体字・繁体字) と、v0.13.0 以降に増えたツール 37 件の説明 (日本語・簡体字・繁体字) の翻訳 (#28, @CQMHV)。取り込み時に、37 件へ訳元の英語のハッシュを付けた
 
 ### Changed
 - `RunEditorScript` / `RunEditorScriptAsync` が、既存ツールで足りる処理を手書きしていた場合に、そのツール名を結果の末尾に添えるようになった。最大 2 件、実在するツールだけを名指しする (#11)
