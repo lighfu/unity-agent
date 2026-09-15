@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-16
+
 ### Added
 - 任意の位置・向きにカメラを置いて 1 枚撮る `CaptureFromPose`。被写体の内側から外を見る画が撮れる (#10)
   - `near` を明示できる。VRChat 相当の 0.01 が既定で、Unity の 0.3 では発火しないニアクリップ由来の不具合を再現できる
@@ -587,7 +589,8 @@
 - Claude CLI プロバイダーが出力をリアルタイムに流していなかった
 - 固定のタイムアウトを、無応答の時間で判定するタイムアウトに変えた。応答中なのにタイムアウトする誤判定を防ぐ
 
-[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.15.0...HEAD
+[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.0...HEAD
+[0.16.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.15.0...editor-v0.16.0
 [0.15.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.14.0...editor-v0.15.0
 [0.14.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.13.0...editor-v0.14.0
 [0.13.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.12.1...editor-v0.13.0
