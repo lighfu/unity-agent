@@ -94,6 +94,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - リスナースレッドで答えるツールの一覧を `ListenerThreadTools` に集約し、InProc と Bridge の両経路が同じ一覧を見るようにした (#27)。従来 Bridge モードには `GetEditorState` の fast-path 自体が無かった。Bridge モードでも `GetEditorState` が reader スレッドで答える
 - Bridge モードで、リスナースレッドで答えるツールを reader スレッドではなく ThreadPool で実行するようにした (#29)。`GetVRChatBuildTestResult` の `waitSeconds` で reader が止まると、後続の呼び出しが全部その間待たされるため。あわせて、そこで出た例外が reader まで上がって接続ごと切れることもなくなった
 - Gemini CLI の表示名を「Gemini CLI (legacy)」にし、設定画面の説明に、個人アカウントでは使えなくなったことと移行先 (Antigravity CLI) を書いた。API キーや法人向けの利用者は引き続き使えるので、プロバイダーとしては残している
+- 使われていなかった `ToolDescriptionsJP.cs` を削除した。日本語のツール説明は `localization/tools/ja.json` から表示されていて、このクラスはどこからも参照されていなかった
 
 ### Fixed
 - `RunEditorScript` / `RunEditorScriptAsync` が `Debug.Log` の出力を捨てたうえで「成功」とだけ返していた問題。戻り値が無いことを明示し、実行中に出たコンソール行をそのまま返すようにした (#12)
@@ -113,6 +114,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `InspectNDMFErrorReport` のプラグイン名が常に `?` になっていた問題 (#22)。プラグインは `ErrorReport` ではなく各エントリの `ErrorContext` 側にぶら下がっているため、`report.Plugin` は常に取れなかった
 - `GetEditorState` の「メインスレッドを待たない」fast-path が、4 メタツール経由の MCP クライアントでは一度も効いていなかった問題 (#27)。クライアントは `ExecuteUnityTool(name="GetEditorState")` の形で呼ぶので届くツール名は `ExecuteUnityTool` になり、名前の一致判定を素通りして stall 判定に落ち、モーダル中は `Unity main thread blocked` で拒否されていた (拒否メッセージにモーダルの説明が含まれていたため、結果的に状態は読めていた)。`ListenerThreadTools` が `ExecuteUnityTool` を 1 段だけ剥がして判定するようにした
 - `TriggerVRChatBuildTest` が必ず失敗していた問題 (#29)。存在しないメニュー `VRChat SDK/Build & Test New Build` を実行しようとしていた (VRChat SDK 3.10.4 には無い)。名前はそのままに `StartVRChatBuildTest` と同じ処理へ付け替え、受付番号を返すようにした
+- ツール説明の翻訳が、英語の説明を書き換えたあとも古いまま表示されていた問題。訳はツール名で引くため、説明が変わっても古い訳がそのまま使われていた。訳ごとに「どの英語から訳したか」を表すハッシュを `localization/tools/source-hashes/{lang}.json` に持たせ、英語が変わっていれば英語の説明を表示するようにした
+  - 既存の訳には、最後に一括翻訳した 2026-06-22 時点の英語のハッシュを付けた。それ以降に説明が変わった 21 ツールの訳は、22 言語すべてで英語表示に戻る
+  - 日本語・簡体字中国語・繁体字中国語は、英語が変わっていた 10 件と、訳が無かった #24 / #27 / #29 のツール 11 件の計 21 件を、今の英語から訳し直した
+  - AI 翻訳と翻訳のインポートは、訳した時点の英語のハッシュを記録する。英語が変わった訳は未翻訳として再翻訳の対象になり、翻訳管理画面の進捗にも数えない
+  - 翻訳ファイル本体の形式は変えていない。ハッシュの記録が無い訳はこれまでどおり信用する
+  - UI 文字列は日本語の原文そのものがキーなので、この問題は起きない
 
 ## [0.15.0] - 2026-08-19
 

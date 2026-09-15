@@ -287,7 +287,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             EditorGUILayout.LabelField(M("ツール説明翻訳"), EditorStyles.boldLabel);
 
-            var (toolTranslated, toolTotal) = ToolTranslationService.GetProgress(langCode, _tools?.Count ?? 0);
+            var (toolTranslated, toolTotal) = ToolTranslationService.GetProgress(langCode, _tools);
 
             EditorGUILayout.BeginHorizontal();
             {
@@ -333,7 +333,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                         {
                             OnTranslationsUpdated?.Invoke();
                             Repaint();
-                        }, hasToolOption: true, hasUIOption: false);
+                        }, hasToolOption: true, hasUIOption: false, tools: _tools);
                     }
 
                     // アセットに保存ボタン
@@ -417,7 +417,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             int toolTranslated = 0, uiTranslated = 0;
             if (needsToolTranslation)
-                (toolTranslated, _) = ToolTranslationService.GetProgress(langCode, _tools?.Count ?? 0);
+                (toolTranslated, _) = ToolTranslationService.GetProgress(langCode, _tools);
             if (needsUITranslation)
                 (uiTranslated, _) = L10n.GetProgress(langCode);
 
@@ -601,6 +601,9 @@ namespace AjisaiFlow.UnityAgent.Editor
     {
         private string _langCode; // null = bulk mode
         private string _inputText = "";
+        // The tool list the export was made from; lets an import record which English each
+        // translation came from, so it goes stale when that English changes. null = unknown.
+        private List<(string name, string description)> _tools;
         private Vector2 _scrollPos;
         private Action _onImported;
         private int _importType; // 0 = ツール説明, 1 = UI文字列
@@ -609,10 +612,12 @@ namespace AjisaiFlow.UnityAgent.Editor
         private bool _isBulkMode;
 
         public static void Open(string langCode, Action onImported,
-            bool hasToolOption = true, bool hasUIOption = true)
+            bool hasToolOption = true, bool hasUIOption = true,
+            List<(string name, string description)> tools = null)
         {
             var win = GetWindow<TranslationImportWindow>(true, M("翻訳インポート"));
             win._langCode = langCode;
+            win._tools = tools;
             win._onImported = onImported;
             win._hasToolOption = hasToolOption;
             win._hasUIOption = hasUIOption;
@@ -695,7 +700,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             {
                 int count;
                 if (_importType == 0)
-                    count = ToolTranslationService.ImportTranslations(_inputText, _langCode);
+                    count = ToolTranslationService.ImportTranslations(_inputText, _langCode, _tools);
                 else
                     count = L10n.ImportTranslations(_inputText, _langCode);
                 return count;

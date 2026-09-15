@@ -23,11 +23,22 @@ namespace AjisaiFlow.UnityAgent.Editor
         private static readonly Dictionary<string, Dictionary<string, string>> _memoryCache
             = new Dictionary<string, Dictionary<string, string>>();
 
+        // langCode → { toolName → SourceHash of the English description the translation was made from }.
+        // Translations are keyed by tool name, so an English description that changes keeps its old
+        // translation forever unless something remembers what that translation was made from. UI text
+        // does not have this problem: its key IS the Japanese source string.
+        // Kept in a sidecar file next to each translation file (source-hashes/{lang}.json), so the
+        // translation files themselves keep their format.
+        private static readonly Dictionary<string, Dictionary<string, string>> _sourceHashes
+            = new Dictionary<string, Dictionary<string, string>>();
+        private const string SourceHashDirName = "source-hashes";
+
         // ─── 公開API ───
 
         /// <summary>
         /// 翻訳済み説明を取得。キャッシュにあれば返却、なければ英語フォールバック。
         /// en の場合はそのまま英語を返す。それ以外は全てAI翻訳対象。
+        /// 英語の説明が翻訳時から変わっている訳は古いので使わず、英語を返す。
         /// </summary>
         public static string Get(string toolName, string englishDesc, string langCode)
         {
@@ -35,7 +46,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 return englishDesc;
 
             var dict = GetOrLoadCache(langCode);
-            if (dict.TryGetValue(toolName, out string cached))
+            if (dict.TryGetValue(toolName, out string cached) && !IsStale(langCode, toolName, englishDesc))
                 return cached;
 
             return englishDesc;
@@ -54,12 +65,67 @@ namespace AjisaiFlow.UnityAgent.Editor
         }
 
         /// <summary>
+        /// 翻訳済み件数 / 全件数。英語の説明が変わって古くなった訳は数えない。
+        /// </summary>
+        public static (int translated, int total) GetProgress(string langCode, List<(string name, string description)> tools)
+        {
+            int total = tools?.Count ?? 0;
+            if (langCode == "en" || tools == null)
+                return (total, total);
+
+            var dict = GetOrLoadCache(langCode);
+            int fresh = tools.Count(t => !NeedsTranslation(langCode, dict, t.name, t.description));
+            return (fresh, total);
+        }
+
+        /// <summary>
+        /// FNV-1a (32 bit) over the UTF-16 code units of an English description, line endings
+        /// normalized to \n. Git checks a verbatim string out with CRLF on Windows and LF elsewhere,
+        /// which changes the compiled text but not what a translation says.
+        /// </summary>
+        internal static string SourceHash(string english)
+        {
+            unchecked
+            {
+                uint h = 2166136261;
+                foreach (char c in (english ?? "").Replace("\r\n", "\n"))
+                {
+                    h ^= c;
+                    h *= 16777619;
+                }
+                return h.ToString("x8");
+            }
+        }
+
+        /// <summary>
+        /// True when a translation exists and records a different English source than the current
+        /// one. A translation with no recorded source is trusted, as before this check existed.
+        /// </summary>
+        private static bool IsStale(string langCode, string toolName, string englishDesc)
+        {
+            GetOrLoadCache(langCode);
+            return _sourceHashes.TryGetValue(langCode, out var hashes)
+                   && hashes.TryGetValue(toolName, out string recorded)
+                   && recorded != SourceHash(englishDesc);
+        }
+
+        private static bool NeedsTranslation(string langCode, Dictionary<string, string> dict, string toolName, string englishDesc)
+            => !dict.ContainsKey(toolName) || IsStale(langCode, toolName, englishDesc);
+
+        private static Dictionary<string, string> HashesFor(string langCode)
+        {
+            if (!_sourceHashes.TryGetValue(langCode, out var hashes))
+                _sourceHashes[langCode] = hashes = new Dictionary<string, string>();
+            return hashes;
+        }
+
+        /// <summary>
         /// 翻訳にかかる推定トークン数とコストを計算。
         /// </summary>
         public static TranslationEstimate EstimateCost(List<(string name, string description)> tools, string langCode)
         {
             var dict = GetOrLoadCache(langCode);
-            var untranslated = tools.Where(t => !dict.ContainsKey(t.name)).ToList();
+            var untranslated = tools.Where(t => NeedsTranslation(langCode, dict, t.name, t.description)).ToList();
 
             long totalDescChars = 0;
             foreach (var t in untranslated)
@@ -163,7 +229,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             string languageName = GetLanguageName(langCode);
             var dict = GetOrLoadCache(langCode);
 
-            var untranslated = tools.Where(t => !dict.ContainsKey(t.name)).ToList();
+            var untranslated = tools.Where(t => NeedsTranslation(langCode, dict, t.name, t.description)).ToList();
 
             if (untranslated.Count == 0)
             {
@@ -219,8 +285,14 @@ namespace AjisaiFlow.UnityAgent.Editor
 
                     var parsed = ParseTranslationResponse(response);
                     onLog?.Invoke($"  パース結果: {parsed.Count}件");
+                    var hashes = HashesFor(langCode);
                     foreach (var kv in parsed)
+                    {
                         dict[kv.Key] = kv.Value;
+                        int src = batch.FindIndex(t => t.name == kv.Key);
+                        if (src >= 0) hashes[kv.Key] = SourceHash(batch[src].description);
+                        else hashes.Remove(kv.Key);
+                    }
 
                     if (parsed.Count == 0)
                         onLog?.Invoke($"  WARNING: パース結果が0件 — レスポンス形式を確認してください");
@@ -247,7 +319,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             string languageName = GetLanguageName(langCode);
             var dict = GetOrLoadCache(langCode);
-            var untranslated = tools.Where(t => !dict.ContainsKey(t.name)).ToList();
+            var untranslated = tools.Where(t => NeedsTranslation(langCode, dict, t.name, t.description)).ToList();
 
             if (untranslated.Count == 0)
                 untranslated = tools; // 全て翻訳済みの場合は全件エクスポート（再翻訳用）
@@ -275,15 +347,26 @@ namespace AjisaiFlow.UnityAgent.Editor
         /// <summary>
         /// 翻訳済みテキスト（JSON）をインポートしてキャッシュに保存。
         /// </summary>
-        public static int ImportTranslations(string text, string langCode)
+        /// <param name="tools">
+        /// 現在のツール一覧。渡すと、取り込んだ訳を今の英語から作られたものとして記録する
+        /// (Export した英語をそのまま訳してもらう前提)。省略すると訳の元は記録しない。
+        /// </param>
+        public static int ImportTranslations(string text, string langCode,
+            List<(string name, string description)> tools = null)
         {
             var parsed = ParseTranslationResponse(text);
             if (parsed.Count == 0)
                 return 0;
 
             var dict = GetOrLoadCache(langCode);
+            var hashes = HashesFor(langCode);
             foreach (var kv in parsed)
+            {
                 dict[kv.Key] = kv.Value;
+                int src = tools?.FindIndex(t => t.name == kv.Key) ?? -1;
+                if (src >= 0) hashes[kv.Key] = SourceHash(tools[src].description);
+                else hashes.Remove(kv.Key);
+            }
 
             SaveToDisk(langCode, dict);
             return parsed.Count;
@@ -295,10 +378,14 @@ namespace AjisaiFlow.UnityAgent.Editor
         public static void ClearCache(string langCode)
         {
             _memoryCache.Remove(langCode);
+            _sourceHashes.Remove(langCode);
 
             string path = GetCachePath(langCode);
             if (File.Exists(path))
                 File.Delete(path);
+            string hashPath = GetCacheHashPath(langCode);
+            if (File.Exists(hashPath))
+                File.Delete(hashPath);
         }
 
         /// <summary>
@@ -332,6 +419,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 sb.AppendLine("}");
 
                 File.WriteAllText(GetAssetPath(langCode), sb.ToString(), Encoding.UTF8);
+                WriteSourceHashes(GetAssetHashPath(langCode), langCode, dict);
                 return dict.Count;
             }
             catch (Exception ex)
@@ -456,43 +544,91 @@ namespace AjisaiFlow.UnityAgent.Editor
             return Path.Combine(AssetDir, $"{langCode}.json");
         }
 
+        private static string GetAssetHashPath(string langCode)
+            => Path.Combine(AssetDir, SourceHashDirName, $"{langCode}.json");
+
+        private static string GetCacheHashPath(string langCode)
+            => Path.Combine(CacheDir, SourceHashDirName, $"{langCode}.json");
+
         private static Dictionary<string, string> LoadFromDisk(string langCode)
         {
             var dict = new Dictionary<string, string>();
+            var hashes = new Dictionary<string, string>();
 
             // 1. アセットベース翻訳を読み込み
-            string assetPath = GetAssetPath(langCode);
-            if (File.Exists(assetPath))
-            {
-                try
-                {
-                    string json = File.ReadAllText(assetPath, Encoding.UTF8);
-                    foreach (var kv in ParseCacheFile(json))
-                        dict[kv.Key] = kv.Value;
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[ToolTranslationService] アセット読み込みエラー ({langCode}): {ex.Message}");
-                }
-            }
-
+            LoadLayer(GetAssetPath(langCode), GetAssetHashPath(langCode), dict, hashes, "アセット", langCode);
             // 2. Library/ キャッシュがあればマージ（上書き）
-            string cachePath = GetCachePath(langCode);
-            if (File.Exists(cachePath))
+            LoadLayer(GetCachePath(langCode), GetCacheHashPath(langCode), dict, hashes, "キャッシュ", langCode);
+
+            _sourceHashes[langCode] = hashes;
+            return dict;
+        }
+
+        /// <summary>
+        /// One translation layer and its source hashes. A translation and the hash of what it was made
+        /// from travel together: a cache entry that overrides an asset entry replaces the asset's hash
+        /// as well, or drops it when the cache records none.
+        /// </summary>
+        private static void LoadLayer(string path, string hashPath, Dictionary<string, string> dict,
+            Dictionary<string, string> hashes, string label, string langCode)
+        {
+            if (!File.Exists(path)) return;
+
+            Dictionary<string, string> layer;
+            try
             {
-                try
-                {
-                    string json = File.ReadAllText(cachePath, Encoding.UTF8);
-                    foreach (var kv in ParseCacheFile(json))
-                        dict[kv.Key] = kv.Value;
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[ToolTranslationService] キャッシュ読み込みエラー ({langCode}): {ex.Message}");
-                }
+                layer = ParseCacheFile(File.ReadAllText(path, Encoding.UTF8));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ToolTranslationService] {label}読み込みエラー ({langCode}): {ex.Message}");
+                return;
             }
 
-            return dict;
+            var layerHashes = new Dictionary<string, string>();
+            if (File.Exists(hashPath))
+            {
+                try { layerHashes = ParseBlock(File.ReadAllText(hashPath, Encoding.UTF8), "sourceHashes"); }
+                catch (Exception ex) { Debug.LogWarning($"[ToolTranslationService] {label}の source hash 読み込みエラー ({langCode}): {ex.Message}"); }
+            }
+
+            foreach (var kv in layer)
+            {
+                dict[kv.Key] = kv.Value;
+                if (layerHashes.TryGetValue(kv.Key, out string h)) hashes[kv.Key] = h;
+                else hashes.Remove(kv.Key);
+            }
+        }
+
+        private static void WriteSourceHashes(string path, string langCode, Dictionary<string, string> dict)
+        {
+            try
+            {
+                var hashes = HashesFor(langCode);
+                var entries = dict.Keys.Where(hashes.ContainsKey).OrderBy(k => k, StringComparer.Ordinal).ToList();
+
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                var sb = new StringBuilder();
+                sb.AppendLine("{");
+                sb.AppendLine("  \"version\": 1,");
+                sb.AppendLine($"  \"language\": \"{EscapeJson(langCode)}\",");
+                sb.AppendLine("  \"sourceHashes\": {");
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    string comma = i < entries.Count - 1 ? "," : "";
+                    sb.AppendLine($"    \"{EscapeJson(entries[i])}\": \"{hashes[entries[i]]}\"{comma}");
+                }
+                sb.AppendLine("  }");
+                sb.AppendLine("}");
+                File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ToolTranslationService] source hash 保存エラー ({langCode}): {ex.Message}");
+            }
         }
 
         private static void SaveToDisk(string langCode, Dictionary<string, string> dict)
@@ -520,6 +656,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 sb.AppendLine("}");
 
                 File.WriteAllText(GetCachePath(langCode), sb.ToString(), Encoding.UTF8);
+                WriteSourceHashes(GetCacheHashPath(langCode), langCode, dict);
             }
             catch (Exception ex)
             {
@@ -527,11 +664,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
         }
 
-        private static Dictionary<string, string> ParseCacheFile(string json)
+        private static Dictionary<string, string> ParseCacheFile(string json) => ParseBlock(json, "translations");
+
+        /// <summary>The string pairs of the object under a top-level key ("translations", "sourceHashes").</summary>
+        private static Dictionary<string, string> ParseBlock(string json, string blockName)
         {
             var result = new Dictionary<string, string>();
 
-            int transIdx = json.IndexOf("\"translations\"");
+            int transIdx = json.IndexOf("\"" + blockName + "\"", StringComparison.Ordinal);
             if (transIdx < 0) return result;
 
             int braceStart = json.IndexOf('{', transIdx);
