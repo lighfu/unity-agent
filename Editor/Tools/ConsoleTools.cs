@@ -253,6 +253,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             => TryCountBySeverity(null, null, out counts, out error);
 
         internal static bool TryCountBySeverity(string lowerKeyword, Regex rx, out ConsoleCounts counts, out string error)
+            => TryCountBySeverity(lowerKeyword, rx, -1, out counts, out error);
+
+        /// <summary>
+        /// Same, restricted to entries NEWER than <paramref name="sinceIndex"/> — the meaning
+        /// GetConsoleLogs gives it; -1 counts everything. <c>total</c> stays the whole console.
+        /// </summary>
+        internal static bool TryCountBySeverity(string lowerKeyword, Regex rx, int sinceIndex, out ConsoleCounts counts, out string error)
         {
             counts = default;
             if (!TryGetLogEntriesReflection(out var refl, out error)) return false;
@@ -263,7 +270,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 int total = (int)refl.GetCount.Invoke(null, null);
                 counts.total = total;
 
-                for (int i = 0; i < total; i++)
+                for (int i = Math.Max(0, sinceIndex + 1); i < total; i++)
                 {
                     var entry = Activator.CreateInstance(refl.LogEntryType);
                     refl.GetEntryInternal.Invoke(null, new object[] { i, entry });
@@ -289,6 +296,36 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
                 error = null;
                 return true;
+            }
+            finally
+            {
+                refl.EndGettingEntries.Invoke(null, null);
+            }
+        }
+
+        /// <summary>
+        /// Index of the newest entry whose message contains <paramref name="text"/> (ordinal), or
+        /// -1 when none does or the console cannot be read. A tool that logs a unique marker line
+        /// can find where its own entries start later on. A before/after count cannot do that: a
+        /// clear followed by enough new lines leaves the total higher than before, and the clear
+        /// goes unnoticed. A cleared marker is simply gone, which is the signal.
+        /// </summary>
+        internal static int FindLastEntryContaining(string text)
+        {
+            if (string.IsNullOrEmpty(text) || !TryGetLogEntriesReflection(out var refl, out _)) return -1;
+
+            refl.StartGettingEntries.Invoke(null, null);
+            try
+            {
+                int total = (int)refl.GetCount.Invoke(null, null);
+                var entry = Activator.CreateInstance(refl.LogEntryType);
+                for (int i = total - 1; i >= 0; i--)
+                {
+                    refl.GetEntryInternal.Invoke(null, new object[] { i, entry });
+                    string message = (string)refl.MessageField.GetValue(entry);
+                    if (message != null && message.IndexOf(text, StringComparison.Ordinal) >= 0) return i;
+                }
+                return -1;
             }
             finally
             {

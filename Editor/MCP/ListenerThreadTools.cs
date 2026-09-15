@@ -57,9 +57,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 case "ListModalAutoAnswers":
                     return Tools.ModalDialogTools.ListModalAutoAnswers;
 
-                // Polled while the SDK build holds the main thread (#29). A job that is not in
-                // memory any more (domain reload) returns null here and goes to the main thread,
-                // where the editor-session record can say what became of it.
+                // Polled while the SDK build holds the main thread (#29). Never returns null: an id
+                // that is not in memory (domain reload, typo) is answered from the in-memory mirror
+                // of the session records, so it cannot end up queued behind the build.
                 case "GetVRChatBuildTestResult":
                     return Tools.VRChatBuildTestTools.MatchOffMainThread(Str(args, "jobId"), Int(args, "waitSeconds"));
 

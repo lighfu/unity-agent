@@ -38,9 +38,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   - `GetEditorState` に `autoAnswerRules` / `lastAutoAnswer` の 2 行を追加。モーダルの verdict に `AnswerModalDialog` の案内も添えた
 - VRChat SDK の Build & Test を開始して受付番号を返す `StartVRChatBuildTest` と、進捗・結果を取る `GetVRChatBuildTestResult` (#29)。実アバターのビルドは数分かかり、MCP の 1 呼び出し (120 秒) では完了まで待てないため、開始と結果取得を分けた
   - SDK の公開 API `IVRCSdkAvatarBuilderApi.BuildAndTest` でビルドする。NDMF などのビルド処理は Control Panel のボタンを押したときと同じく走り、SDK のローカルテスト用アバター一覧に追加される。アップロードはしない
-  - 結果は `running` / `finishing` / `succeeded` / `failed` / `lost`。実行中は経過時間・SDK のビルド状態・直近の進捗メッセージ、完了後はエラー内容・バンドルのパス・NDMF の severity 別件数・ビルド中に増えた Console の error / exception / warning 件数と、その行を読むための `sinceIndex` を返す
+  - `StartVRChatBuildTest` は返事を先に返し、SDK の呼び出しは数 tick 後に行う。SDK は `Task.Delay(100)` の直後にメインスレッドを数分占有するエクスポートを始めるので、同じ tick で呼ぶと、エディタの tick が遅いとき (背面にあるときなど) に受付番号の返事がビルド完了まで届かなくなる
+  - 結果は `starting` / `running` / `finishing` / `succeeded` / `failed` / `lost`。実行中は経過時間・SDK のビルド状態・直近の進捗メッセージ、完了後はエラー内容・バンドルのパス・NDMF の severity 別件数・ビルドが出した Console の error / exception / warning 件数と、その行を読むための `sinceIndex` を返す
+  - Console の件数は、開始時に書いた目印の行より後ろを数える。前後の件数の差では、ビルド中にクリアされたあと行が増えると合計が前より多くなってクリアを見逃し、負の値や失敗したビルドのエラーを隠す値になるため。目印が消えていればクリアされたと明示する
   - SDK はビルドの大半でメインスレッドを占有するため、`GetVRChatBuildTestResult` はリスナースレッドで答える。`waitSeconds` (最大 110 秒) で完了を待てる。モーダルが出ていれば結果にその名前を出す (質問のダイアログなら、ビルドはそこで止まっている)
-  - 受付番号はドメインリロードで消えるが、記録を SessionState に残す。リロード後に問い合わせると、完了済みならその結果を、実行中に中断されたなら `lost` を返す
+  - 受付番号はドメインリロードで消えるが、記録を SessionState に残す。リロード後に問い合わせると、完了済みならその結果を、実行中に中断されたなら `lost` を返す。記録はメモリにも写しておき、知らない受付番号への返事もメインスレッドを待たずに返す (ビルドの後ろに並んで 120 秒待たされないように)
   - batch mode では拒否する (SDK やビルド処理のダイアログが自動で承認されるため)。ビルドターゲットが Windows / Android / iOS 以外なら開始前に拒否する。SDK はこの確認をビルド状態を Building にした後で行い、状態を戻さずに例外を投げるため
   - Risk は `Caution` を明示。ローカルでビルドするだけでアップロードはしないので、既定の `MCPServerExposeRisk` で呼べるようにした
   - `GetEditorState` に、ビルド実行中だけ `vrchatBuildTest` 行を出す。ビルド中は実行中のツールが無いままメインスレッドが止まるので、原因の分からない停止に見えないようにするため

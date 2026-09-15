@@ -20,14 +20,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     ///
     /// A real avatar build takes minutes and the MCP transport abandons a call at 120 s, so a
     /// single call can never both start the build and report how it ended. StartVRChatBuildTest
-    /// returns a job id as soon as the SDK has accepted the build; GetVRChatBuildTestResult reads
-    /// the outcome later.
+    /// returns a job id; the SDK is called a few editor ticks later, from the driver, so the reply
+    /// is already on its way before the build takes the main thread. GetVRChatBuildTestResult
+    /// reads the outcome.
     ///
     /// The SDK runs the export synchronously inside one continuation, so the build holds the main
     /// thread for most of its duration. The result therefore has to be readable without it: the
     /// SDK's build events write into the job under a lock, and ListenerThreadTools answers
-    /// GetVRChatBuildTestResult from the MCP listener thread. Only the final tally (console and
-    /// NDMF counts) needs the main thread, and it is taken once, when the build task ends.
+    /// GetVRChatBuildTestResult off the main thread. Only the final tally (console and NDMF counts)
+    /// needs the main thread, and it is taken once, when the build task ends.
     ///
     /// SDK types are resolved by reflection, as in VRChatUploadTools, so the package still
     /// compiles in projects without the VRChat SDK.
@@ -36,9 +37,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     {
         const int MaxRetainedJobs = 16;
 
+        /// <summary>
+        /// Editor ticks between StartVRChatBuildTest returning and the SDK being called. The invoker
+        /// hands a tool's reply to the transport one tick after the tool yields it, while the SDK
+        /// starts its export (which holds the main thread for minutes) from a Task.Delay(100)
+        /// continuation. On a slow tick — a background editor ticks far less often than every
+        /// 100 ms — the export would run first and the jobId reply would wait behind the build.
+        /// </summary>
+        const int TicksBeforeBuild = 4;
+
         // Statics die with the domain; SessionState does not. The job table itself cannot survive a
-        // reload (the SDK's task lives in the old domain), but a record of it can, which is what
-        // lets GetVRChatBuildTestResult say "lost to a reload" instead of "never heard of it".
+        // reload (the SDK's task lives in the old domain), but a record of it can, which is what lets
+        // GetVRChatBuildTestResult say "lost to a reload" instead of "never heard of it". The records
+        // are mirrored in memory so they can be read off the main thread too.
         const string SessionIndexKey = "UnityAgent.VRChatBuildTest.Ids";
         const string SessionKeyPrefix = "UnityAgent.VRChatBuildTest.Job.";
         const string RunningRecordTag = "running";
@@ -50,18 +61,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             public string AvatarPath;
             public DateTime StartedUtc;
             public readonly Stopwatch Clock = new Stopwatch();
-            public Task Task;
             public string Note;
+            /// <summary>Logged at start; this build's console entries are the ones after it.</summary>
+            public string ConsoleMarker;
 
             // Main thread only.
             public object Builder;
+            public MethodInfo BuildMethod;
+            public GameObject Target;
+            public int TicksLeft;
             public readonly List<KeyValuePair<EventInfo, Delegate>> Handlers = new List<KeyValuePair<EventInfo, Delegate>>();
-            public bool HaveConsoleBefore;
-            public ConsoleTools.ConsoleCounts ConsoleBefore;
-            public int ConsoleIndexBefore = -1;
 
-            // Everything below is guarded by _lock: written on the main thread (SDK events, Finish),
-            // read from the MCP listener thread.
+            // Guarded by _lock: written on the main thread (driver, SDK events, Finish), read from
+            // the MCP listener side.
+            public Task Task;   // null until the SDK has been called
             public string LastProgress;
             public string SdkBuildState;
             public string SdkError;
@@ -72,17 +85,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             public long ElapsedMs;
             public string NdmfLine;
             public string ConsoleLine;
+            public int ConsoleSinceIndex = -1;
         }
 
         static readonly object _lock = new object();
-        static readonly List<BuildTestJob> _jobs = new List<BuildTestJob>();   // oldest first
-        static bool _driverRegistered;                                          // main thread only
+        static readonly List<BuildTestJob> _jobs = new List<BuildTestJob>();                        // oldest first
+        static readonly List<string> _sessionIds = new List<string>();                              // mirror of SessionState, oldest first
+        static readonly Dictionary<string, string> _sessionRecords = new Dictionary<string, string>();
+        static bool _driverRegistered;                                                              // main thread only
 
         [AgentTool(@"Start the VRChat SDK 'Build & Test' for an avatar and return a jobId at once; read the
 outcome with GetVRChatBuildTestResult.
 
 A real avatar build takes minutes, far past the 120 s limit of one MCP call, so this never waits
-for the build to finish.
+for the build: it replies first and the SDK build begins a few editor ticks later.
 
 It builds through the SDK's public builder API (IVRCSdkAvatarBuilderApi.BuildAndTest): NDMF and
 every other build hook run exactly as when the user clicks Build & Test, and the result is added
@@ -189,45 +205,23 @@ reports the job as lost.",
                 Id = "buildtest-" + Guid.NewGuid().ToString("N").Substring(0, 8),
                 AvatarPath = AvatarAnatomyTools.GetHierarchyPathInternal(go),
                 StartedUtc = DateTime.UtcNow,
-                Builder = builder,
                 Note = note,
+                Builder = builder,
+                BuildMethod = buildAndTest,
+                Target = go,
+                TicksLeft = TicksBeforeBuild,
             };
-            // A delta, not a ClearConsole: the caller may need what was logged before the build.
-            job.HaveConsoleBefore = ConsoleTools.TryCountBySeverity(out job.ConsoleBefore, out _);
-            job.ConsoleIndexBefore = ConsoleTools.GetEntryCount();
-            AttachHandlers(job, builder);
+            job.ConsoleMarker = $"[UnityAgent] VRChat Build & Test {job.Id} starting for '{job.AvatarPath}'";
+            Debug.Log(job.ConsoleMarker);
 
-            Task task = null;
-            string startError = null;
-            job.Clock.Start();
-            try
-            {
-                // Returns at the SDK's first await; the export itself starts on a later tick.
-                task = (Task)buildAndTest.Invoke(builder, new object[] { go });
-            }
-            catch (Exception e)
-            {
-                startError = $"Error: BuildAndTest failed to start: {VRChatUploadTools.Describe(e)}";
-            }
-            if (startError == null && task == null)
-                startError = "Error: BuildAndTest did not return a task.";
-            if (startError != null)
-            {
-                DetachHandlers(job);
-                yield return startError;
-                yield break;
-            }
-
-            job.Task = task;
             Register(job);
             RememberInSession(job.Id, RunningRecord(job));
             EnsureDriver();
-            Debug.Log($"[UnityAgent] StartVRChatBuildTest {job.Id}: Build & Test started for '{job.AvatarPath}'.");
 
             var sb = new StringBuilder();
             sb.AppendLine($"jobId: {job.Id}");
             sb.AppendLine($"avatar: {job.AvatarPath}");
-            sb.AppendLine("state: running (the VRChat SDK accepted the build)");
+            sb.AppendLine("state: starting (the SDK build begins a few editor ticks after this reply)");
             if (note != null) sb.AppendLine($"note: {note}");
             sb.AppendLine($"Poll with GetVRChatBuildTestResult(jobId:'{job.Id}', waitSeconds:100) until state is succeeded or failed.");
             sb.Append("The SDK holds the editor's main thread for most of the build, so other tools will queue until it ends. " +
@@ -237,16 +231,16 @@ reports the job as lost.",
 
         [AgentTool(@"Read the outcome of a StartVRChatBuildTest job.
 
-state: running / finishing / succeeded / failed / lost.
+state: starting / running / finishing / succeeded / failed / lost.
   running    elapsed time, the SDK's build state and its latest progress message. If a modal window
              is up it is named here, because a dialog waiting for an answer stops the build.
   succeeded  the bundle path; the avatar is in the SDK's local test avatars.
   failed     the SDK's error.
 Both finished states add NDMF's error-report counts and how many console errors / exceptions /
-warnings appeared during the build. The console count is a delta, so no ClearConsole call is needed;
-the sinceIndex to read those entries with GetConsoleLogs is included.
+warnings the build logged (counted from a marker line written at start, so no ClearConsole call is
+needed), plus the sinceIndex to read those entries with GetConsoleLogs.
 
-This is answered from the MCP listener thread, so it works while the SDK build holds the main thread.
+This is answered off the main thread, so it works while the SDK build holds the main thread.
 
 waitSeconds: wait up to this long for the build to finish before answering (default 0 = answer now,
   capped at 110 s so the reply beats the transport's 120 s limit). A build usually takes minutes:
@@ -270,25 +264,27 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
             while (true)
             {
                 // Don't leave a finished task for the driver's next tick when the answer is wanted now.
-                if (!IsFinished(job) && job.Task.IsCompleted) Finish(job);
+                if (!IsFinished(job) && HasReturned(job)) Finish(job, null);
                 if (IsFinished(job) || EditorApplication.timeSinceStartup >= deadline) break;
                 yield return null;
             }
             yield return Describe(job);
         }
 
-        // ─── listener-thread entry points ───
+        // ─── off-main-thread entry points ───
 
         /// <summary>
-        /// The GetVRChatBuildTestResult answer for the MCP listener thread, or null when the call
-        /// must go to the main thread: a job that is not in memory can only be looked up in
-        /// SessionState, which is main-thread only. The returned work may wait up to waitSeconds,
-        /// so it has to run on a thread that is allowed to block (see ListenerThreadTools).
+        /// The GetVRChatBuildTestResult answer for the MCP listener side. Never needs the main
+        /// thread: a job that is not in memory is looked up in the in-memory mirror of the
+        /// session records. The returned work may wait up to waitSeconds, so it has to run on a
+        /// thread that is allowed to block (see ListenerThreadTools).
         /// </summary>
         internal static Func<string> MatchOffMainThread(string jobId, int waitSeconds)
         {
             var job = FindJob(jobId);
-            if (job == null) return null;
+            if (job == null)
+                return () => DescribeFromSession(jobId);
+
             int limitMs = Math.Min(Math.Max(0, waitSeconds), EditorStateTools.MaxToolSeconds) * 1000;
             return () =>
             {
@@ -299,7 +295,7 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
             };
         }
 
-        /// <summary>One line for GetEditorState while a build runs, else null. Safe off the main thread.</summary>
+        /// <summary>One line for GetEditorState while a build is active, else null. Safe off the main thread.</summary>
         internal static string DescribeRunningForEditorState()
         {
             lock (_lock)
@@ -308,6 +304,7 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
                 {
                     var job = _jobs[i];
                     if (job.Finished) continue;
+                    if (job.Task == null) return $"{job.Id} starting (the SDK is called within a few editor ticks)";
                     string progress = job.LastProgress != null ? $", last progress \"{OneLine(job.LastProgress)}\"" : "";
                     return $"{job.Id} running for {job.Clock.ElapsedMilliseconds / 1000}s ({job.SdkBuildState ?? "starting"}{progress})";
                 }
@@ -334,14 +331,21 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
             lock (_lock) return job.Finished;
         }
 
+        static bool HasReturned(BuildTestJob job)
+        {
+            lock (_lock) return job.Task != null && job.Task.IsCompleted;
+        }
+
         static string DescribeRunningJob()
         {
             lock (_lock)
             {
                 foreach (var job in _jobs)
                     if (!job.Finished)
-                        return $"a Build & Test is already running (jobId {job.Id}, {job.Clock.ElapsedMilliseconds / 1000}s so far). " +
-                               $"Poll GetVRChatBuildTestResult(jobId:'{job.Id}') and start the next build after it finishes.";
+                        return $"a Build & Test is already running (jobId {job.Id}, {job.Clock.ElapsedMilliseconds / 1000}s so far, " +
+                               $"last progress {Quoted(job.LastProgress)}). Poll GetVRChatBuildTestResult(jobId:'{job.Id}') and start " +
+                               "the next build after it finishes. If the SDK has stopped reporting progress for a long time, " +
+                               "look at the SDK Control Panel; a domain reload also clears this job.";
             }
             return null;
         }
@@ -359,6 +363,152 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
                 }
                 _jobs.Add(job);
             }
+        }
+
+        // ─── driver (main thread) ───
+
+        static void EnsureDriver()
+        {
+            if (_driverRegistered) return;
+            EditorApplication.update += Drive;
+            _driverRegistered = true;
+        }
+
+        static void Drive()
+        {
+            List<BuildTestJob> toBegin = null;
+            List<BuildTestJob> returned = null;
+            lock (_lock)
+            {
+                foreach (var job in _jobs)
+                {
+                    if (job.Finished) continue;
+                    if (job.Task == null)
+                    {
+                        if (--job.TicksLeft <= 0)
+                        {
+                            if (toBegin == null) toBegin = new List<BuildTestJob>();
+                            toBegin.Add(job);
+                        }
+                    }
+                    else if (job.Task.IsCompleted)
+                    {
+                        if (returned == null) returned = new List<BuildTestJob>();
+                        returned.Add(job);
+                    }
+                }
+            }
+
+            if (toBegin != null)
+                foreach (var job in toBegin) BeginBuild(job);
+            if (returned != null)
+                foreach (var job in returned) Finish(job, null);
+
+            bool anyActive;
+            lock (_lock) anyActive = _jobs.Exists(j => !j.Finished);
+            if (!anyActive)
+            {
+                EditorApplication.update -= Drive;
+                _driverRegistered = false;
+            }
+        }
+
+        static void BeginBuild(BuildTestJob job)
+        {
+            // The avatar may be gone by now (deleted, scene closed); Unity's == covers a destroyed object.
+            if (job.Target == null)
+            {
+                Finish(job, "the avatar was deleted or its scene was closed before the build began.");
+                return;
+            }
+
+            AttachHandlers(job, job.Builder);
+            Task task = null;
+            string startError = null;
+            job.Clock.Start();
+            try
+            {
+                // Returns at the SDK's first await; the export itself starts on a later tick.
+                task = (Task)job.BuildMethod.Invoke(job.Builder, new object[] { job.Target });
+            }
+            catch (Exception e)
+            {
+                startError = "BuildAndTest failed to start: " + VRChatUploadTools.Describe(e);
+            }
+            if (startError == null && task == null)
+                startError = "BuildAndTest did not return a task.";
+            if (startError != null)
+            {
+                Finish(job, startError);
+                return;
+            }
+            lock (_lock) job.Task = task;
+        }
+
+        static void Finish(BuildTestJob job, string startFailure)
+        {
+            if (IsFinished(job)) return;
+
+            DetachHandlers(job);
+            job.Clock.Stop();
+            job.Target = null;
+            job.BuildMethod = null;
+
+            Task task;
+            lock (_lock) task = job.Task;
+
+            string failure = startFailure;
+            if (failure == null && task != null)
+            {
+                if (task.IsFaulted) failure = VRChatUploadTools.Describe(task.Exception);
+                else if (task.IsCanceled) failure = "the SDK cancelled the build.";
+            }
+
+            string ndmfLine = task == null
+                ? "not run (the build never started)"
+                : NDMFTools.TryGetErrorReportCounts(out var ndmf, out string ndmfDiag)
+                    ? ndmf.Format()
+                    : "unavailable — " + OneLine(ndmfDiag);
+            string consoleLine = DescribeConsole(job, out int sinceIndex);
+
+            lock (_lock)
+            {
+                job.Succeeded = failure == null;
+                job.Failure = failure;
+                job.ElapsedMs = job.Clock.ElapsedMilliseconds;
+                job.NdmfLine = ndmfLine;
+                job.ConsoleLine = consoleLine;
+                job.ConsoleSinceIndex = sinceIndex;
+                job.Finished = true;
+            }
+
+            RememberInSession(job.Id, FinalRecordTag + "\n" + Describe(job));
+            Debug.Log($"[UnityAgent] VRChat Build & Test {job.Id} {(job.Succeeded ? "succeeded" : "FAILED")} " +
+                      $"after {job.ElapsedMs / 1000.0:F1}s ({job.AvatarPath}).");
+        }
+
+        /// <summary>
+        /// Counts what the build logged: the entries after the marker line written at start. A
+        /// before/after count would miss a clear that is followed by enough new lines (the total
+        /// still rises), and then report wrong or negative deltas that hide a failed build's errors.
+        /// </summary>
+        static string DescribeConsole(BuildTestJob job, out int sinceIndex)
+        {
+            sinceIndex = -1;
+            int marker = ConsoleTools.FindLastEntryContaining(job.ConsoleMarker);
+            if (marker >= 0)
+            {
+                if (!ConsoleTools.TryCountBySeverity(null, null, marker, out var counts, out _))
+                    return "unavailable (the console could not be read)";
+                sinceIndex = marker;
+                return $"errors={counts.errors}, exceptions={counts.exceptions}, warnings={counts.warnings} (logged during this build)";
+            }
+
+            if (!ConsoleTools.TryCountBySeverity(out var all, out _))
+                return "unavailable (the console could not be read)";
+            return $"errors={all.errors}, exceptions={all.exceptions}, warnings={all.warnings} " +
+                   "(the start marker is gone: the console was cleared during the build, or info messages are hidden in the " +
+                   "Console window; these are counts of everything visible now)";
         }
 
         // ─── SDK events ───
@@ -429,107 +579,26 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
             job.Builder = null;
         }
 
-        // ─── completion (main thread) ───
-
-        static void EnsureDriver()
-        {
-            if (_driverRegistered) return;
-            EditorApplication.update += Drive;
-            _driverRegistered = true;
-        }
-
-        static void Drive()
-        {
-            List<BuildTestJob> completed = null;
-            bool anyRunning = false;
-            lock (_lock)
-            {
-                foreach (var job in _jobs)
-                {
-                    if (job.Finished) continue;
-                    if (job.Task.IsCompleted)
-                    {
-                        if (completed == null) completed = new List<BuildTestJob>();
-                        completed.Add(job);
-                    }
-                    else
-                    {
-                        anyRunning = true;
-                    }
-                }
-            }
-
-            if (completed != null)
-                foreach (var job in completed) Finish(job);
-
-            if (!anyRunning)
-            {
-                EditorApplication.update -= Drive;
-                _driverRegistered = false;
-            }
-        }
-
-        static void Finish(BuildTestJob job)
-        {
-            if (IsFinished(job)) return;
-
-            DetachHandlers(job);
-            job.Clock.Stop();
-
-            string failure = null;
-            if (job.Task.IsFaulted) failure = VRChatUploadTools.Describe(job.Task.Exception);
-            else if (job.Task.IsCanceled) failure = "the SDK cancelled the build.";
-
-            string ndmfLine = NDMFTools.TryGetErrorReportCounts(out var ndmf, out string ndmfDiag)
-                ? ndmf.Format()
-                : "unavailable — " + OneLine(ndmfDiag);
-            string consoleLine = DescribeConsoleDelta(job);
-
-            lock (_lock)
-            {
-                job.Succeeded = failure == null;
-                job.Failure = failure;
-                job.ElapsedMs = job.Clock.ElapsedMilliseconds;
-                job.NdmfLine = ndmfLine;
-                job.ConsoleLine = consoleLine;
-                job.Finished = true;
-            }
-
-            string text = Describe(job);
-            RememberInSession(job.Id, FinalRecordTag + "\n" + text);
-            Debug.Log($"[UnityAgent] VRChat Build & Test {job.Id} {(job.Succeeded ? "succeeded" : "FAILED")} " +
-                      $"after {job.ElapsedMs / 1000.0:F1}s ({job.AvatarPath}).");
-        }
-
-        static string DescribeConsoleDelta(BuildTestJob job)
-        {
-            if (!job.HaveConsoleBefore || !ConsoleTools.TryCountBySeverity(out var after, out _))
-                return "unavailable (the console could not be read)";
-            // Fewer entries than before means the console was cleared mid-build ("Clear on Recompile"
-            // after the player-script compile, or the user). A delta would then go negative.
-            if (after.total < job.ConsoleBefore.total)
-                return $"errors={after.errors}, exceptions={after.exceptions}, warnings={after.warnings} " +
-                       "(the console was cleared during the build, so these are totals since the clear)";
-            return $"errors={after.errors - job.ConsoleBefore.errors}, " +
-                   $"exceptions={after.exceptions - job.ConsoleBefore.exceptions}, " +
-                   $"warnings={after.warnings - job.ConsoleBefore.warnings} (new during this build)";
-        }
-
         // ─── reporting ───
 
-        /// <summary>Touches no Unity API, so it serves the listener thread as well as the main thread.</summary>
+        /// <summary>Touches no Unity API, so it serves the listener side as well as the main thread.</summary>
         static string Describe(BuildTestJob job)
         {
             var sb = new StringBuilder();
+            bool finished;
             lock (_lock)
             {
+                finished = job.Finished;
                 sb.AppendLine($"jobId: {job.Id}");
                 sb.AppendLine($"avatar: {job.AvatarPath}");
-                if (!job.Finished)
+                if (!finished)
                 {
-                    sb.AppendLine(job.Task != null && job.Task.IsCompleted
-                        ? "state: finishing (the SDK has returned; the outcome is being collected on the main thread, poll again)"
-                        : "state: running");
+                    if (job.Task == null)
+                        sb.AppendLine("state: starting (the SDK build begins within a few editor ticks)");
+                    else if (job.Task.IsCompleted)
+                        sb.AppendLine("state: finishing (the SDK has returned; the outcome is being collected on the main thread, poll again)");
+                    else
+                        sb.AppendLine("state: running");
                     sb.AppendLine($"elapsedMs: {job.Clock.ElapsedMilliseconds}");
                     sb.AppendLine($"sdkBuildState: {job.SdkBuildState ?? "(no state change reported yet)"}");
                     sb.AppendLine($"lastProgress: {Quoted(job.LastProgress)}");
@@ -552,74 +621,101 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
                     }
                     sb.AppendLine($"ndmf: {job.NdmfLine}");
                     sb.AppendLine($"console: {job.ConsoleLine}");
-                    if (job.ConsoleIndexBefore >= 0)
-                        sb.AppendLine($"The build's console entries: GetConsoleLogs(sinceIndex: {job.ConsoleIndexBefore - 1}).");
+                    if (job.ConsoleSinceIndex >= 0)
+                        sb.AppendLine($"The build's console entries: GetConsoleLogs(sinceIndex: {job.ConsoleSinceIndex}).");
                 }
                 if (job.Note != null) sb.AppendLine($"note: {job.Note}");
             }
 
-            if (!IsFinished(job) && MainThreadWatchdog.TryGetModalWindow(out string modal, out _))
+            if (!finished && MainThreadWatchdog.TryGetModalWindow(out string modal, out _))
                 sb.AppendLine($"modalWindow: {modal}. A progress bar is normal during a build; a question dialog stops it until answered " +
                               "(AnswerModalDialog(dryRun=true) shows what it says).");
             return sb.ToString().TrimEnd();
         }
 
+        /// <summary>For ids that are not in memory. Reads only the in-memory mirror, so any thread may call it.</summary>
         static string DescribeFromSession(string jobId)
         {
             string id = (jobId ?? "").Trim();
-            var ids = SessionIds();
-            if (id.Length == 0 && ids.Count > 0) id = ids[ids.Count - 1];
+            string record = "";
+            var sb = new StringBuilder();
+            lock (_lock)
+            {
+                if (id.Length == 0 && _sessionIds.Count > 0) id = _sessionIds[_sessionIds.Count - 1];
+                if (id.Length > 0 && _sessionRecords.TryGetValue(id, out string r)) record = r;
 
-            string record = id.Length > 0 ? SessionState.GetString(SessionKeyPrefix + id, "") : "";
+                if (record.Length == 0)
+                {
+                    sb.Append(id.Length == 0
+                        ? "Error: no Build & Test has been started in this editor session."
+                        : $"Error: unknown jobId '{id}'. It was not started in this editor session (job ids do not carry over to a new session).");
+                    if (_jobs.Count > 0)
+                    {
+                        sb.Append("\nKnown jobs:");
+                        foreach (var job in _jobs)
+                            sb.Append($"\n  {job.Id}  {(job.Finished ? (job.Succeeded ? "succeeded" : "failed") : "running")}  {job.AvatarPath}");
+                    }
+                    return sb.ToString();
+                }
+            }
+
             if (record.StartsWith(FinalRecordTag + "\n", StringComparison.Ordinal))
                 return "(recovered after a domain reload: this is the outcome recorded when the build finished)\n" +
                        record.Substring(FinalRecordTag.Length + 1);
 
-            if (record.StartsWith(RunningRecordTag + "\n", StringComparison.Ordinal))
-            {
-                string[] parts = record.Split('\n');
-                string avatar = parts.Length > 1 ? parts[1] : "(unknown)";
-                string started = parts.Length > 2 ? parts[2] : "(unknown)";
-                return $"jobId: {id}\n" +
-                       $"avatar: {avatar}\n" +
-                       $"state: lost (a domain reload happened while this Build & Test was running; it started at {started} UTC)\n" +
-                       "The SDK's build task lived in the unloaded domain, so its outcome was never recorded and the build most likely did not complete. " +
-                       "GetConsoleLogs shows how far the SDK got; start a new build with StartVRChatBuildTest.";
-            }
-
-            var sb = new StringBuilder(id.Length == 0
-                ? "Error: no Build & Test has been started in this editor session."
-                : $"Error: unknown jobId '{id}'. It was not started in this editor session (job ids do not carry over to a new session).");
-            lock (_lock)
-            {
-                if (_jobs.Count > 0)
-                {
-                    sb.Append("\nKnown jobs:");
-                    foreach (var job in _jobs)
-                        sb.Append($"\n  {job.Id}  {(job.Finished ? (job.Succeeded ? "succeeded" : "failed") : "running")}  {job.AvatarPath}");
-                }
-            }
-            return sb.ToString();
+            string[] parts = record.Split('\n');
+            string avatar = parts.Length > 1 ? parts[1] : "(unknown)";
+            string started = parts.Length > 2 ? parts[2] : "(unknown)";
+            return $"jobId: {id}\n" +
+                   $"avatar: {avatar}\n" +
+                   $"state: lost (a domain reload happened while this Build & Test was running; it started at {started} UTC)\n" +
+                   "The SDK's build task lived in the unloaded domain, so its outcome was never recorded and the build most likely did not complete. " +
+                   "GetConsoleLogs shows how far the SDK got; start a new build with StartVRChatBuildTest.";
         }
 
         static string RunningRecord(BuildTestJob job)
             => $"{RunningRecordTag}\n{job.AvatarPath}\n{job.StartedUtc:yyyy-MM-dd HH:mm:ss}";
 
+        /// <summary>Main thread only (SessionState). Keeps the in-memory mirror in step.</summary>
         static void RememberInSession(string id, string value)
         {
             SessionState.SetString(SessionKeyPrefix + id, value);
-            var ids = SessionIds();
-            if (!ids.Contains(id)) ids.Add(id);
-            while (ids.Count > MaxRetainedJobs)
+            string erase = null;
+            string index;
+            lock (_lock)
             {
-                SessionState.EraseString(SessionKeyPrefix + ids[0]);
-                ids.RemoveAt(0);
+                _sessionRecords[id] = value;
+                if (!_sessionIds.Contains(id)) _sessionIds.Add(id);
+                if (_sessionIds.Count > MaxRetainedJobs)
+                {
+                    erase = _sessionIds[0];
+                    _sessionIds.RemoveAt(0);
+                    _sessionRecords.Remove(erase);
+                }
+                index = string.Join(",", _sessionIds);
             }
-            SessionState.SetString(SessionIndexKey, string.Join(",", ids));
+            if (erase != null) SessionState.EraseString(SessionKeyPrefix + erase);
+            SessionState.SetString(SessionIndexKey, index);
         }
 
-        static List<string> SessionIds()
-            => new List<string>(SessionState.GetString(SessionIndexKey, "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+        /// <summary>Refills the in-memory mirror from SessionState after every domain load.</summary>
+        [InitializeOnLoadMethod]
+        static void LoadSessionRecords()
+        {
+            var ids = SessionState.GetString(SessionIndexKey, "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            lock (_lock)
+            {
+                _sessionIds.Clear();
+                _sessionRecords.Clear();
+                foreach (string id in ids)
+                {
+                    string record = SessionState.GetString(SessionKeyPrefix + id, "");
+                    if (record.Length == 0) continue;
+                    _sessionIds.Add(id);
+                    _sessionRecords[id] = record;
+                }
+            }
+        }
 
         static string Quoted(string s) => s == null ? "(none yet)" : $"\"{OneLine(s)}\"";
 
