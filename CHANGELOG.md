@@ -52,7 +52,7 @@
 - チャットのプロバイダーに Antigravity CLI (`agy`) を追加。Google が 2026-06-18 に個人アカウントでの Gemini CLI の提供を終え、その後継として出した CLI
   - 応答 1 回ごとに agy をヘッドレスモード (`--input-format stream-json --output-format stream-json`) で起動する。会話を 1 行の JSON にして stdin に渡して閉じ、`step_update` の `text_delta` を逐次表示し、`result` の `response` を最終結果にする
   - agy にはシステムプロンプトを渡す口が無い。Gemini CLI で `GEMINI_SYSTEM_MD` に置いていた指示は、本文の先頭に入れる
-  - agy の出力は Go の JSON で、`<` `>` `&` が `<` などにエスケープされて届く。行ごとに JSON として読み直さないと、ツール呼び出しの `<tool>` を取りこぼす
+  - agy の出力は Go の JSON で、`<` `>` `&` が `\u003c` などにエスケープされて届く。行ごとに JSON として読み直さないと、ツール呼び出しの `<tool>` を取りこぼす
   - 推論の強さは `--effort` (low / medium / high) で渡す。`gemini-3.8-flash-high` のように強さを含むモデル名のときは渡さない
   - モデルの選択肢は agy 1.1.20 の `agy models` の一覧。agy 自身のツールの許可をまとめて通す `--dangerously-skip-permissions` は付けない
   - MCP 設定画面に、agy 向けの登録コマンド (`agy mcp add --header ...`) と `~/.gemini/config/mcp_config.json` の書き方を追加。agy は `url` ではなく `serverUrl` を読むので、Claude 向けの例はそのままでは使えない
