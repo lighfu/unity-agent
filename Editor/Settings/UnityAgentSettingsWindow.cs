@@ -466,24 +466,11 @@ namespace AjisaiFlow.UnityAgent.Editor
             return ModelCapabilityRegistry.GetCapability(modelName, _providerType);
         }
 
+        // モデル未指定のときに何を仮定するかは ProviderRegistry に集約した。
+        // チャット側 (UnityAgentWindow.ResolveCurrentMaxContextTokens) も同じ判断を使う必要があり、
+        // 片方だけ直すと設定画面の表示と実際に使う上限が食い違う。
         private static string ResolveEffectiveModelName(LLMProviderType type)
-        {
-            switch (type)
-            {
-                case LLMProviderType.Claude_API:  return "claude-sonnet-4-6";
-                case LLMProviderType.Claude_CLI:  return "claude-sonnet-4-6";
-                case LLMProviderType.Gemini_CLI:  return "gemini-2.5-flash";
-                // Codex CLI の既定モデルは CLI 側が選ぶので分からない。思考モードの UI と履歴の
-                // 詰め方を決めるために現行モデルのうち控えめなものを当てる。gpt-4.1 を当てていた頃は
-                // 思考モード非対応と判定され、「(CLIデフォルト)」のままでは Effort を選べなかった。
-                case LLMProviderType.Codex_CLI:   return "gpt-5.3-codex";
-                // Gemini / Vertex_AI は descriptor.DefaultModel (gemini-3.5-flash) が正しいため
-                // default 節にフォールバックさせる（旧 gemini-2.0-flash は deprecated）。
-                default:
-                    var desc = ProviderRegistry.Get(type);
-                    return desc.DefaultModel ?? "";
-            }
-        }
+            => ProviderRegistry.RepresentativeModel(type);
 
         private ThinkingUIMode GetThinkingUIMode(out string hint)
         {

@@ -1033,8 +1033,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             string modelName = cfg.ModelName;
             if (string.IsNullOrEmpty(modelName))
             {
-                var desc = ProviderRegistry.Get(_providerType);
-                modelName = desc.DefaultModel ?? "";
+                // descriptor.DefaultModel は CLI プロバイダーでは空で、そのまま渡すと
+                // 「不明なモデル」の既定値 (128K) に落ちる。設定画面と同じ代表モデルを使う。
+                modelName = ProviderRegistry.RepresentativeModel(_providerType);
             }
             var cap = ModelCapabilityRegistry.GetCapability(modelName, _providerType);
             return AgentSettings.ResolveMaxContextTokens(cfg.MaxContextTokens, cap.InputTokenLimit);

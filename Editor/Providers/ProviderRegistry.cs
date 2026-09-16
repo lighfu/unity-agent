@@ -259,6 +259,30 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public static int MaxEffortLevel(LLMProviderType type)
             => type == LLMProviderType.Codex_CLI ? 3 : 2;
 
+        /// <summary>
+        /// モデルを選んでいない (CLI 側が選ぶ) ときに、能力の判定に使うモデル名。
+        ///
+        /// 空文字のまま ModelCapabilityRegistry.GetCapability に渡すと「不明なモデル」の
+        /// 既定値 (128K / 思考モード非対応) が返る。その結果、コンテキストの上限が実態より
+        /// 大幅に小さく表示され、Effort の UI も出ないまま使うことになる。
+        /// CLI が実際に何を選ぶかは分からないので、その CLI の現行の代表的なモデルを当てる。
+        /// </summary>
+        public static string RepresentativeModel(LLMProviderType type)
+        {
+            switch (type)
+            {
+                case LLMProviderType.Claude_API:
+                case LLMProviderType.Claude_CLI:      return "claude-sonnet-4-6";
+                case LLMProviderType.Gemini_CLI:      return "gemini-2.5-flash";
+                case LLMProviderType.Codex_CLI:       return "gpt-5.3-codex";
+                // agy は系列名だけ渡して --effort で強さを選ぶ使い方もできるので、
+                // 強さが中間の行を代表にする (どの行も実モデルは同じで上限も同じ)。
+                case LLMProviderType.Antigravity_CLI: return "gemini-3.8-flash-medium";
+                // 残りは descriptor の既定モデルが正しい (Gemini / Vertex AI など)。
+                default:                              return Get(type).DefaultModel ?? "";
+            }
+        }
+
         // ─── Model preset arrays ───
         //
         // モデルのプリセット / 表示名は ModelCapabilityRegistry を単一の真実源とし、
