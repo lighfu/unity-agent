@@ -486,5 +486,10 @@
   "可変": "Változó",
   "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "A(z) „{0}” modellt a Google már nem kínálja. Válasszon egy jelenleg elérhető modellt.",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "A(z) {0} felbontás nem érhető el a(z) „{1}” modellhez. Ez a modell a következőket fogadja el: {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "A megadott {0} érték meghaladja a modell {1} korlátját. Helyette {1} kerül felhasználásra."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "A megadott {0} érték meghaladja a modell {1} korlátját. Helyette {1} kerül felhasználásra.",
+  "オフ": "Ki",
+  "思考しない": "Nincs gondolkodás",
+  "推論の強さ": "Következtetési erősség",
+  "推論の強さで指定": "Következtetési erősséggel megadva",
+  "思考バジェットで指定": "Gondolkodási kerettel megadva"
 }

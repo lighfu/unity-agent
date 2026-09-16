@@ -137,5 +137,10 @@
   "可変": "Muuttuva",
   "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Mallia '{0}' ei enää tarjota Googlen toimesta. Vaihda nykyisin saatavilla olevaan malliin.",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Resoluutio {0} ei ole käytettävissä mallille '{1}'. Tämä malli hyväksyy: {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Asetettu arvo {0} ylittää tämän mallin rajan {1}. Sen sijaan käytetään arvoa {1}."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Asetettu arvo {0} ylittää tämän mallin rajan {1}. Sen sijaan käytetään arvoa {1}.",
+  "オフ": "Pois",
+  "思考しない": "Ei ajattelua",
+  "推論の強さ": "Päättelyn voimakkuus",
+  "推論の強さで指定": "Määritetty päättelyn voimakkuudella",
+  "思考バジェットで指定": "Määritetty ajattelubudjetilla"
 }

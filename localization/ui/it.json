@@ -514,5 +514,10 @@
   "可変": "Variabile",
   "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Il modello '{0}' non è più offerto da Google. Passa a un modello attualmente disponibile.",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "La risoluzione {0} non è disponibile per il modello '{1}'. Questo modello accetta {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Il valore configurato {0} supera il limite di questo modello, pari a {1}. Verrà usato {1}."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Il valore configurato {0} supera il limite di questo modello, pari a {1}. Verrà usato {1}.",
+  "オフ": "Off",
+  "思考しない": "Nessun pensiero",
+  "推論の強さ": "Intensità di ragionamento",
+  "推論の強さで指定": "Impostato dall'intensità di ragionamento",
+  "思考バジェットで指定": "Impostato dal Budget di pensiero"
 }

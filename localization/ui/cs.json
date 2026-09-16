@@ -486,5 +486,10 @@
   "可変": "Proměnné",
   "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Model '{0}' již společnost Google nenabízí. Přepněte na aktuálně dostupný model.",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Rozlišení {0} není pro model '{1}' dostupné. Tento model přijímá {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Nastavená hodnota {0} přesahuje limit tohoto modelu {1}. Místo toho bude použito {1}."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Nastavená hodnota {0} přesahuje limit tohoto modelu {1}. Místo toho bude použito {1}.",
+  "オフ": "Vypnuto",
+  "思考しない": "Bez přemýšlení",
+  "推論の強さ": "Síla uvažování",
+  "推論の強さで指定": "Nastaveno silou uvažování",
+  "思考バジェットで指定": "Nastaveno rozpočtem přemýšlení"
 }

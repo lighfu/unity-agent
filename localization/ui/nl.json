@@ -486,5 +486,10 @@
   "可変": "Variabel",
   "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Model '{0}' wordt niet langer aangeboden door Google. Schakel over naar een momenteel beschikbaar model.",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Resolutie {0} is niet beschikbaar voor model '{1}'. Dit model accepteert {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "De ingestelde waarde {0} overschrijdt de limiet van dit model van {1}. In plaats daarvan wordt {1} gebruikt."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "De ingestelde waarde {0} overschrijdt de limiet van dit model van {1}. In plaats daarvan wordt {1} gebruikt.",
+  "オフ": "Uit",
+  "思考しない": "Geen nadenken",
+  "推論の強さ": "Redeneersterkte",
+  "推論の強さで指定": "Ingesteld via redeneersterkte",
+  "思考バジェットで指定": "Ingesteld via Denkbudget"
 }

@@ -559,5 +559,10 @@
   "指定しない": "Not specified",
   "可変": "Variable",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Resolution {0} is not available for model '{1}'. This model accepts {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "The configured value {0} exceeds this model's limit of {1}. {1} will be used instead."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "The configured value {0} exceeds this model's limit of {1}. {1} will be used instead.",
+  "オフ": "Off",
+  "思考しない": "No thinking",
+  "推論の強さ": "Reasoning effort",
+  "推論の強さで指定": "Set by reasoning effort",
+  "思考バジェットで指定": "Set by thinking budget"
 }

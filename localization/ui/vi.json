@@ -486,5 +486,10 @@
   "可変": "Biến đổi",
   "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Mô hình '{0}' không còn được Google cung cấp. Vui lòng chuyển sang mô hình hiện đang khả dụng.",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Độ phân giải {0} không khả dụng cho mô hình '{1}'. Mô hình này chấp nhận {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Giá trị đã đặt {0} vượt quá giới hạn {1} của mô hình này. {1} sẽ được sử dụng thay thế."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Giá trị đã đặt {0} vượt quá giới hạn {1} của mô hình này. {1} sẽ được sử dụng thay thế.",
+  "オフ": "Tắt",
+  "思考しない": "Không suy nghĩ",
+  "推論の強さ": "Mức độ suy luận",
+  "推論の強さで指定": "Xác định theo mức độ suy luận",
+  "思考バジェットで指定": "Xác định theo ngân sách suy nghĩ"
 }

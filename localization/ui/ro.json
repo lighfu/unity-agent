@@ -486,5 +486,10 @@
   "可変": "Variabilă",
   "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Modelul „{0}” nu mai este oferit de Google. Treceți la un model disponibil în prezent.",
   "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Rezoluția {0} nu este disponibilă pentru modelul „{1}”. Acest model acceptă {2}.",
-  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Valoarea setată {0} depășește limita acestui model, {1}. Se va folosi în schimb {1}."
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Valoarea setată {0} depășește limita acestui model, {1}. Se va folosi în schimb {1}.",
+  "オフ": "Oprit",
+  "思考しない": "Fără gândire",
+  "推論の強さ": "Intensitatea raționamentului",
+  "推論の強さで指定": "Setat după intensitatea raționamentului",
+  "思考バジェットで指定": "Setat după bugetul de gândire"
 }
