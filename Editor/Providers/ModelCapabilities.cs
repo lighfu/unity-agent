@@ -10,13 +10,36 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
     //  ModelCapability — モデルごとの性能定義
     // ═══════════════════════════════════════════════════════
 
+    /// <summary>
+    /// 思考（推論）をリクエストに載せる方法。モデルごとに受け口が違い、取り違えると API が 400 を返す。
+    ///
+    /// Claude は 4.5 以前が ExtendedBudget (thinking.type=enabled + budget_tokens)、
+    /// 4.6 以降が Adaptive (thinking.type=adaptive + output_config.effort) で、Opus 4.7 以降に
+    /// budget_tokens を送ると拒否され、逆に 4.5 以前に adaptive を送っても拒否される
+    /// (platform.claude.com/docs/en/build-with-claude/extended-thinking)。
+    /// 他のプロバイダーも同じ二分で、Gemini 2.5 系の thinkingBudget が ExtendedBudget、
+    /// Gemini 3 系の thinkingLevel と OpenAI 互換の reasoning_effort が Adaptive にあたる。
+    /// </summary>
+    internal enum ThinkingApi
+    {
+        /// <summary>思考の指定を受け付けない。</summary>
+        None,
+        /// <summary>トークン数のバジェットで指定する。</summary>
+        ExtendedBudget,
+        /// <summary>強さ (effort) で指定する。バジェットは渡せない。</summary>
+        Adaptive,
+    }
+
     internal sealed class ModelCapability
     {
         public string ModelId;
         public string DisplayName;
         public int InputTokenLimit;
         public int OutputTokenLimit;
-        public bool SupportsThinking;
+        /// <summary>思考の指定方法。設定 UI と各プロバイダーの送信内容はこれを見て決める。</summary>
+        public ThinkingApi ThinkingApi;
+        /// <summary>思考モードに対応するか。ThinkingApi から導出する（別々に持つと必ずズレる）。</summary>
+        public bool SupportsThinking => ThinkingApi != ThinkingApi.None;
         public int ThinkingBudgetMin;
         public int ThinkingBudgetMax;
         public bool SupportsImageInput;
@@ -30,18 +53,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         public ModelCapability() { }
 
+        /// <param name="thinkingApi">
+        /// 思考の指定方法。省略するとバジェットの上限の有無から導出する。
+        /// Claude のように同じ世代でも受け口が分かれるモデルは必ず明示すること。
+        /// </param>
         public ModelCapability(string modelId, string displayName,
             int inputTokenLimit, int outputTokenLimit,
             bool supportsThinking, int thinkingBudgetMin, int thinkingBudgetMax,
             bool supportsImageInput, bool supportsSearch = false,
             bool supportsStreaming = true, bool isDeprecated = false,
-            LLMProviderType[] dropdowns = null, bool freeTierUnavailable = false)
+            LLMProviderType[] dropdowns = null, bool freeTierUnavailable = false,
+            ThinkingApi? thinkingApi = null)
         {
             ModelId = modelId;
             DisplayName = displayName;
             InputTokenLimit = inputTokenLimit;
             OutputTokenLimit = outputTokenLimit;
-            SupportsThinking = supportsThinking;
+            ThinkingApi = thinkingApi ?? DeriveThinkingApi(supportsThinking, thinkingBudgetMax);
             ThinkingBudgetMin = thinkingBudgetMin;
             ThinkingBudgetMax = thinkingBudgetMax;
             SupportsImageInput = supportsImageInput;
@@ -51,6 +79,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             FreeTierUnavailable = freeTierUnavailable;
             Dropdowns = dropdowns;
         }
+
+        /// <summary>
+        /// 指定が無いときの思考の指定方法。「バジェットの上限を持つならバジェット方式、持たないなら
+        /// 強さ方式」という、従来 ThinkingBudgetMax の 0 / 非 0 で暗黙に表していた区別をそのまま型にした。
+        /// </summary>
+        static ThinkingApi DeriveThinkingApi(bool supportsThinking, int thinkingBudgetMax)
+            => !supportsThinking ? ThinkingApi.None
+             : thinkingBudgetMax > 0 ? ThinkingApi.ExtendedBudget
+             : ThinkingApi.Adaptive;
     }
 
     // ═══════════════════════════════════════════════════════
@@ -331,15 +368,44 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 thinking, budgetMin, budgetMax, true, supportsSearch: true);
         }
 
+        /// <summary>
+        /// budget_tokens 方式 (extended thinking) しか受け付けない Claude の綴り。
+        /// 4.6 以降は adaptive のみなので、取り違えるとどちらの向きでも 400 になる。
+        /// </summary>
+        static readonly string[] ClaudeExtendedThinkingMarkers =
+        {
+            "-4-5", "-4-1", "-4-20250514", "-3-7", "-3.7", "3-5-sonnet", "3.5-sonnet",
+        };
+
+        /// <summary>思考モードを持たない Claude の綴り (Claude 3 世代の一部と Claude 2)。</summary>
+        static readonly string[] ClaudeNoThinkingMarkers =
+        {
+            "claude-2", "claude-3-opus", "claude-3-haiku", "3-5-haiku", "3.5-haiku",
+        };
+
         static ModelCapability InferClaude(string id)
         {
-            bool thinking = id.Contains("opus-4") || id.Contains("sonnet-4") || id.Contains("haiku-4")
-                || id.Contains("3-5-sonnet") || id.Contains("3.5-sonnet")
-                || id.Contains("3-7") || id.Contains("3.7");
-            int output = 64000;
-            if (id.Contains("opus-4-7") || id.Contains("opus-4-6")) output = 128000;
+            // 未登録のモデル名。思考の指定方法を外すとリクエストごと失敗するので、4.5 以前と分かる綴りだけ
+            // budget_tokens に倒し、残りは adaptive と仮定する (一覧より新しい名前は adaptive 側のため)。
+            ThinkingApi api =
+                ContainsAny(id, ClaudeNoThinkingMarkers) ? ThinkingApi.None :
+                ContainsAny(id, ClaudeExtendedThinkingMarkers) ? ThinkingApi.ExtendedBudget :
+                ThinkingApi.Adaptive;
+
+            bool extended = api == ThinkingApi.ExtendedBudget;
+            int output = api == ThinkingApi.Adaptive ? 128000 : 64000;
+            // コンテキスト長は名前からは分からない。現行世代は 1M だが、大きすぎるとツールループを
+            // 自前で止められずに API のエラーで初めて失敗するので、確実に通る 200K を仮に置く。
             return new ModelCapability(id, id, 200000, output,
-                thinking, thinking ? 1024 : 0, thinking ? 128000 : 0, true);
+                api != ThinkingApi.None, extended ? 1024 : 0, extended ? output - 1000 : 0, true,
+                thinkingApi: api);
+        }
+
+        static bool ContainsAny(string id, string[] markers)
+        {
+            foreach (var marker in markers)
+                if (id.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
         }
 
         static ModelCapability InferOpenAI(string id)
@@ -565,7 +631,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             LLMProviderType[] gem    = { LLMProviderType.Gemini, LLMProviderType.Vertex_AI };
             LLMProviderType[] gemCli = { LLMProviderType.Gemini, LLMProviderType.Vertex_AI, LLMProviderType.Gemini_CLI };
             LLMProviderType[] claude = { LLMProviderType.Claude_API, LLMProviderType.Claude_CLI };
-            LLMProviderType[] claudeAgy = { LLMProviderType.Claude_API, LLMProviderType.Claude_CLI, LLMProviderType.Antigravity_CLI };
             LLMProviderType[] agy    = { LLMProviderType.Antigravity_CLI };
             LLMProviderType[] oa     = { LLMProviderType.OpenAI };
             LLMProviderType[] cdx    = { LLMProviderType.Codex_CLI };
@@ -615,8 +680,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             // Gemini 3.8 Flash は 1M コンテキスト / 64K 出力 (ai.google.dev/gemini-api/docs/latest-model)。
             // 3.7 / 3.6 Flash は個別の公称値が出ていないが、同じ Flash 系列で 3.5 Flash (上の Gemini 節) も
             // 3.8 Flash も 1,048,576 / 65,536 なので揃える。
-            // Gemini 3.1 Pro は上の gemini-3.1-pro-preview と、claude-opus-4-6-thinking は Claude 節の
-            // claude-opus-4-6 と同値。gpt-oss-120b は 131,072 / 131,072
+            // Gemini 3.1 Pro は上の gemini-3.1-pro-preview と同値。claude-opus-4-6-thinking は agy 経由の
+            // Claude Opus 4.6 で、第一者 API の claude-opus-4-6 は 1M / 128K だが agy 側の上限は公開されて
+            // いないため、以前 agy 向けに置いた 200,000 / 128,000 のままにしている。
+            // gpt-oss-120b は 131,072 / 131,072
             // (developers.openai.com/api/docs/models/gpt-oss-120b)。
             Reg(d, "gemini-3.8-flash-high",   "Gemini 3.8 Flash (High)",   1048576, 65536, true, 0, 0, false, dropdowns: agy);
             Reg(d, "gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)", 1048576, 65536, true, 0, 0, false, dropdowns: agy);
@@ -632,29 +699,55 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             Reg(d, "claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)", 200000, 128000, true, 0, 0, false, dropdowns: agy);
             Reg(d, "gpt-oss-120b-medium",     "GPT-OSS 120B (Medium)",      131072, 131072, true, 0, 0, false, dropdowns: agy);
 
-            // ── Claude ── (ドロップダウンは最新3モデルのみ。旧モデルは性能照会用に登録)
-            Reg(d, "claude-opus-4-8", "Claude Opus 4.8",
-                200000, 128000, true, 1024, 128000, true, dropdowns: claude);
-            Reg(d, "claude-opus-4-7", "Claude Opus 4.7",
-                200000, 128000, true, 1024, 128000, true);
-            // agy も同じ ID で Claude Sonnet 4.6 を出すので、Antigravity CLI のドロップダウンにも載せる
-            Reg(d, "claude-sonnet-4-6", "Claude Sonnet 4.6",
-                200000, 64000, true, 1024, 128000, true, dropdowns: claudeAgy);
+            // ── Claude ── (ドロップダウンは現行の 4 モデルのみ。旧モデルは性能照会用に登録)
+            // 値は platform.claude.com/docs/en/models/overview 準拠 (2026-09-17 時点)。
+            //
+            // api: が要。思考の指定方法は世代で分かれていて、Adaptive のモデルに budget_tokens を送ると
+            // 400 で拒否され、ExtendedBudget のモデルに adaptive を送っても 400 になる。モデル名の綴りで
+            // 判定すると必ずどこかで踏むので、モデルごとに明示する
+            // (platform.claude.com/docs/en/build-with-claude/extended-thinking)。
+            //
+            // ExtendedBudget のモデルのバジェット上限を最大出力より小さくしているのは、
+            // budget_tokens < max_tokens が API の要件で、max_tokens には最大出力を送るため。
+            Reg(d, "claude-opus-5", "Claude Opus 5",
+                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive);
+            Reg(d, "claude-sonnet-5", "Claude Sonnet 5",
+                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive);
+            // Fable 5.1 は思考が常時オンで、強さ (effort) だけで深さが変わる。入出力とも現行で最も高価な
+            // ので一覧の先頭には置かない。カスタムモデルのスイッチを切ると一覧の先頭に戻る作りなので、
+            // 先頭に置くと最上位のモデルが黙って既定になってしまう。
+            Reg(d, "claude-fable-5-1", "Claude Fable 5.1",
+                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive);
+            // Haiku 4.5 だけは現行で唯一の ExtendedBudget。強さ (effort) は受け付けない。
             Reg(d, "claude-haiku-4-5-20251001", "Claude Haiku 4.5",
-                200000, 64000, true, 1024, 128000, true, dropdowns: claude);
+                200000, 64000, true, 1024, 63000, true, dropdowns: claude, api: ThinkingApi.ExtendedBudget);
+            // 日付なしの別名。ドロップダウンには出さないが、カスタムモデル欄に書かれたときに
+            // 名前からの推定ではなく実データで判定できるように登録しておく。
+            Reg(d, "claude-haiku-4-5", "Claude Haiku 4.5",
+                200000, 64000, true, 1024, 63000, true, api: ThinkingApi.ExtendedBudget);
+
+            // ── Claude (レガシー) ── 現行の一覧からは外れたが API はまだ受け付ける
+            Reg(d, "claude-fable-5", "Claude Fable 5",
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
+            Reg(d, "claude-opus-4-8", "Claude Opus 4.8",
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
+            Reg(d, "claude-opus-4-7", "Claude Opus 4.7",
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
+            // 4.6 の 2 つは budget_tokens もまだ通るが公式に非推奨なので adaptive に寄せる。
+            // なお 4.6 は xhigh を持たない (max はある)。強さの上限はプロバイダー単位でしか持って
+            // いないので、この 2 つをカスタムモデル欄で使うときに xHigh を選ぶと弾かれる。
             Reg(d, "claude-opus-4-6", "Claude Opus 4.6",
-                200000, 128000, true, 1024, 128000, true);
-            Reg(d, "claude-sonnet-4-5-20250929", "Claude Sonnet 4.5",
-                200000, 64000, true, 1024, 128000, true);
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
+            // agy も同じ ID で Claude Sonnet 4.6 を出すので、Antigravity CLI のドロップダウンには載せる
+            Reg(d, "claude-sonnet-4-6", "Claude Sonnet 4.6",
+                1000000, 128000, true, 0, 0, true, dropdowns: agy, api: ThinkingApi.Adaptive);
             Reg(d, "claude-opus-4-5-20251101", "Claude Opus 4.5",
-                200000, 64000, true, 1024, 128000, true);
-            // claude-opus-4-1 は 2026-08-05 廃止予定 (Anthropic 公式 Deprecated → 移行先: claude-opus-4-8)
-            Reg(d, "claude-opus-4-1-20250805", "Claude Opus 4.1",
-                200000, 32000, true, 1024, 128000, true, deprecated: true);
-            Reg(d, "claude-sonnet-4-20250514", "Claude Sonnet 4",
-                200000, 64000, true, 1024, 128000, true, deprecated: true);
-            Reg(d, "claude-opus-4-20250514", "Claude Opus 4",
-                200000, 32000, true, 1024, 128000, true, deprecated: true);
+                200000, 64000, true, 1024, 63000, true, api: ThinkingApi.ExtendedBudget);
+            Reg(d, "claude-sonnet-4-5-20250929", "Claude Sonnet 4.5",
+                200000, 64000, true, 1024, 63000, true, api: ThinkingApi.ExtendedBudget);
+            // claude-opus-4-1-20250805 (2026-08-05) / claude-sonnet-4-20250514 (2026-06-15) /
+            // claude-opus-4-20250514 (2026-06-15) は提供が終了し、送ってもリクエストが失敗するので
+            // 登録ごと削除した。deprecated として残すと「使えないのに選べる」状態になる。
 
             // ── Codex CLI 専用モデル ── (Codex CLI ドロップダウンの先頭グループ)
             // 一覧・コンテキスト長・最大出力は learn.chatgpt.com/docs/models と
@@ -806,10 +899,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             int input, int output,
             bool thinking, int budgetMin, int budgetMax,
             bool imageInput, bool search = false, bool stream = true, bool deprecated = false,
-            LLMProviderType[] dropdowns = null, bool paidOnly = false)
+            LLMProviderType[] dropdowns = null, bool paidOnly = false, ThinkingApi? api = null)
         {
             list.Add(new ModelCapability(modelId, displayName,
-                input, output, thinking, budgetMin, budgetMax, imageInput, search, stream, deprecated, dropdowns, paidOnly));
+                input, output, thinking, budgetMin, budgetMax, imageInput, search, stream, deprecated, dropdowns, paidOnly, api));
         }
 
         // ─── Simple JSON helpers (no external dependency) ───

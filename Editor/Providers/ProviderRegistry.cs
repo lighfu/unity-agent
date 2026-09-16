@@ -245,7 +245,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         // Claude CLI / agy は --effort、OpenAI 互換は reasoning_effort、Gemini は thinkingLevel)。
 
         /// <summary>設定 UI に並べる推論の強さ。添字が UnityAgent_EffortLevel の値。</summary>
-        public static readonly string[] EffortLevelLabels = { "Low", "Medium", "High", "xHigh" };
+        public static readonly string[] EffortLevelLabels = { "Low", "Medium", "High", "xHigh", "Max" };
 
         /// <summary>
         /// 未設定のときの推論の強さ。medium は Codex CLI と OpenAI の reasoning_effort の既定でもある。
@@ -253,11 +253,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public const int DefaultEffortLevel = 1;
 
         /// <summary>
-        /// そのプロバイダーが受け付ける最大の添字。xhigh を持つのは今のところ Codex CLI だけで、
-        /// 他は low / medium / high の 3 段階しかない。
+        /// そのプロバイダーが受け付ける最大の添字。
+        /// Claude API は low / medium / high / xhigh / max の 5 段階
+        /// (platform.claude.com/docs/en/build-with-claude/effort)、Codex CLI は max を除く 4 段階、
+        /// 残りは low / medium / high の 3 段階しかない。
+        ///
+        /// 上限はプロバイダー単位でしか持っていない。Claude では一覧に出している 4 モデルはどれも
+        /// 5 段階すべてを受け付けるが、カスタムモデル欄に 4.6 世代 (xhigh 非対応) を書いた場合は
+        /// xHigh が弾かれる。
         /// </summary>
         public static int MaxEffortLevel(LLMProviderType type)
-            => type == LLMProviderType.Codex_CLI ? 3 : 2;
+        {
+            switch (type)
+            {
+                case LLMProviderType.Claude_API: return 4;
+                case LLMProviderType.Codex_CLI:  return 3;
+                default:                         return 2;
+            }
+        }
 
         /// <summary>
         /// モデルを選んでいない (CLI 側が選ぶ) ときに、能力の判定に使うモデル名。
@@ -272,7 +285,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             switch (type)
             {
                 case LLMProviderType.Claude_API:
-                case LLMProviderType.Claude_CLI:      return "claude-sonnet-4-6";
+                case LLMProviderType.Claude_CLI:      return "claude-sonnet-5";
                 case LLMProviderType.Gemini_CLI:      return "gemini-2.5-flash";
                 case LLMProviderType.Codex_CLI:       return "gpt-5.3-codex";
                 // agy は系列名だけ渡して --effort で強さを選ぶ使い方もできるので、
@@ -380,10 +393,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 {
                     DisplayName = "Claude API", ShortName = "Claude API",
                     SettingsKind = ProviderSettingsKind.ClaudeApi,
-                    EmptyModelOptionLabel = "(デフォルト: claude-sonnet-4-6)",
+                    EmptyModelOptionLabel = "(デフォルト: claude-sonnet-5)",
                     DefaultModel = "",
-                    ThinkingMode = ThinkingMode.Budget,
-                    ThinkingHintKey = "Claude 3.5 Sonnet 以降で対応",
+                    // 実際の思考 UI は選んでいるモデルの ModelCapability.ThinkingApi で決まる。
+                    // Claude API は 1 つのプロバイダーの中に強さで指定するモデル (Opus 5 など) と
+                    // バジェットで指定するモデル (Haiku 4.5) が混ざるので、ここは代表値でしかない。
+                    ThinkingMode = ThinkingMode.Effort,
+                    ThinkingHintKey = "Claude 4.6 以降は Effort、Haiku 4.5 は思考バジェットとして適用",
                     SupportsModelSelection = true,
                     SectionTitle = "Claude API",
                     DescriptionKey = "Anthropic API に直接接続します。API キーは console.anthropic.com から取得できます。",
@@ -808,8 +824,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     return new MCPServerProvider();
 
                 case LLMProviderType.Claude_API:
-                    return new ClaudeApiProvider(cfg.ApiKey, cfg.ModelName,
-                        useThinking ? thinkingBudget : 0);
+                    return new ClaudeApiProvider(cfg.ApiKey, cfg.ModelName, useThinking,
+                        thinkingBudget, EffortFor(type, useThinking, effortLevel));
 
                 case LLMProviderType.Gemini_Web:
                     return new BrowserBridgeProvider(cfg.Port);

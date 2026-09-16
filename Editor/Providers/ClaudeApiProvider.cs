@@ -36,24 +36,67 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         private readonly string _apiKey;
         private readonly string _modelName;
-        private readonly int _thinkingBudget;
         private readonly ModelCapability _capability;
+        /// <summary>extended thinking で送るバジェット。0 = 送らない。</summary>
+        private readonly int _thinkingBudget;
+        /// <summary>adaptive thinking を使うか。</summary>
+        private readonly bool _useAdaptiveThinking;
+        /// <summary>output_config.effort に載せる値。null なら送らない (API 側の既定 high になる)。</summary>
+        private readonly string _effort;
+
+        /// <summary>output_config.effort が受け付ける値。添字は ProviderRegistry.EffortLevelLabels と対応。</summary>
+        private static readonly string[] EffortNames = { "low", "medium", "high", "xhigh", "max" };
 
         private const string Endpoint = "https://api.anthropic.com/v1/messages";
         private const string AnthropicVersion = "2023-06-01";
         private const int MaxRetries = 5;
 
-        public ClaudeApiProvider(string apiKey, string modelName, int thinkingBudget = 0)
+        /// <summary>
+        /// 思考の指定方法はモデルごとに違う。adaptive のモデルに budget_tokens を送ると 400 で拒否され、
+        /// extended のモデルに adaptive を送っても 400 になるので、ModelCapability.ThinkingApi を見て
+        /// 送り分ける。モデル名の綴りで判定してはいけない。
+        /// </summary>
+        public ClaudeApiProvider(string apiKey, string modelName, bool useThinking = false,
+            int thinkingBudget = 0, int effortLevel = -1)
         {
             _apiKey = apiKey;
-            _modelName = string.IsNullOrEmpty(modelName) ? "claude-sonnet-4-6" : modelName;
+            _modelName = string.IsNullOrEmpty(modelName)
+                ? ProviderRegistry.RepresentativeModel(LLMProviderType.Claude_API)
+                : modelName;
             _capability = ModelCapabilityRegistry.GetCapability(_modelName, LLMProviderType.Claude_API);
-            _thinkingBudget = thinkingBudget > 0 && _capability.SupportsThinking
-                ? Mathf.Clamp(thinkingBudget,
-                    _capability.ThinkingBudgetMin,
-                    _capability.ThinkingBudgetMax > 0 ? _capability.ThinkingBudgetMax : thinkingBudget)
-                : 0;
-            AgentLogger.Info(LogTag.Provider, $"[Claude] Initialized: model={_modelName}, thinking={(_thinkingBudget > 0 ? $"{_thinkingBudget} tokens" : "off")}, outputLimit={_capability.OutputTokenLimit}");
+
+            if (useThinking)
+            {
+                switch (_capability.ThinkingApi)
+                {
+                    case ThinkingApi.Adaptive:
+                        _useAdaptiveThinking = true;
+                        _effort = effortLevel >= 0 && effortLevel < EffortNames.Length
+                            ? EffortNames[effortLevel]
+                            : null;
+                        break;
+
+                    case ThinkingApi.ExtendedBudget:
+                        // budget_tokens は最小 1024、かつ max_tokens 未満であることが要件。
+                        // max_tokens にはモデルの最大出力を送るので、その 1 つ下が実際の上限になる。
+                        int ceiling = _capability.OutputTokenLimit - 1;
+                        if (_capability.ThinkingBudgetMax > 0 && _capability.ThinkingBudgetMax < ceiling)
+                            ceiling = _capability.ThinkingBudgetMax;
+                        int floor = Mathf.Max(1024, _capability.ThinkingBudgetMin);
+                        _thinkingBudget = ceiling < floor ? 0 : Mathf.Clamp(thinkingBudget, floor, ceiling);
+                        break;
+                }
+            }
+
+            AgentLogger.Info(LogTag.Provider, $"[Claude] Initialized: model={_modelName}, thinkingApi={_capability.ThinkingApi}, thinking={DescribeThinking()}, outputLimit={_capability.OutputTokenLimit}");
+        }
+
+        /// <summary>この呼び出しで思考をどう指定するかをログ 1 行で表す。</summary>
+        private string DescribeThinking()
+        {
+            if (_useAdaptiveThinking) return $"adaptive (effort={_effort ?? "default"})";
+            if (_thinkingBudget > 0) return $"{_thinkingBudget} tokens";
+            return "off";
         }
 
         // ─── ILLMProvider ───
@@ -118,7 +161,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             }
 
             string requestJson = BuildRequestJson(systemPrompt, msgs);
-            AgentLogger.Debug(LogTag.Provider, $"[Claude] POST {Endpoint} model={_modelName}, messages={msgs.Count}, thinking={_thinkingBudget}\nPayload: {requestJson}");
+            AgentLogger.Debug(LogTag.Provider, $"[Claude] POST {Endpoint} model={_modelName}, messages={msgs.Count}, thinking={DescribeThinking()}\nPayload: {requestJson}");
 
             // ── HTTP request with SSE streaming and retry ──
             float retryDelay = 1.0f;
@@ -278,14 +321,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             sb.Append('{');
             sb.Append($"\"model\":{JS(_modelName)},");
 
-            bool useThinking = _thinkingBudget > 0;
-            int outputLimit = _capability.OutputTokenLimit;
-            int maxTokens = useThinking ? Mathf.Max(outputLimit, _thinkingBudget + 4096) : outputLimit;
-            sb.Append($"\"max_tokens\":{maxTokens},");
+            // max_tokens はモデルの最大出力をそのまま送る。budget_tokens はこれ未満でなければならず、
+            // コンストラクタで収めてある。以前はバジェット + 4096 まで膨らませていたので、最大出力が
+            // 64K のモデルにバジェット 128K を渡すと 132K を送ってしまっていた。
+            sb.Append($"\"max_tokens\":{_capability.OutputTokenLimit},");
             sb.Append("\"stream\":true");
 
-            if (useThinking)
+            if (_useAdaptiveThinking)
+            {
+                // display は既定が omitted で、そのままだと thinking ブロックが空文字で流れてくる。
+                // UnityAgent は思考をそのまま画面に出すので summarized を明示する。
+                sb.Append(",\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"}");
+                if (!string.IsNullOrEmpty(_effort))
+                    sb.Append($",\"output_config\":{{\"effort\":\"{_effort}\"}}");
+            }
+            else if (_thinkingBudget > 0)
+            {
                 sb.Append($",\"thinking\":{{\"type\":\"enabled\",\"budget_tokens\":{_thinkingBudget}}}");
+            }
 
             if (!string.IsNullOrEmpty(system))
                 sb.Append($",\"system\":{JS(system)}");

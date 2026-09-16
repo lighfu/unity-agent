@@ -477,18 +477,18 @@ namespace AjisaiFlow.UnityAgent.Editor
             var desc = ProviderRegistry.Get(_providerType);
             var cap = GetActiveModelCapability();
 
-            if (cap.SupportsThinking)
+            // 思考の指定方法はプロバイダーではなくモデルで決まる。Claude API は 1 つのプロバイダーの中に
+            // 強さで指定するモデル (Opus 5 など) とバジェットで指定するモデル (Haiku 4.5) が混ざるので、
+            // descriptor の ThinkingMode ではなくモデルの ThinkingApi を見る。
+            switch (cap.ThinkingApi)
             {
-                if (cap.ThinkingBudgetMax > 0)
-                {
+                case ThinkingApi.ExtendedBudget:
                     hint = $"{cap.DisplayName}: {M("思考モード対応")} ({FormatTokenCount(cap.ThinkingBudgetMin)}–{FormatTokenCount(cap.ThinkingBudgetMax)})";
                     return ThinkingUIMode.Budget;
-                }
-                else
-                {
+
+                case ThinkingApi.Adaptive:
                     hint = $"{cap.DisplayName}: {M("思考モード対応")} (effort)";
                     return ThinkingUIMode.Effort;
-                }
             }
 
             if (desc.ThinkingMode != ThinkingMode.None)
@@ -602,7 +602,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                         var effortLabels = EffortLabelsFor(_providerType);
                         var effortSeg = new MD3SegmentedButton(
                             effortLabels, Mathf.Clamp(_effortLevel, 0, effortLabels.Length - 1));
-                        effortSeg.style.maxWidth = effortLabels.Length >= 4 ? 320 : 240;
+                        effortSeg.style.maxWidth = effortLabels.Length >= 5 ? 400
+                            : effortLabels.Length >= 4 ? 320 : 240;
                         effortSeg.changed += idx =>
                         {
                             _effortLevel = idx;
