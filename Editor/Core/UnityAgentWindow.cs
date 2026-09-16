@@ -85,10 +85,9 @@ namespace AjisaiFlow.UnityAgent.Editor
         // ═══════════════════════════════════════════════════════
 
         private LLMProviderType _providerType;
+        // 思考モードの 3 設定 (オン/オフ・バジェット・強さ) は _configs の中にある。
+        // プロバイダーごとの値なので、ウィンドウの側にコピーを持つと切り替えたときにズレる。
         private Dictionary<LLMProviderType, ProviderConfig> _configs;
-        private bool _useThinking;
-        private int _thinkingBudget = 8192;
-        private int _effortLevel = ProviderRegistry.DefaultEffortLevel;
         private string _imageModelName = "gemini-3.1-flash-image";
         private bool _useCustomImageModel;
         private string _meshyApiKey = "";
@@ -430,6 +429,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             _inputBar.GetUserQuery = () => _userQuery;
             _inputBar.OnProviderChipClicked = () => ShowProviderQuickMenu();
             _inputBar.OnModelChipClicked = () => ShowModelQuickMenu();
+            _inputBar.OnThinkingChipClicked = () => ShowThinkingQuickMenu();
 
             // Quick menu overlay
             _quickMenuOverlay.OnDismiss = () => { };
@@ -445,6 +445,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 SaveSettings();
                 UpdateProviderModelChips();
             };
+            _quickMenuOverlay.OnThinkingSelected = idx => ApplyThinkingChoice(idx);
 
             // Suggestion chips
             _suggestionChipsView.OnChipClicked = text =>
@@ -751,6 +752,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             _inputBar?.UpdateProviderName(GetProviderShortName());
             _inputBar?.UpdateModelName(GetActiveModelDisplayName());
+            _inputBar?.UpdateThinkingName(DescribeThinkingChip());
             RefreshApiKeyNotice();
         }
 
@@ -855,18 +857,207 @@ namespace AjisaiFlow.UnityAgent.Editor
         }
 
         // ═══════════════════════════════════════════════════════
+        //  思考の深さの Chip
+        //  ─────────────────────────────────────────────────────
+        //  指定方法はモデルごとに違う (ModelCapability.ThinkingApi)。強さで指定するモデルは
+        //  段階を、トークン数で指定するモデルはバジェットを並べる。どちらも受け付けないモデルでは
+        //  Chip ごと出さない。読み書きする値は設定画面の「思考モード」の節と同じ。
+        // ═══════════════════════════════════════════════════════
+
+        /// <summary>思考の深さのメニュー 1 行。添字 0 は必ず「思考しない」。</summary>
+        private struct ThinkingChoice
+        {
+            public string Label;
+            public bool UseThinking;
+            public int EffortLevel;
+            public int Budget;
+        }
+
+        /// <summary>
+        /// バジェットで指定するモデルの候補。設定画面のスライダーと同じ範囲を、Chip から 1 回で
+        /// 選べる程度に間引いたもの。範囲はモデルごとに違う (Gemini 2.5 Pro は 128–32K、
+        /// Haiku 4.5 は 1K–63K) ので範囲外は捨て、上端だけは必ず足す。
+        /// </summary>
+        private static readonly int[] ThinkingBudgetLadder =
+            { 1024, 2048, 4096, 8192, 16384, 32768, 65536 };
+
+        /// <summary>
+        /// いま思考の指定方法を決めるモデル名。モデル未指定のときに何を仮定するかは
+        /// ProviderRegistry.RepresentativeModel に集約してあり、設定画面も同じ判断を使う。
+        /// </summary>
+        private string ResolveThinkingModelName()
+        {
+            var cfg = _configs[_providerType];
+            return string.IsNullOrEmpty(cfg.ModelName)
+                ? ProviderRegistry.RepresentativeModel(_providerType)
+                : cfg.ModelName;
+        }
+
+        private ModelCapability GetThinkingCapability()
+            => ModelCapabilityRegistry.GetCapability(ResolveThinkingModelName(), _providerType);
+
+        /// <summary>
+        /// 思考の深さの Chip の文字列。そのモデルの指定方法に合った名前を出す
+        /// (強さで指定するなら「推論の強さ」、トークン数で指定するなら「思考バジェット」)。
+        /// 指定を受け付けないモデルでは null を返し、InputBar 側が Chip を隠す。
+        /// </summary>
+        private string DescribeThinkingChip()
+        {
+            if (_configs == null || !_configs.ContainsKey(_providerType)) return null;
+            var cfg = _configs[_providerType];
+            var cap = GetThinkingCapability();
+
+            switch (cap.ThinkingApi)
+            {
+                case ThinkingApi.Adaptive:
+                {
+                    if (!cfg.UseThinking) return $"{M("推論の強さ")}: {M("オフ")}";
+                    int level = ProviderRegistry.ClampEffort(
+                        ProviderRegistry.EffortMaskFor(_providerType, ResolveThinkingModelName()),
+                        cfg.EffortLevel);
+                    string label = level >= 0 && level < ProviderRegistry.EffortLevelLabels.Length
+                        ? ProviderRegistry.EffortLevelLabels[level]
+                        : M("オフ");
+                    return $"{M("推論の強さ")}: {label}";
+                }
+
+                case ThinkingApi.ExtendedBudget:
+                    return cfg.UseThinking
+                        ? $"{M("思考バジェット")}: {FormatTokenCount(cfg.ThinkingBudget)}"
+                        : $"{M("思考バジェット")}: {M("オフ")}";
+
+                default:
+                    return null;
+            }
+        }
+
+        private List<ThinkingChoice> BuildThinkingChoices()
+        {
+            var choices = new List<ThinkingChoice>();
+            if (_configs == null || !_configs.ContainsKey(_providerType)) return choices;
+
+            var cfg = _configs[_providerType];
+            var cap = GetThinkingCapability();
+            if (cap.ThinkingApi == ThinkingApi.None) return choices;
+
+            choices.Add(new ThinkingChoice
+            {
+                Label = M("思考しない"),
+                UseThinking = false,
+                EffortLevel = cfg.EffortLevel,
+                Budget = cfg.ThinkingBudget,
+            });
+
+            if (cap.ThinkingApi == ThinkingApi.Adaptive)
+            {
+                var (levels, labels) = ProviderRegistry.EffortChoicesFor(
+                    _providerType, ResolveThinkingModelName());
+                for (int i = 0; i < levels.Length; i++)
+                {
+                    choices.Add(new ThinkingChoice
+                    {
+                        Label = labels[i],
+                        UseThinking = true,
+                        EffortLevel = levels[i],
+                        Budget = cfg.ThinkingBudget,
+                    });
+                }
+            }
+            else
+            {
+                int budgetMin = Mathf.Max(1, cap.ThinkingBudgetMin);
+                int budgetMax = cap.ThinkingBudgetMax > 0
+                    ? cap.ThinkingBudgetMax
+                    : ProviderRegistry.MaxThinkingBudget;
+
+                foreach (int budget in ThinkingBudgetLadder)
+                {
+                    if (budget < budgetMin || budget >= budgetMax) continue;
+                    choices.Add(new ThinkingChoice
+                    {
+                        Label = $"{FormatTokenCount(budget)} tokens",
+                        UseThinking = true,
+                        EffortLevel = cfg.EffortLevel,
+                        Budget = budget,
+                    });
+                }
+
+                choices.Add(new ThinkingChoice
+                {
+                    Label = $"{FormatTokenCount(budgetMax)} tokens",
+                    UseThinking = true,
+                    EffortLevel = cfg.EffortLevel,
+                    Budget = budgetMax,
+                });
+            }
+
+            return choices;
+        }
+
+        /// <summary>いまの設定がメニューのどの行にあたるか。</summary>
+        private int CurrentThinkingChoiceIndex(List<ThinkingChoice> choices)
+        {
+            var cfg = _configs[_providerType];
+            if (!cfg.UseThinking || choices.Count <= 1) return 0;
+
+            if (GetThinkingCapability().ThinkingApi == ThinkingApi.Adaptive)
+            {
+                int level = ProviderRegistry.ClampEffort(
+                    ProviderRegistry.EffortMaskFor(_providerType, ResolveThinkingModelName()),
+                    cfg.EffortLevel);
+                for (int i = 1; i < choices.Count; i++)
+                    if (choices[i].EffortLevel == level) return i;
+                return 0;
+            }
+
+            // バジェットは連続値で、はしごの上には無い値も保存されうる。
+            // 設定値を超えない一番大きい行を「いまの行」とみなす。
+            int current = 1;
+            for (int i = 1; i < choices.Count; i++)
+                if (choices[i].Budget <= cfg.ThinkingBudget) current = i;
+            return current;
+        }
+
+        private void ShowThinkingQuickMenu()
+        {
+            var choices = BuildThinkingChoices();
+            if (choices.Count == 0) return;
+
+            var labels = new string[choices.Count];
+            for (int i = 0; i < choices.Count; i++) labels[i] = choices[i].Label;
+
+            _quickMenuOverlay.ShowThinkingMenu(labels, CurrentThinkingChoiceIndex(choices),
+                _inputBar?.worldBound ?? Rect.zero);
+        }
+
+        /// <summary>
+        /// メニューで選ばれた行を設定に反映する。SaveSettings() が保存と InitializeAgent() を
+        /// まとめて行う。プロバイダーは生成時に思考の設定を受け取る作りなので、作り直しが要る。
+        /// </summary>
+        private void ApplyThinkingChoice(int index)
+        {
+            var choices = BuildThinkingChoices();
+            if (index < 0 || index >= choices.Count) return;
+
+            var choice = choices[index];
+            var cfg = _configs[_providerType];
+            cfg.UseThinking = choice.UseThinking;
+            cfg.EffortLevel = choice.EffortLevel;
+            cfg.ThinkingBudget = choice.Budget;
+
+            SaveSettings();
+            UpdateProviderModelChips();
+        }
+
+        // ═══════════════════════════════════════════════════════
         //  Settings Load/Save + InitializeAgent
         // ═══════════════════════════════════════════════════════
 
         private void LoadSettings()
         {
             _providerType = (LLMProviderType)SettingsStore.GetInt("UnityAgent_ProviderType", 0);
+            // 思考モードの設定もプロバイダーごとの値なので LoadAllConfigs が読む (移行もそちら)。
             _configs = ProviderRegistry.LoadAllConfigs();
-            _useThinking = SettingsStore.GetBool("UnityAgent_UseThinking", false);
-            _thinkingBudget = Mathf.Clamp(SettingsStore.GetInt("UnityAgent_ThinkingBudget", 8192), 0, 128000);
-            _effortLevel = Mathf.Clamp(
-                SettingsStore.GetInt("UnityAgent_EffortLevel", ProviderRegistry.DefaultEffortLevel),
-                0, ProviderRegistry.EffortLevelLabels.Length - 1);
             _imageModelName = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-3.1-flash-image");
             _useCustomImageModel = _providerType == LLMProviderType.Gemini
                                    && Array.IndexOf(ProviderRegistry.GeminiImageModelPresets, _imageModelName) < 0;
@@ -877,9 +1068,6 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             SettingsStore.SetInt("UnityAgent_ProviderType", (int)_providerType);
             ProviderRegistry.SaveAllConfigs(_configs, _providerType);
-            SettingsStore.SetBool("UnityAgent_UseThinking", _useThinking);
-            SettingsStore.SetInt("UnityAgent_ThinkingBudget", _thinkingBudget);
-            SettingsStore.SetInt("UnityAgent_EffortLevel", _effortLevel);
             SettingsStore.SetString("UnityAgent_ImageModelName", _imageModelName);
             SettingsStore.SetString("UnityAgent_MeshyApiKey", _meshyApiKey);
             InitializeAgent();
@@ -911,7 +1099,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void InitializeAgent()
         {
             var cfg = _configs[_providerType];
-            var provider = ProviderRegistry.CreateProvider(_providerType, cfg, _useThinking, _thinkingBudget, _effortLevel);
+            var provider = ProviderRegistry.CreateProvider(_providerType, cfg);
             _agent = new UnityAgentCore(provider);
             _agent.MaxContextTokens = ResolveCurrentMaxContextTokens();
             AgentLogger.Info(LogTag.UI, $"Agent initialized: provider={_providerType}, model={cfg.ModelName}, maxContext={_agent.MaxContextTokens}");

@@ -31,7 +31,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         private const int TimeoutSeconds = 300;
 
         /// <summary>
-        /// -c model_reasoning_effort に渡す値。添字は設定 (UnityAgent_EffortLevel) と共通で、
+        /// -c model_reasoning_effort に渡す値。添字は設定 (ProviderConfig.EffortLevel) と共通で、
         /// ProviderRegistry.EffortLevelLabels と対応する。
         ///
         /// ultra は入れない。Codex 側では Ultra を選んだときだけマルチエージェント用の別の設定と

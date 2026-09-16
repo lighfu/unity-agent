@@ -20,6 +20,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         MD3IconButton _attachBtn;
         MD3Chip _providerChip;
         MD3Chip _modelChip;
+        MD3Chip _thinkingChip;
         VisualElement _attachPreview;
         Image _attachImage;
         VisualElement _shareWarning;
@@ -30,6 +31,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         public Action OnAttachClicked;
         public Action OnProviderChipClicked;
         public Action OnModelChipClicked;
+        public Action OnThinkingChipClicked;
         public Action OnSaveLogClicked;
         public Action OnShareWarningClicked;
         public Func<string> GetUserQuery;
@@ -91,7 +93,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
             Add(_shareWarning);
 
-            // ── Chip row (プロバイダー + モデル) ──
+            // ── Chip row (プロバイダー + モデル + 思考の深さ) ──
             var chipRow = new MD3Row(gap: 6f);
             chipRow.style.marginBottom = 6;
 
@@ -102,6 +104,12 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             _modelChip = new MD3Chip("Model", false);
             _modelChip.clicked += () => OnModelChipClicked?.Invoke();
             chipRow.Add(_modelChip);
+
+            // 思考の深さ。表示する名前も選択肢もモデルの指定方法で変わるので、
+            // 文字列は呼び出し側 (UnityAgentWindow) が組み立てて渡す。
+            _thinkingChip = new MD3Chip("Thinking", false);
+            _thinkingChip.clicked += () => OnThinkingChipClicked?.Invoke();
+            chipRow.Add(_thinkingChip);
 
             chipRow.Add(new MD3Spacer());
 
@@ -236,6 +244,23 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             {
                 _modelChip.style.display = DisplayStyle.Flex;
                 _modelChip.Text = name;
+            }
+        }
+
+        /// <summary>
+        /// 思考の深さの Chip を更新する。null / 空文字なら Chip ごと隠す
+        /// (思考の指定を受け付けないモデルでは押せる意味が無いため)。
+        /// </summary>
+        public void UpdateThinkingName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                _thinkingChip.style.display = DisplayStyle.None;
+            }
+            else
+            {
+                _thinkingChip.style.display = DisplayStyle.Flex;
+                _thinkingChip.Text = name;
             }
         }
 

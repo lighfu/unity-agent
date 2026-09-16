@@ -29,10 +29,9 @@ namespace AjisaiFlow.UnityAgent.Editor
         // ═══════════════════════════════════════════════════════
 
         private LLMProviderType _providerType;
+        // 思考モードの 3 設定 (オン/オフ・バジェット・強さ) は _configs の中にある。
+        // プロバイダーごとの値なので、ウィンドウの側にコピーを持つと切り替えたときにズレる。
         private Dictionary<LLMProviderType, ProviderConfig> _configs;
-        private bool _useThinking;
-        private int _thinkingBudget = 8192;
-        private int _effortLevel = ProviderRegistry.DefaultEffortLevel;
         private int _imageProviderType; // 0=Gemini, 1=OpenAI, 2=ComfyUI
         private string _imageModelName = "gemini-3.1-flash-image";
         private bool _useCustomImageModel;
@@ -436,18 +435,6 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private enum ThinkingUIMode { Budget, Effort, None }
 
-        /// <summary>
-        /// 推論の強さの選択肢はプロバイダーごとに数が違う (xhigh は Codex CLI だけ)。
-        /// 表示する分だけ ProviderRegistry.EffortLevelLabels から切り出す。
-        /// </summary>
-        private static string[] EffortLabelsFor(LLMProviderType type)
-        {
-            int count = ProviderRegistry.MaxEffortLevel(type) + 1;
-            var labels = new string[count];
-            Array.Copy(ProviderRegistry.EffortLevelLabels, labels, count);
-            return labels;
-        }
-
         private static string FormatTokenCount(int tokens)
         {
             if (tokens >= 1000000)
@@ -483,12 +470,18 @@ namespace AjisaiFlow.UnityAgent.Editor
             switch (cap.ThinkingApi)
             {
                 case ThinkingApi.ExtendedBudget:
-                    hint = $"{cap.DisplayName}: {M("思考モード対応")} ({FormatTokenCount(cap.ThinkingBudgetMin)}–{FormatTokenCount(cap.ThinkingBudgetMax)})";
+                    hint = $"{cap.DisplayName}: {M("思考バジェットで指定")} ({FormatTokenCount(cap.ThinkingBudgetMin)}–{FormatTokenCount(cap.ThinkingBudgetMax)})";
                     return ThinkingUIMode.Budget;
 
                 case ThinkingApi.Adaptive:
-                    hint = $"{cap.DisplayName}: {M("思考モード対応")} (effort)";
+                {
+                    // 受け付ける強さはモデルで違う。段階を全部並べる (Claude 4.6 世代のように
+                    // 途中が抜けるモデルがあるので、上限だけを出すと実態と食い違う)。
+                    var (_, effortLabels) = ProviderRegistry.EffortChoicesFor(
+                        _providerType, _configs[_providerType].ModelName);
+                    hint = $"{cap.DisplayName}: {M("推論の強さで指定")} ({string.Join(" / ", effortLabels)})";
                     return ThinkingUIMode.Effort;
+                }
             }
 
             if (desc.ThinkingMode != ThinkingMode.None)
@@ -561,6 +554,8 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private void BuildThinkingModeSection(VisualElement parent)
         {
+            // 思考モードの設定はプロバイダーごとの値。cfg を直に読み書きする。
+            var cfg = _configs[_providerType];
             var uiMode = GetThinkingUIMode(out string thinkingHint);
             bool supported = uiMode != ThinkingUIMode.None;
 
@@ -579,34 +574,42 @@ namespace AjisaiFlow.UnityAgent.Editor
             // Thinking toggle
             if (supported)
             {
-                AddSwitchRow(parent, _useThinking,
+                AddSwitchRow(parent, cfg.UseThinking,
                     enabled => enabled ? M("有効") : M("無効"),
-                    newVal => { _useThinking = newVal; SaveSettings(); RebuildContentArea(); return newVal; });
+                    newVal => { cfg.UseThinking = newVal; SaveSettings(); RebuildContentArea(); return newVal; });
 
-                if (_useThinking)
+                if (cfg.UseThinking)
                 {
                     if (uiMode == ThinkingUIMode.Effort)
                     {
-                        // Effort selector
+                        // 推論の強さ
                         var effortRow = new MD3Row(8);
                         effortRow.style.marginLeft = 12;
                         effortRow.style.marginRight = 12;
                         effortRow.style.marginTop = 8;
 
-                        var effortLabel = new MD3Text(M("Effort レベル"), MD3TextStyle.Body);
+                        var effortLabel = new MD3Text(M("推論の強さ"), MD3TextStyle.Body);
                         effortRow.Add(effortLabel);
 
-                        // 保存値は丸めない。Codex CLI で xhigh を選んだあとに他のプロバイダーの設定を
-                        // 開いただけで high に書き換わらないようにするため、表示だけそのプロバイダーの
-                        // 上限に寄せる (実際に送る値も CreateProvider 側で同じように丸められる)。
-                        var effortLabels = EffortLabelsFor(_providerType);
-                        var effortSeg = new MD3SegmentedButton(
-                            effortLabels, Mathf.Clamp(_effortLevel, 0, effortLabels.Length - 1));
+                        // 並べるのはそのモデルが受け付ける段階だけ。Claude 4.6 世代のように途中が
+                        // 抜けるモデルがあるので、ボタンの並び順と強さの添字 (levels) は別物になる。
+                        // 保存値は丸めない。別のモデルを一度選んだだけで書き換わらないようにするためで、
+                        // 実際に送る値は CreateProvider 側が同じ集合で丸める。
+                        var (effortLevels, effortLabels) =
+                            ProviderRegistry.EffortChoicesFor(_providerType, cfg.ModelName);
+                        int effortIndex = Array.IndexOf(effortLevels,
+                            ProviderRegistry.ClampEffort(
+                                ProviderRegistry.EffortMaskFor(_providerType, cfg.ModelName),
+                                cfg.EffortLevel));
+                        if (effortIndex < 0) effortIndex = 0;
+
+                        var effortSeg = new MD3SegmentedButton(effortLabels, effortIndex);
                         effortSeg.style.maxWidth = effortLabels.Length >= 5 ? 400
                             : effortLabels.Length >= 4 ? 320 : 240;
                         effortSeg.changed += idx =>
                         {
-                            _effortLevel = idx;
+                            if (idx < 0 || idx >= effortLevels.Length) return;
+                            cfg.EffortLevel = effortLevels[idx];
                             SaveSettings();
                         };
                         effortRow.Add(effortSeg);
@@ -616,28 +619,29 @@ namespace AjisaiFlow.UnityAgent.Editor
                     {
                         var budgetCap = GetActiveModelCapability();
                         int budgetMin = Mathf.Max(1, budgetCap.ThinkingBudgetMin);
-                        int budgetMax = budgetCap.ThinkingBudgetMax > 0 ? budgetCap.ThinkingBudgetMax : 128000;
-                        _thinkingBudget = Mathf.Clamp(_thinkingBudget, budgetMin, budgetMax);
+                        int budgetMax = budgetCap.ThinkingBudgetMax > 0
+                            ? budgetCap.ThinkingBudgetMax : ProviderRegistry.MaxThinkingBudget;
+                        cfg.ThinkingBudget = Mathf.Clamp(cfg.ThinkingBudget, budgetMin, budgetMax);
 
                         var budgetLabel = new MD3Text(
-                            $"{M("思考バジェット")}: {FormatTokenCount(_thinkingBudget)} / {FormatTokenCount(budgetMax)} tokens",
+                            $"{M("思考バジェット")}: {FormatTokenCount(cfg.ThinkingBudget)} / {FormatTokenCount(budgetMax)} tokens",
                             MD3TextStyle.LabelLarge, color: _theme.Primary);
                         budgetLabel.style.marginLeft = 12;
                         budgetLabel.style.marginRight = 12;
                         parent.Add(budgetLabel);
 
-                        var budgetSlider = new MD3Slider(_thinkingBudget, budgetMin, budgetMax, 1024);
+                        var budgetSlider = new MD3Slider(cfg.ThinkingBudget, budgetMin, budgetMax, 1024);
                         budgetSlider.style.marginLeft = 12;
                         budgetSlider.style.marginRight = 12;
                         budgetSlider.changed += v =>
                         {
                             int newBudget = Mathf.RoundToInt(v / 1024f) * 1024;
                             newBudget = Mathf.Clamp(newBudget, budgetMin, budgetMax);
-                            if (newBudget != _thinkingBudget)
+                            if (newBudget != cfg.ThinkingBudget)
                             {
-                                _thinkingBudget = newBudget;
+                                cfg.ThinkingBudget = newBudget;
                                 SaveSettings();
-                                budgetLabel.Text = $"{M("思考バジェット")}: {FormatTokenCount(_thinkingBudget)} / {FormatTokenCount(budgetMax)} tokens";
+                                budgetLabel.Text = $"{M("思考バジェット")}: {FormatTokenCount(cfg.ThinkingBudget)} / {FormatTokenCount(budgetMax)} tokens";
                             }
                         };
                         parent.Add(budgetSlider);
@@ -647,7 +651,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             else
             {
                 // Disabled switch
-                var sw = new MD3Switch(_useThinking);
+                var sw = new MD3Switch(cfg.UseThinking);
                 sw.SetEnabled(false);
                 sw.style.marginLeft = 12;
                 parent.Add(sw);
@@ -1481,6 +1485,9 @@ namespace AjisaiFlow.UnityAgent.Editor
                     {
                         cfg.ModelName = presets[i];
                         SaveSettings();
+                        // 思考の指定方法も選べる強さもモデルで変わるので、思考モードの節を作り直す。
+                        // これが無いと、モデルを変えても前のモデル向けの UI が残る。
+                        RebuildContentArea();
                     }
                 };
                 parent.Add(modelDropdown);
@@ -2931,12 +2938,8 @@ namespace AjisaiFlow.UnityAgent.Editor
         private void LoadSettings()
         {
             _providerType = (LLMProviderType)SettingsStore.GetInt("UnityAgent_ProviderType", 0);
+            // 思考モードの設定もプロバイダーごとの値なので LoadAllConfigs が読む (移行もそちら)。
             _configs = ProviderRegistry.LoadAllConfigs();
-            _useThinking = SettingsStore.GetBool("UnityAgent_UseThinking", false);
-            _thinkingBudget = SettingsStore.GetInt("UnityAgent_ThinkingBudget", 8192);
-            _effortLevel = Mathf.Clamp(
-                SettingsStore.GetInt("UnityAgent_EffortLevel", ProviderRegistry.DefaultEffortLevel),
-                0, ProviderRegistry.EffortLevelLabels.Length - 1);
             _imageProviderType = SettingsStore.GetInt("UnityAgent_ImageProviderType", 0);
             _imageModelName = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-3.1-flash-image");
             _useCustomImageModel = Array.IndexOf(ProviderRegistry.GeminiImageModelPresets, _imageModelName) < 0;
@@ -3000,9 +3003,6 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             SettingsStore.SetInt("UnityAgent_ProviderType", (int)_providerType);
             ProviderRegistry.SaveAllConfigs(_configs, _providerType);
-            SettingsStore.SetBool("UnityAgent_UseThinking", _useThinking);
-            SettingsStore.SetInt("UnityAgent_ThinkingBudget", _thinkingBudget);
-            SettingsStore.SetInt("UnityAgent_EffortLevel", _effortLevel);
             SettingsStore.SetInt("UnityAgent_ImageProviderType", _imageProviderType);
             SettingsStore.SetString("UnityAgent_ImageModelName", _imageModelName);
             SettingsStore.SetString("UnityAgent_ImageAspectRatio", _imageAspectRatio);

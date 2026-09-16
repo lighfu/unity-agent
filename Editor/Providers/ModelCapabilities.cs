@@ -42,6 +42,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public bool SupportsThinking => ThinkingApi != ThinkingApi.None;
         public int ThinkingBudgetMin;
         public int ThinkingBudgetMax;
+        /// <summary>
+        /// そのモデルが受け付ける推論の強さ。ProviderRegistry.EffortLevelLabels の添字をビットにした集合で、
+        /// 0 = 分からない（プロバイダー単位の上限に退避する）。
+        ///
+        /// 上限ではなく集合として持つのは、Claude 4.6 世代が xhigh を飛ばして max を受け付けるため。
+        /// 「どこまで上げられるか」の 1 つの数では、この飛びを表せない。
+        /// </summary>
+        public int EffortLevelMask;
         public bool SupportsImageInput;
         public bool SupportsSearch;
         public bool SupportsStreaming;
@@ -57,13 +65,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// 思考の指定方法。省略するとバジェットの上限の有無から導出する。
         /// Claude のように同じ世代でも受け口が分かれるモデルは必ず明示すること。
         /// </param>
+        /// <param name="effortLevelMask">
+        /// そのモデルが受け付ける推論の強さの集合 (ProviderRegistry.EffortLow などの OR)。
+        /// 省略すると「分からない」扱いになり、プロバイダー単位の上限が使われる。
+        /// </param>
         public ModelCapability(string modelId, string displayName,
             int inputTokenLimit, int outputTokenLimit,
             bool supportsThinking, int thinkingBudgetMin, int thinkingBudgetMax,
             bool supportsImageInput, bool supportsSearch = false,
             bool supportsStreaming = true, bool isDeprecated = false,
             LLMProviderType[] dropdowns = null, bool freeTierUnavailable = false,
-            ThinkingApi? thinkingApi = null)
+            ThinkingApi? thinkingApi = null, int effortLevelMask = 0)
         {
             ModelId = modelId;
             DisplayName = displayName;
@@ -72,6 +84,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             ThinkingApi = thinkingApi ?? DeriveThinkingApi(supportsThinking, thinkingBudgetMax);
             ThinkingBudgetMin = thinkingBudgetMin;
             ThinkingBudgetMax = thinkingBudgetMax;
+            EffortLevelMask = effortLevelMask;
             SupportsImageInput = supportsImageInput;
             SupportsSearch = supportsSearch;
             SupportsStreaming = supportsStreaming;
@@ -709,15 +722,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             //
             // ExtendedBudget のモデルのバジェット上限を最大出力より小さくしているのは、
             // budget_tokens < max_tokens が API の要件で、max_tokens には最大出力を送るため。
+            //
+            // effort: は、そのモデルが受け付ける強さ。Claude の effort は low / medium / high /
+            // xhigh / max の 5 段階 (既定 high) だが、全部を受け付けるのは 4.7 以降と 5 系だけで、
+            // 4.6 世代は xhigh だけを飛ばす。ExtendedBudget のモデル (Haiku 4.5 / 4.5 世代) には
+            // そもそも強さを送らないので指定しない。
             Reg(d, "claude-opus-5", "Claude Opus 5",
-                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive);
+                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAll);
             Reg(d, "claude-sonnet-5", "Claude Sonnet 5",
-                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive);
+                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAll);
             // Fable 5.1 は思考が常時オンで、強さ (effort) だけで深さが変わる。入出力とも現行で最も高価な
             // ので一覧の先頭には置かない。カスタムモデルのスイッチを切ると一覧の先頭に戻る作りなので、
             // 先頭に置くと最上位のモデルが黙って既定になってしまう。
             Reg(d, "claude-fable-5-1", "Claude Fable 5.1",
-                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive);
+                1000000, 128000, true, 0, 0, true, dropdowns: claude, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAll);
             // Haiku 4.5 だけは現行で唯一の ExtendedBudget。強さ (effort) は受け付けない。
             Reg(d, "claude-haiku-4-5-20251001", "Claude Haiku 4.5",
                 200000, 64000, true, 1024, 63000, true, dropdowns: claude, api: ThinkingApi.ExtendedBudget);
@@ -728,19 +749,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
             // ── Claude (レガシー) ── 現行の一覧からは外れたが API はまだ受け付ける
             Reg(d, "claude-fable-5", "Claude Fable 5",
-                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAll);
             Reg(d, "claude-opus-4-8", "Claude Opus 4.8",
-                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAll);
             Reg(d, "claude-opus-4-7", "Claude Opus 4.7",
-                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAll);
             // 4.6 の 2 つは budget_tokens もまだ通るが公式に非推奨なので adaptive に寄せる。
-            // なお 4.6 は xhigh を持たない (max はある)。強さの上限はプロバイダー単位でしか持って
-            // いないので、この 2 つをカスタムモデル欄で使うときに xHigh を選ぶと弾かれる。
+            // 強さは xhigh だけを受け付けず、max は受け付ける。飛びがあるので上限の数では表せない。
             Reg(d, "claude-opus-4-6", "Claude Opus 4.6",
-                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive);
-            // agy も同じ ID で Claude Sonnet 4.6 を出すので、Antigravity CLI のドロップダウンには載せる
+                1000000, 128000, true, 0, 0, true, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAllButXHigh);
+            // agy も同じ ID で Claude Sonnet 4.6 を出すので、Antigravity CLI のドロップダウンには載せる。
+            // agy の --effort は low / medium / high しか受け取らないが、強さの集合はプロバイダー側の
+            // 集合との積を取るので (ProviderRegistry.EffortMaskFor)、ここは第一者 API の値でよい。
             Reg(d, "claude-sonnet-4-6", "Claude Sonnet 4.6",
-                1000000, 128000, true, 0, 0, true, dropdowns: agy, api: ThinkingApi.Adaptive);
+                1000000, 128000, true, 0, 0, true, dropdowns: agy, api: ThinkingApi.Adaptive,
+                effort: ProviderRegistry.EffortAllButXHigh);
             Reg(d, "claude-opus-4-5-20251101", "Claude Opus 4.5",
                 200000, 64000, true, 1024, 63000, true, api: ThinkingApi.ExtendedBudget);
             Reg(d, "claude-sonnet-4-5-20250929", "Claude Sonnet 4.5",
@@ -899,10 +926,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             int input, int output,
             bool thinking, int budgetMin, int budgetMax,
             bool imageInput, bool search = false, bool stream = true, bool deprecated = false,
-            LLMProviderType[] dropdowns = null, bool paidOnly = false, ThinkingApi? api = null)
+            LLMProviderType[] dropdowns = null, bool paidOnly = false, ThinkingApi? api = null,
+            int effort = 0)
         {
             list.Add(new ModelCapability(modelId, displayName,
-                input, output, thinking, budgetMin, budgetMax, imageInput, search, stream, deprecated, dropdowns, paidOnly, api));
+                input, output, thinking, budgetMin, budgetMax, imageInput, search, stream, deprecated, dropdowns, paidOnly, api, effort));
         }
 
         // ─── Simple JSON helpers (no external dependency) ───

@@ -6,7 +6,7 @@ using static AjisaiFlow.UnityAgent.Editor.L10n;
 
 namespace AjisaiFlow.UnityAgent.Editor.UI
 {
-    /// <summary>プロバイダー/モデル選択オーバーレイ。</summary>
+    /// <summary>プロバイダー/モデル/思考の深さの選択オーバーレイ。</summary>
     internal class QuickMenuOverlay : VisualElement
     {
         readonly MD3Theme _theme;
@@ -17,6 +17,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         public Action OnDismiss;
         public Action<int> OnProviderSelected;
         public Action<string> OnModelSelected;
+        public Action<int> OnThinkingSelected;
 
         public QuickMenuOverlay(MD3Theme theme)
         {
@@ -123,6 +124,34 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
                     _scrollView.Add(item);
                 }
+            }
+
+            PositionNear(anchorRect);
+            Show();
+        }
+
+        /// <summary>
+        /// 思考の深さの選択メニューを表示する。項目の中身 (強さの段階か、トークン数か) は
+        /// モデルの指定方法で変わるので、ラベルは呼び出し側が組み立てて渡し、選ばれた添字を返す。
+        /// </summary>
+        public void ShowThinkingMenu(string[] labels, int currentIndex, Rect anchorRect)
+        {
+            _scrollView.Clear();
+
+            for (int i = 0; i < labels.Length; i++)
+            {
+                int idx = i;
+                var item = new MD3MenuItem(labels[i]);
+                if (i == currentIndex)
+                    item.style.backgroundColor = _theme.SecondaryContainer;
+
+                item.clicked += () =>
+                {
+                    OnThinkingSelected?.Invoke(idx);
+                    Hide();
+                };
+
+                _scrollView.Add(item);
             }
 
             PositionNear(anchorRect);

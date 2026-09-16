@@ -123,6 +123,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         /// <summary>0 = 自動 (ModelCapability.InputTokenLimit を使用)</summary>
         public int MaxContextTokens;
+
+        // ─── 思考 (推論) の設定 ───
+        //
+        // 3 つともプロバイダー単位で持つ。従来は UnityAgent_UseThinking / _ThinkingBudget /
+        // _EffortLevel の 3 つを全プロバイダーで共有していたが、思考の指定方法 (バジェットか強さか)
+        // も受け付ける段階の数もプロバイダー・モデルで違うため、1 つの値を使い回すと切り替えるたびに
+        // 別のプロバイダー向けに決めた値が渡ることになる。MaxContextTokens と同じ持ち方に揃えた。
+
+        /// <summary>思考モードを使うか。</summary>
+        public bool UseThinking;
+        /// <summary>バジェットで指定するモデルに渡すトークン数。</summary>
+        public int ThinkingBudget = ProviderRegistry.DefaultThinkingBudget;
+        /// <summary>強さで指定するモデルに渡す強さ。ProviderRegistry.EffortLevelLabels の添字。</summary>
+        public int EffortLevel = ProviderRegistry.DefaultEffortLevel;
     }
 
     // ═══════════════════════════════════════════════════════
@@ -240,11 +254,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         // ─── 推論の強さ (effort) ───
         //
-        // 強さの設定 (UnityAgent_EffortLevel) は全プロバイダー共通の 1 つで、値はこの配列の添字。
-        // 渡し方だけがプロバイダーごとに違う (Codex CLI は -c model_reasoning_effort、
+        // 強さの設定 (ProviderConfig.EffortLevel) はプロバイダーごとに持ち、値はこの配列の添字。
+        // 渡し方もプロバイダーごとに違う (Codex CLI は -c model_reasoning_effort、
         // Claude CLI / agy は --effort、OpenAI 互換は reasoning_effort、Gemini は thinkingLevel)。
+        // 受け付ける段階はさらにモデルごとに違うので、実際に出してよい値は EffortMaskFor で決める。
 
-        /// <summary>設定 UI に並べる推論の強さ。添字が UnityAgent_EffortLevel の値。</summary>
+        /// <summary>設定 UI に並べる推論の強さ。添字が ProviderConfig.EffortLevel の値。</summary>
         public static readonly string[] EffortLevelLabels = { "Low", "Medium", "High", "xHigh", "Max" };
 
         /// <summary>
@@ -252,15 +267,38 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// </summary>
         public const int DefaultEffortLevel = 1;
 
+        /// <summary>未設定のときの思考バジェット。</summary>
+        public const int DefaultThinkingBudget = 8192;
+
         /// <summary>
-        /// そのプロバイダーが受け付ける最大の添字。
+        /// 思考バジェットとして保存を許す上限。モデルごとの上限はこれよりずっと小さいことが多く、
+        /// 実際に送る値は各プロバイダーがモデルの範囲に丸める。ここは設定値が壊れていないかの歯止め。
+        /// </summary>
+        public const int MaxThinkingBudget = 128000;
+
+        // 推論の強さの集合をビットで表したもの。ModelCapability.EffortLevelMask はこれらの OR。
+        public const int EffortLow    = 1 << 0;
+        public const int EffortMedium = 1 << 1;
+        public const int EffortHigh   = 1 << 2;
+        public const int EffortXHigh  = 1 << 3;
+        public const int EffortMax    = 1 << 4;
+
+        /// <summary>low / medium / high。どのプロバイダーでも通る 3 段階。</summary>
+        public const int EffortToHigh = EffortLow | EffortMedium | EffortHigh;
+        /// <summary>low / medium / high / xhigh。Codex CLI が受け付ける範囲。</summary>
+        public const int EffortToXHigh = EffortToHigh | EffortXHigh;
+        /// <summary>low / medium / high / xhigh / max。Claude の 4.7 以降と 5 系。</summary>
+        public const int EffortAll = EffortToXHigh | EffortMax;
+        /// <summary>low / medium / high / max。Claude 4.6 世代は xhigh だけを受け付けない。</summary>
+        public const int EffortAllButXHigh = EffortToHigh | EffortMax;
+
+        /// <summary>
+        /// そのプロバイダーが受け付ける最大の添字。モデルが分からないときの退避で、
+        /// 実際に出してよい強さは EffortMaskFor がモデルの集合と突き合わせて決める。
+        ///
         /// Claude API は low / medium / high / xhigh / max の 5 段階
         /// (platform.claude.com/docs/en/build-with-claude/effort)、Codex CLI は max を除く 4 段階、
         /// 残りは low / medium / high の 3 段階しかない。
-        ///
-        /// 上限はプロバイダー単位でしか持っていない。Claude では一覧に出している 4 モデルはどれも
-        /// 5 段階すべてを受け付けるが、カスタムモデル欄に 4.6 世代 (xhigh 非対応) を書いた場合は
-        /// xHigh が弾かれる。
         /// </summary>
         public static int MaxEffortLevel(LLMProviderType type)
         {
@@ -270,6 +308,67 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 case LLMProviderType.Codex_CLI:  return 3;
                 default:                         return 2;
             }
+        }
+
+        /// <summary>そのプロバイダーが受け付ける強さの集合。</summary>
+        static int ProviderEffortMask(LLMProviderType type)
+        {
+            int mask = 0;
+            int max = MaxEffortLevel(type);
+            for (int i = 0; i <= max; i++) mask |= 1 << i;
+            return mask;
+        }
+
+        /// <summary>
+        /// そのモデルに実際に出してよい強さの集合。モデル側の集合とプロバイダー側の集合の積を取る。
+        ///
+        /// 積にするのは、同じモデルでも経路が違えば受け付ける段階が違うため。
+        /// claude-sonnet-4-6 は Claude API なら max まで通るが、Antigravity CLI の --effort は
+        /// low / medium / high しか受け取らない。
+        /// モデルの集合が分からない (0) ときと、積が空になるときはプロバイダー側の集合に退避する。
+        /// </summary>
+        public static int EffortMaskFor(LLMProviderType type, string modelName)
+        {
+            int providerMask = ProviderEffortMask(type);
+            string id = string.IsNullOrEmpty(modelName) ? RepresentativeModel(type) : modelName;
+            var cap = ModelCapabilityRegistry.GetCapability(id, type);
+            if (cap.EffortLevelMask == 0) return providerMask;
+            int mask = cap.EffortLevelMask & providerMask;
+            return mask == 0 ? providerMask : mask;
+        }
+
+        /// <summary>
+        /// 要求された強さを、集合に含まれるものへ丸める。超えない範囲で最も強いものを選び、
+        /// それが無いときだけ上へ探す。集合外の値をそのまま渡すと、各プロバイダーは範囲外を
+        /// 「送らない」と解釈するため、強さを上げたつもりが思考オフ相当になる。
+        /// </summary>
+        public static int ClampEffort(int mask, int level)
+        {
+            if (level < 0) return -1;
+            if (mask == 0) return level;
+            int top = EffortLevelLabels.Length - 1;
+            if (level > top) level = top;
+            for (int i = level; i >= 0; i--) if ((mask & (1 << i)) != 0) return i;
+            for (int i = level + 1; i <= top; i++) if ((mask & (1 << i)) != 0) return i;
+            return -1;
+        }
+
+        /// <summary>
+        /// そのモデルで選べる強さを、添字とラベルの対で返す (UI の選択肢用)。
+        /// levels[i] と labels[i] は添字対応。
+        /// </summary>
+        public static (int[] levels, string[] labels) EffortChoicesFor(LLMProviderType type, string modelName)
+        {
+            int mask = EffortMaskFor(type, modelName);
+            var levels = new List<int>();
+            var labels = new List<string>();
+            for (int i = 0; i < EffortLevelLabels.Length; i++)
+            {
+                if ((mask & (1 << i)) == 0) continue;
+                levels.Add(i);
+                labels.Add(EffortLevelLabels[i]);
+            }
+            return (levels.ToArray(), labels.ToArray());
         }
 
         /// <summary>
@@ -625,6 +724,31 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         // ─── Config load/save ───
 
+        /// <summary>プロバイダー単位の設定キー。MaxContextTokens が最初に使った形をそのまま使う。</summary>
+        static string PerProviderKey(LLMProviderType type, string name) => $"UnityAgent_{type}_{name}";
+
+        // 移行: 思考の 3 設定は元々プロバイダー共通の 1 つずつ (UnityAgent_UseThinking /
+        // UnityAgent_ThinkingBudget / UnityAgent_EffortLevel) だった。プロバイダー単位のキーがまだ
+        // 無い間は、その共通キーの値を初期値として読む。こうすると設定を移した時点では従来と同じ値が
+        // 全プロバイダーに入り、挙動が変わらない。一度でも保存すればプロバイダー単位のキーが埋まり、
+        // 以後はそちらだけを見る。旧キーは消さない (古い版に戻したときに設定を失わないため)。
+
+        static int LoadPerProviderInt(LLMProviderType type, string name, string legacyKey, int fallback)
+        {
+            string key = PerProviderKey(type, name);
+            return SettingsStore.HasKey(key)
+                ? SettingsStore.GetInt(key, fallback)
+                : SettingsStore.GetInt(legacyKey, fallback);
+        }
+
+        static bool LoadPerProviderBool(LLMProviderType type, string name, string legacyKey, bool fallback)
+        {
+            string key = PerProviderKey(type, name);
+            return SettingsStore.HasKey(key)
+                ? SettingsStore.GetBool(key, fallback)
+                : SettingsStore.GetBool(legacyKey, fallback);
+        }
+
         public static Dictionary<LLMProviderType, ProviderConfig> LoadAllConfigs()
         {
             var configs = new Dictionary<LLMProviderType, ProviderConfig>();
@@ -688,7 +812,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     cfg.Port = SettingsStore.GetInt("UnityAgent_BrowserBridgePort", 6090);
 
                 // Per-provider max context tokens (0 = auto)
-                cfg.MaxContextTokens = SettingsStore.GetInt($"UnityAgent_{type}_MaxContextTokens", 0);
+                cfg.MaxContextTokens = SettingsStore.GetInt(PerProviderKey(type, "MaxContextTokens"), 0);
+
+                // Per-provider thinking settings (migrated from the shared keys)
+                cfg.UseThinking = LoadPerProviderBool(type, "UseThinking", "UnityAgent_UseThinking", false);
+                cfg.ThinkingBudget = Mathf.Clamp(
+                    LoadPerProviderInt(type, "ThinkingBudget", "UnityAgent_ThinkingBudget", DefaultThinkingBudget),
+                    0, MaxThinkingBudget);
+                cfg.EffortLevel = Mathf.Clamp(
+                    LoadPerProviderInt(type, "EffortLevel", "UnityAgent_EffortLevel", DefaultEffortLevel),
+                    0, EffortLevelLabels.Length - 1);
 
                 // UseCustomModel derived flag
                 if (desc.ModelPresets != null)
@@ -755,7 +888,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             if (type == LLMProviderType.Gemini_Web)
                 SettingsStore.SetInt("UnityAgent_BrowserBridgePort", cfg.Port);
 
-            SettingsStore.SetInt($"UnityAgent_{type}_MaxContextTokens", cfg.MaxContextTokens);
+            SettingsStore.SetInt(PerProviderKey(type, "MaxContextTokens"), cfg.MaxContextTokens);
+
+            SettingsStore.SetBool(PerProviderKey(type, "UseThinking"), cfg.UseThinking);
+            SettingsStore.SetInt(PerProviderKey(type, "ThinkingBudget"), cfg.ThinkingBudget);
+            SettingsStore.SetInt(PerProviderKey(type, "EffortLevel"), cfg.EffortLevel);
         }
 
         // ─── Provider factory ───
@@ -763,21 +900,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         /// <summary>
         /// そのプロバイダーに渡す推論の強さ。思考モードが無効なら -1 (送らない)。
         ///
-        /// 強さの設定は全プロバイダー共通なので、Codex CLI で xhigh を選んだまま別のプロバイダーに
-        /// 切り替えると、そのプロバイダーにとっては範囲外の値が渡る。各プロバイダーは範囲外を
-        /// 「送らない」と解釈するため、丸めずに渡すと強さを上げたつもりが思考オフ相当になる。
+        /// 設定に入っている強さが、いま選んでいるモデルでは受け付けられないことがある
+        /// (Claude 4.6 世代の xHigh など)。そのまま渡すと各プロバイダーは範囲外を「送らない」と
+        /// 解釈するため、強さを上げたつもりが思考オフ相当になる。必ず丸めてから渡す。
         /// </summary>
-        private static int EffortFor(LLMProviderType type, bool useThinking, int effortLevel)
+        private static int EffortFor(LLMProviderType type, ProviderConfig cfg)
         {
-            if (!useThinking || effortLevel < 0) return -1;
-            int max = MaxEffortLevel(type);
-            return effortLevel > max ? max : effortLevel;
+            if (!cfg.UseThinking || cfg.EffortLevel < 0) return -1;
+            return ClampEffort(EffortMaskFor(type, cfg.ModelName), cfg.EffortLevel);
         }
 
-        public static ILLMProvider CreateProvider(LLMProviderType type, ProviderConfig cfg,
-            bool useThinking, int thinkingBudget, int effortLevel)
+        public static ILLMProvider CreateProvider(LLMProviderType type, ProviderConfig cfg)
         {
-            AgentLogger.Info(LogTag.Provider, $"CreateProvider: type={type}, model={cfg.ModelName}, thinking={useThinking}, budget={thinkingBudget}, effort={effortLevel}");
+            AgentLogger.Info(LogTag.Provider, $"CreateProvider: type={type}, model={cfg.ModelName}, thinking={cfg.UseThinking}, budget={cfg.ThinkingBudget}, effort={cfg.EffortLevel}");
             var features = new GeminiFeatures
             {
                 GoogleSearch = cfg.GeminiGoogleSearch,
@@ -791,31 +926,31 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             {
                 case LLMProviderType.Gemini:
                     return new GeminiProvider(cfg.ApiKey, cfg.GeminiMode, cfg.ModelName,
-                        cfg.ApiVersion, useThinking ? thinkingBudget : 0,
+                        cfg.ApiVersion, cfg.UseThinking ? cfg.ThinkingBudget : 0,
                         cfg.CustomEndpoint, cfg.ProjectId, cfg.Location,
-                        LLMProviderType.Gemini, EffortFor(type, useThinking, effortLevel), features);
+                        LLMProviderType.Gemini, EffortFor(type, cfg), features);
 
                 case LLMProviderType.Vertex_AI:
                     return new GeminiProvider(cfg.ApiKey, GeminiConnectionMode.VertexAI_Express, cfg.ModelName,
-                        cfg.ApiVersion, useThinking ? thinkingBudget : 0,
+                        cfg.ApiVersion, cfg.UseThinking ? cfg.ThinkingBudget : 0,
                         cfg.CustomEndpoint, cfg.ProjectId, cfg.Location,
-                        LLMProviderType.Vertex_AI, EffortFor(type, useThinking, effortLevel), features);
+                        LLMProviderType.Vertex_AI, EffortFor(type, cfg), features);
 
                 case LLMProviderType.Claude_CLI:
                     return new ClaudeCliProvider(cfg.CliPath, cfg.ModelName,
-                        EffortFor(type, useThinking, effortLevel), useThinking ? thinkingBudget : 0);
+                        EffortFor(type, cfg), cfg.UseThinking ? cfg.ThinkingBudget : 0);
 
                 case LLMProviderType.Gemini_CLI:
                     return new GeminiCliProvider(cfg.CliPath, cfg.ModelName,
-                        useThinking ? thinkingBudget : -1);
+                        cfg.UseThinking ? cfg.ThinkingBudget : -1);
 
                 case LLMProviderType.Codex_CLI:
                     return new CodexCliProvider(cfg.CliPath, cfg.ModelName,
-                        EffortFor(type, useThinking, effortLevel));
+                        EffortFor(type, cfg));
 
                 case LLMProviderType.Antigravity_CLI:
                     return new AntigravityCliProvider(cfg.CliPath, cfg.ModelName,
-                        EffortFor(type, useThinking, effortLevel));
+                        EffortFor(type, cfg));
 
                 case LLMProviderType.Clipboard:
                     return new ClipboardProvider();
@@ -824,8 +959,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     return new MCPServerProvider();
 
                 case LLMProviderType.Claude_API:
-                    return new ClaudeApiProvider(cfg.ApiKey, cfg.ModelName, useThinking,
-                        thinkingBudget, EffortFor(type, useThinking, effortLevel));
+                    return new ClaudeApiProvider(cfg.ApiKey, cfg.ModelName, cfg.UseThinking,
+                        cfg.ThinkingBudget, EffortFor(type, cfg));
 
                 case LLMProviderType.Gemini_Web:
                     return new BrowserBridgeProvider(cfg.Port);
@@ -833,11 +968,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 // OpenAI-compatible providers
                 case LLMProviderType.OpenAI:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.openai.com/v1",
-                        cfg.ModelName, EffortFor(type, useThinking, effortLevel), LLMProviderType.OpenAI);
+                        cfg.ModelName, EffortFor(type, cfg), LLMProviderType.OpenAI);
 
                 case LLMProviderType.DeepSeek:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.deepseek.com/v1",
-                        cfg.ModelName, EffortFor(type, useThinking, effortLevel), LLMProviderType.DeepSeek);
+                        cfg.ModelName, EffortFor(type, cfg), LLMProviderType.DeepSeek);
 
                 case LLMProviderType.Groq:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.groq.com/openai/v1",
@@ -849,7 +984,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                 case LLMProviderType.xAI_Grok:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.x.ai/v1", cfg.ModelName,
-                        EffortFor(type, useThinking, effortLevel), LLMProviderType.xAI_Grok);
+                        EffortFor(type, cfg), LLMProviderType.xAI_Grok);
 
                 case LLMProviderType.Mistral:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.mistral.ai/v1", cfg.ModelName,
@@ -861,7 +996,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                 default: // OpenAI_Compatible
                     return new OpenAICompatibleProvider(cfg.ApiKey, cfg.BaseUrl, cfg.ModelName,
-                        EffortFor(type, useThinking, effortLevel), LLMProviderType.OpenAI_Compatible);
+                        EffortFor(type, cfg), LLMProviderType.OpenAI_Compatible);
             }
         }
 

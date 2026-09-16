@@ -346,11 +346,12 @@ namespace AjisaiFlow.UnityAgent.Editor
             }
 
             // ── Thinking / effort: TestRunner defaults to disabled for determinism. ──
-            const bool useThinking = false;
-            const int thinkingBudget = 0;
-            const int effortLevel = 0;
+            // cfg は LoadAllConfigs が作った、この呼び出しだけの入れ物。ここで倒しても保存はされない。
+            cfg.UseThinking = false;
+            cfg.ThinkingBudget = 0;
+            cfg.EffortLevel = 0;
 
-            var provider = ProviderRegistry.CreateProvider(providerType, cfg, useThinking, thinkingBudget, effortLevel);
+            var provider = ProviderRegistry.CreateProvider(providerType, cfg);
             AgentLogger.Info(LogTag.Core,
                 $"CreateProgrammaticInstance: provider={providerType}, model={cfg.ModelName}");
             return new UnityAgentCore(provider);
