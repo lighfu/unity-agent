@@ -9,6 +9,7 @@ using AjisaiFlow.MD3SDK.Editor;
 using AjisaiFlow.UnityAgent.Editor.Providers;
 using AjisaiFlow.UnityAgent.Editor.Providers.Gemini;
 using AjisaiFlow.UnityAgent.Editor.MCP;
+using AjisaiFlow.UnityAgent.Editor.UI;
 using static AjisaiFlow.UnityAgent.Editor.L10n;
 
 
@@ -2501,10 +2502,18 @@ namespace AjisaiFlow.UnityAgent.Editor
                         _updateVersionInfo = info;
                         var dialog = new MD3Dialog(
                             M("アップデート"),
-                            $"v{info.version}\n\n{info.changelog ?? ""}",
+                            $"v{info.version}",
                             confirmLabel: M("商品ページを開く"),
                             dismissLabel: M("閉じる"),
                             onConfirm: () => Application.OpenURL(UpdateChecker.ProductPageUrl));
+
+                        // 更新内容はスクロール領域に入れる。カードに高さの上限が無いので、
+                        // 本文にそのまま流すと長い文面でボタン行が画面外に出る。
+                        if (!string.IsNullOrEmpty(info.changelog))
+                            dialog.Content.Add(ChangelogView.Build(
+                                info.changelog,
+                                ChangelogView.MaxHeightFor(position.height, 260f),
+                                _theme.OnSurfaceVariant));
 
                         // Add "skip this version" button to content
                         var skipBtn = new MD3Button(M("このバージョンを無視"), MD3ButtonStyle.Outlined);

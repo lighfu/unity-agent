@@ -1,5 +1,6 @@
 using System;
 using AjisaiFlow.MD3SDK.Editor;
+using AjisaiFlow.UnityAgent.Editor.UI;
 using UnityEngine;
 using UnityEngine.UIElements;
 using static AjisaiFlow.UnityAgent.Editor.L10n;
@@ -118,11 +119,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             if (!string.IsNullOrEmpty(latest.changelog))
             {
                 card.Add(new MD3Divider());
-                var changelogLabel = new MD3Text(
-                    $"{M("更新内容")}:\n{latest.changelog}",
-                    MD3TextStyle.BodySmall, fgColor);
-                changelogLabel.style.whiteSpace = WhiteSpace.Normal;
-                card.Add(changelogLabel);
+                card.Add(new MD3Text($"{M("更新内容")}:", MD3TextStyle.BodySmall, fgColor));
+
+                // 文面をそのまま並べるとカードが上へ伸び続け、下の更新ボタンが
+                // ウィンドウの外に出て押せなくなる。スクロール領域で高さを抑える。
+                card.Add(ChangelogView.Build(
+                    latest.changelog,
+                    ChangelogView.MaxHeightFor(position.height, 300f),
+                    fgColor));
             }
 
             // Action button
@@ -191,12 +195,23 @@ namespace AjisaiFlow.UnityAgent.Editor
 
                 var dialog = new MD3Dialog(
                     string.Format(M("v{0} の更新内容"), currentVersion),
-                    info.changelog,
+                    "",
                     confirmLabel: M("閉じる"),
                     onConfirm: () =>
                     {
                         SettingsStore.SetString(PrefLastSeenVersion, currentVersion);
                     });
+
+                // MD3Dialog のカードは max-height を持たず、中央寄せで絶対配置される。
+                // 長い更新内容を本文に渡すとカードごと上下にはみ出し、一番下の
+                // 「閉じる」がウィンドウの外に出て押せなくなる。
+                dialog.Content.Add(ChangelogView.Build(
+                    info.changelog,
+                    ChangelogView.MaxHeightFor(position.height, 220f),
+                    _theme.OnSurface.a > 0.1f
+                        ? _theme.OnSurface
+                        : new Color(0.92f, 0.88f, 0.91f, 1f)));
+
                 rootVisualElement.Add(dialog);
             }
         }
