@@ -23,20 +23,25 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
         readonly string _customEndpoint;
         readonly string _projectId;
         readonly string _location;
+        readonly string _aspectRatio;
+        readonly string _imageSize;
 
         UnityWebRequest _activeRequest;
         bool _aborted;
 
         public GeminiImageProvider(string apiKey, GeminiConnectionMode mode,
             string imageModelName, string customEndpoint = "",
-            string projectId = "", string location = "us-central1")
+            string projectId = "", string location = "us-central1",
+            string aspectRatio = "", string imageSize = "")
         {
             _apiKey = apiKey;
             _mode = mode;
-            _imageModelName = string.IsNullOrEmpty(imageModelName) ? "gemini-2.5-flash-image" : imageModelName;
+            _imageModelName = string.IsNullOrEmpty(imageModelName) ? "gemini-3.1-flash-image" : imageModelName;
             _customEndpoint = customEndpoint;
             _projectId = projectId;
             _location = string.IsNullOrEmpty(location) ? "us-central1" : location;
+            _aspectRatio = (aspectRatio ?? "").Trim();
+            _imageSize = (imageSize ?? "").Trim();
         }
 
         public void Abort()
@@ -63,12 +68,22 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
         {
             _aborted = false;
 
+            // 解像度の食い違いは送る前に弾く。投げても 400 が返るだけで、
+            // 何が悪いのかはレスポンス本文からは読み取りにくいため。
+            string configError = ValidateImageConfig();
+            if (configError != null)
+            {
+                AgentLogger.Error(LogTag.Provider, $"[Gemini Image] {configError}");
+                onError?.Invoke(configError);
+                yield break;
+            }
+
             string url = BuildUrl();
             string base64Image = Convert.ToBase64String(inputImagePng);
             string requestJson = BuildRequestJson(systemPrompt, userPrompt, base64Image);
             byte[] bodyRaw = Encoding.UTF8.GetBytes(requestJson);
 
-            onDebugLog?.Invoke($"[IMAGE REQUEST] Provider: Gemini, Model: {_imageModelName}, URL: {url}, InputSize: {inputImagePng.Length}bytes, Timeout: 120s");
+            onDebugLog?.Invoke($"[IMAGE REQUEST] Provider: Gemini, Model: {_imageModelName}, URL: {url}, InputSize: {inputImagePng.Length}bytes, Timeout: 120s{DescribeImageConfig()}");
 
             int maxRetries = 5;
             int currentRetry = 0;
@@ -180,9 +195,36 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
             return $"https://generativelanguage.googleapis.com/{googleAIApiVersion}/models/{_imageModelName}:generateContent";
         }
 
+        // ─── imageConfig ───
+
+        /// <summary>
+        /// imageSize がモデルの対応外なら、その旨の文面を返す。問題なければ null。
+        /// 一覧に無いモデル名 (カスタムモデル) は判断材料が無いので検証しない。
+        /// </summary>
+        string ValidateImageConfig()
+        {
+            if (string.IsNullOrEmpty(_imageSize)) return null;
+
+            var supported = ProviderRegistry.GeminiImageSizesFor(_imageModelName);
+            if (supported == null) return null;
+            if (Array.IndexOf(supported, _imageSize) >= 0) return null;
+
+            return $"解像度 {_imageSize} はモデル '{_imageModelName}' では使えません。"
+                 + $"このモデルが受け付けるのは {string.Join(" / ", supported)} です。"
+                 + "設定画面の「画像生成プロバイダ」で解像度かモデルを変更してください。";
+        }
+
+        string DescribeImageConfig()
+        {
+            if (string.IsNullOrEmpty(_aspectRatio) && string.IsNullOrEmpty(_imageSize)) return "";
+            string ar = string.IsNullOrEmpty(_aspectRatio) ? "auto" : _aspectRatio;
+            string size = string.IsNullOrEmpty(_imageSize) ? "auto" : _imageSize;
+            return $", AspectRatio: {ar}, ImageSize: {size}";
+        }
+
         // ─── リクエスト JSON 構築 ───
 
-        static string BuildRequestJson(string systemPrompt, string userPrompt, string base64Image)
+        string BuildRequestJson(string systemPrompt, string userPrompt, string base64Image)
         {
             var sb = new StringBuilder();
             sb.Append("{");
@@ -206,6 +248,26 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers.Gemini
             sb.Append("\"generationConfig\":{");
             sb.Append("\"responseModalities\":[\"TEXT\",\"IMAGE\"],");
             sb.Append("\"temperature\":0.7");
+
+            // imageConfig は指定があるときだけ付ける。空の imageConfig を送ると、
+            // 対応していないモデル (2.5 系や Vertex の旧エンドポイント) が 400 を返すため。
+            if (!string.IsNullOrEmpty(_aspectRatio) || !string.IsNullOrEmpty(_imageSize))
+            {
+                sb.Append(",\"imageConfig\":{");
+                bool firstField = true;
+                if (!string.IsNullOrEmpty(_aspectRatio))
+                {
+                    sb.Append("\"aspectRatio\":").Append(EscapeJsonString(_aspectRatio));
+                    firstField = false;
+                }
+                if (!string.IsNullOrEmpty(_imageSize))
+                {
+                    if (!firstField) sb.Append(",");
+                    sb.Append("\"imageSize\":").Append(EscapeJsonString(_imageSize));
+                }
+                sb.Append("}");
+            }
+
             sb.Append("}");
 
             sb.Append("}");

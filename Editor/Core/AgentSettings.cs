@@ -298,12 +298,23 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         /// <summary>
         /// プロバイダーの実効コンテキスト上限を返す。
-        /// configValue > 0 ならその値、そうでなければ modelInputLimit、それも 0 なら DefaultMaxContextTokens。
+        /// modelInputLimit が分かっている (&gt; 0) ときは必ずその範囲に収める。
+        /// 分からない (0) ときは configValue、それも 0 なら DefaultMaxContextTokens。
+        ///
+        /// 保存値をそのまま返してはいけない。設定キー (UnityAgent_{type}_MaxContextTokens) は
+        /// プロバイダー単位でモデル単位ではないので、コンテキストの大きいモデルで上限いっぱいに
+        /// 設定したあと同じプロバイダー内で小さいモデルに切り替えると、過大な値が残る。
+        /// 設定画面のスライダーは操作した瞬間にしかクランプせず、しかもパネルを組み立てた時点の
+        /// 上限で丸めるため、保存値は当てにならない。
+        ///
+        /// 戻り値は UnityAgentCore のツールループの停止条件になる。大きすぎると自前で止まらず
+        /// API 側のエラーで初めて失敗し、小さすぎると早期に打ち切られる。
         /// </summary>
         public static int ResolveMaxContextTokens(int configValue, int modelInputLimit)
         {
+            if (modelInputLimit > 0)
+                return configValue > 0 ? Mathf.Min(configValue, modelInputLimit) : modelInputLimit;
             if (configValue > 0) return configValue;
-            if (modelInputLimit > 0) return modelInputLimit;
             return DefaultMaxContextTokens;
         }
 

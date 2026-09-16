@@ -27,10 +27,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         private readonly string _cliPath;
         private readonly string _modelName;
-        private readonly int _effortLevel; // -1=off, 0=low, 1=medium, 2=high
+        private readonly int _effortLevel; // -1=off, 0=low, 1=medium, 2=high, 3=xhigh
         private const int TimeoutSeconds = 300;
 
-        private static readonly string[] EffortNames = { "low", "medium", "high" };
+        /// <summary>
+        /// -c model_reasoning_effort に渡す値。添字は設定 (UnityAgent_EffortLevel) と共通で、
+        /// ProviderRegistry.EffortLevelLabels と対応する。
+        ///
+        /// ultra は入れない。Codex 側では Ultra を選んだときだけマルチエージェント用の別の設定と
+        /// 組で扱われるので、この値だけ渡しても意図どおりには動かない。
+        /// max も入れない。一部のモデルの説明にしか出てこず、Responses API 限定という記述もある。
+        /// </summary>
+        private static readonly string[] EffortNames = { "low", "medium", "high", "xhigh" };
+
+        /// <summary>
+        /// 推論フェーズを持たない設計で、model_reasoning_effort を受け付けないモデル。
+        /// 一覧 (ModelCapabilities) には出していないので、カスタムモデル欄に書かれた場合の備え。
+        /// </summary>
+        private static readonly string[] NoEffortModels = { "gpt-5.3-codex-spark" };
 
         public CodexCliProvider(string cliPath, string modelName, int effortLevel = -1)
         {
@@ -134,10 +148,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             args.Append(" -c ");
             args.Append(EscapeShellArg($"model_instructions_file={instructionsFile}"));
 
-            if (_effortLevel >= 0 && _effortLevel < EffortNames.Length)
+            // 送らないときは CLI 側の既定 (medium) に任せる。
+            string effort = ResolveEffort();
+            if (effort != null)
             {
                 args.Append(" -c ");
-                args.Append(EscapeShellArg($"model_reasoning_effort={EffortNames[_effortLevel]}"));
+                args.Append(EscapeShellArg($"model_reasoning_effort={effort}"));
             }
 
             args.Append(" -o ");
@@ -153,7 +169,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                 onStatus?.Invoke("Starting Codex CLI...");
                 onDebugLog?.Invoke($"[CLI LAUNCH] Provider: Codex CLI, CLI: {_cliPath}, Model: {(string.IsNullOrEmpty(_modelName) ? "(default)" : _modelName)}, Timeout: {TimeoutSeconds}s" +
-                    (_effortLevel >= 0 ? $", Effort: {EffortNames[_effortLevel]}" : "") +
+                    $", Effort: {effort ?? "(CLI 既定)"}" +
                     $"\nCommand: {startInfo.FileName} {startInfo.Arguments}");
 
                 process = System.Diagnostics.Process.Start(startInfo);
@@ -595,6 +611,29 @@ The Unity Editor host application reads your text output, detects the `<tool>...
             }
 
             return info;
+        }
+
+        /// <summary>
+        /// 送る推論の強さ。送らないときは null。
+        /// 強さ非対応のモデルでは、範囲内の値が選ばれていても送らない。
+        /// </summary>
+        private string ResolveEffort()
+        {
+            if (_effortLevel < 0 || _effortLevel >= EffortNames.Length) return null;
+            if (!ModelSupportsEffort(_modelName)) return null;
+            return EffortNames[_effortLevel];
+        }
+
+        /// <summary>
+        /// モデル名が強さを受け付けるか。空 (CLI の既定モデル) は分からないので受け付ける扱いにする。
+        /// </summary>
+        private static bool ModelSupportsEffort(string modelName)
+        {
+            if (string.IsNullOrEmpty(modelName)) return true;
+            string id = modelName.Trim();
+            foreach (var m in NoEffortModels)
+                if (string.Equals(id, m, StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
         }
 
         private static string EscapeShellArg(string arg)

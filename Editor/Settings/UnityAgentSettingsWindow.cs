@@ -32,10 +32,14 @@ namespace AjisaiFlow.UnityAgent.Editor
         private Dictionary<LLMProviderType, ProviderConfig> _configs;
         private bool _useThinking;
         private int _thinkingBudget = 8192;
-        private int _effortLevel = 2;
+        private int _effortLevel = ProviderRegistry.DefaultEffortLevel;
         private int _imageProviderType; // 0=Gemini, 1=OpenAI, 2=ComfyUI
-        private string _imageModelName = "gemini-2.5-flash-image";
+        private string _imageModelName = "gemini-3.1-flash-image";
         private bool _useCustomImageModel;
+        // imageConfig。空文字 = 指定しない (imageConfig 自体を送らない)
+        private string _imageAspectRatio = "";
+        private string _imageSize = "";
+        private MD3Text _imageIssueLabel;
         private string _imageApiKey = "";
         private int _imageConnectionMode; // 0=Google AI, 1=Vertex AI, 2=Custom
         private string _imageApiVersion = "v1beta";
@@ -283,6 +287,19 @@ namespace AjisaiFlow.UnityAgent.Editor
             var ctxSlider = new MD3Slider(maxCtx == 0 ? effectiveCtx : maxCtx, 0, inputLimit, 10000);
             ctxSlider.style.marginLeft = 12;
             ctxSlider.style.marginRight = 12;
+            parent.Add(ctxSlider);
+
+            // 保存値がいまのモデルの上限を超えていることがある (設定はプロバイダー単位で
+            // モデル単位ではないため)。実際に使う値は ResolveMaxContextTokens が上限に収めるので、
+            // 保存値だけを出していると、どこで打ち切られるのかが分からない。
+            var ctxNote = new MD3Text("", MD3TextStyle.BodySmall, color: _theme.Error);
+            ctxNote.style.marginLeft = 12;
+            ctxNote.style.marginRight = 12;
+            ctxNote.style.marginTop = 4;
+            ctxNote.style.whiteSpace = WhiteSpace.Normal;
+            parent.Add(ctxNote);
+            UpdateContextNote(ctxNote, maxCtx, cap.InputTokenLimit);
+
             ctxSlider.changed += v =>
             {
                 int newMaxCtx = Mathf.RoundToInt(v / 10000f) * 10000;
@@ -293,8 +310,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                     ? M("自動") + $" ({FormatTokenCount(AgentSettings.ResolveMaxContextTokens(newMaxCtx, cap.InputTokenLimit))})"
                     : FormatTokenCount(newMaxCtx);
                 ctxLabel.Text = $"{newValStr} / {limitStr} tokens";
+                UpdateContextNote(ctxNote, newMaxCtx, cap.InputTokenLimit);
             };
-            parent.Add(ctxSlider);
 
             AddDivider(parent);
 
@@ -418,7 +435,18 @@ namespace AjisaiFlow.UnityAgent.Editor
         // ═══════════════════════════════════════════════════════
 
         private enum ThinkingUIMode { Budget, Effort, None }
-        private static readonly string[] EffortLabels = { "Low", "Medium", "High" };
+
+        /// <summary>
+        /// 推論の強さの選択肢はプロバイダーごとに数が違う (xhigh は Codex CLI だけ)。
+        /// 表示する分だけ ProviderRegistry.EffortLevelLabels から切り出す。
+        /// </summary>
+        private static string[] EffortLabelsFor(LLMProviderType type)
+        {
+            int count = ProviderRegistry.MaxEffortLevel(type) + 1;
+            var labels = new string[count];
+            Array.Copy(ProviderRegistry.EffortLevelLabels, labels, count);
+            return labels;
+        }
 
         private static string FormatTokenCount(int tokens)
         {
@@ -445,7 +473,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                 case LLMProviderType.Claude_API:  return "claude-sonnet-4-6";
                 case LLMProviderType.Claude_CLI:  return "claude-sonnet-4-6";
                 case LLMProviderType.Gemini_CLI:  return "gemini-2.5-flash";
-                case LLMProviderType.Codex_CLI:   return "gpt-4.1";
+                // Codex CLI の既定モデルは CLI 側が選ぶので分からない。思考モードの UI と履歴の
+                // 詰め方を決めるために現行モデルのうち控えめなものを当てる。gpt-4.1 を当てていた頃は
+                // 思考モード非対応と判定され、「(CLIデフォルト)」のままでは Effort を選べなかった。
+                case LLMProviderType.Codex_CLI:   return "gpt-5.3-codex";
                 // Gemini / Vertex_AI は descriptor.DefaultModel (gemini-3.5-flash) が正しいため
                 // default 節にフォールバックさせる（旧 gemini-2.0-flash は deprecated）。
                 default:
@@ -578,8 +609,13 @@ namespace AjisaiFlow.UnityAgent.Editor
                         var effortLabel = new MD3Text(M("Effort レベル"), MD3TextStyle.Body);
                         effortRow.Add(effortLabel);
 
-                        var effortSeg = new MD3SegmentedButton(EffortLabels, _effortLevel);
-                        effortSeg.style.maxWidth = 240;
+                        // 保存値は丸めない。Codex CLI で xhigh を選んだあとに他のプロバイダーの設定を
+                        // 開いただけで high に書き換わらないようにするため、表示だけそのプロバイダーの
+                        // 上限に寄せる (実際に送る値も CreateProvider 側で同じように丸められる)。
+                        var effortLabels = EffortLabelsFor(_providerType);
+                        var effortSeg = new MD3SegmentedButton(
+                            effortLabels, Mathf.Clamp(_effortLevel, 0, effortLabels.Length - 1));
+                        effortSeg.style.maxWidth = effortLabels.Length >= 4 ? 320 : 240;
                         effortSeg.changed += idx =>
                         {
                             _effortLevel = idx;
@@ -648,6 +684,9 @@ namespace AjisaiFlow.UnityAgent.Editor
             };
             parent.Add(imgProvDropdown);
 
+            // 前回の構築で作ったラベルは既に切り離されている。Gemini 以外では作らない
+            _imageIssueLabel = null;
+
             if (_imageProviderType == 0) // Gemini
                 BuildGeminiImageSubsection(parent);
             else if (_imageProviderType == 1) // OpenAI
@@ -713,6 +752,49 @@ namespace AjisaiFlow.UnityAgent.Editor
             // Image model — custom toggle + dropdown/textfield
             BuildImageModelSelector(parent, M("画像モデル"), ref _imageModelName, ref _useCustomImageModel,
                 ProviderRegistry.GeminiImageModelPresets);
+
+            // imageConfig。先頭の選択肢 (空文字) のときは imageConfig 自体を送らない
+            AddImageConfigDropdown(parent, M("出力の比率"), ProviderRegistry.GeminiImageAspectRatios,
+                _imageAspectRatio, v => _imageAspectRatio = v);
+            AddImageConfigDropdown(parent, M("出力の解像度"), ProviderRegistry.GeminiImageSizes,
+                _imageSize, v => _imageSize = v);
+
+            // モデルと解像度の食い違い、提供を終えたモデルをここで伝える。
+            // 生成を頼んだ時点で GeminiImageProvider も同じ判定で弾くが、
+            // 設定画面に出さないとテクスチャ生成を実行して初めて気付くことになる。
+            _imageIssueLabel = new MD3Text("", MD3TextStyle.BodySmall, color: _theme.Error);
+            _imageIssueLabel.style.marginLeft = 12;
+            _imageIssueLabel.style.marginRight = 12;
+            _imageIssueLabel.style.marginTop = 4;
+            _imageIssueLabel.style.whiteSpace = WhiteSpace.Normal;
+            parent.Add(_imageIssueLabel);
+            UpdateImageIssue();
+        }
+
+        /// <summary>
+        /// imageConfig 用のドロップダウン。values の先頭は空文字 (指定しない) であること。
+        /// </summary>
+        private void AddImageConfigDropdown(VisualElement parent, string label, string[] values,
+            string current, Action<string> assign)
+        {
+            var labels = new string[values.Length];
+            for (int i = 0; i < values.Length; i++)
+                labels[i] = values[i].Length == 0 ? M("指定しない") : values[i];
+
+            int idx = Array.IndexOf(values, current ?? "");
+            if (idx < 0) idx = 0;
+
+            var dd = new MD3Dropdown(label, labels, idx);
+            dd.style.marginLeft = 12;
+            dd.style.marginRight = 12;
+            dd.style.marginTop = 8;
+            dd.changed += i =>
+            {
+                assign(values[i]);
+                UpdateImageIssue();
+                SaveSettings();
+            };
+            parent.Add(dd);
         }
 
         private void BuildOpenAIImageSubsection(VisualElement parent)
@@ -778,7 +860,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                     // We need to use a field reference since ref params can't be captured
                     // This is handled by SaveSettings reading from fields
                     if (presets == ProviderRegistry.GeminiImageModelPresets)
+                    {
                         _imageModelName = v;
+                        UpdateImageIssue();
+                    }
                     else
                         _openaiImageModelName = v;
                     SaveSettings();
@@ -796,7 +881,10 @@ namespace AjisaiFlow.UnityAgent.Editor
                 dd.changed += i =>
                 {
                     if (presets == ProviderRegistry.GeminiImageModelPresets)
+                    {
                         _imageModelName = presets[i];
+                        UpdateImageIssue();
+                    }
                     else
                         _openaiImageModelName = presets[i];
                     SaveSettings();
@@ -1488,6 +1576,54 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             label.Text = note ?? "";
             label.style.display = note == null ? DisplayStyle.None : DisplayStyle.Flex;
+        }
+
+        /// <summary>
+        /// 保存されたコンテキスト上限がモデルの上限を超えている場合に、実際に使う値を伝える。
+        /// 問題なければ隠す。
+        ///
+        /// 上限の設定キー (UnityAgent_{type}_MaxContextTokens) はプロバイダー単位でモデル単位ではない。
+        /// コンテキストの大きいモデルで上限いっぱいに設定したあと、同じプロバイダー内で小さいモデルに
+        /// 切り替えると過大な保存値が残るが、スライダーは操作した瞬間にしかクランプしないので
+        /// 設定画面を開いただけでは直らない。実際に使う値は AgentSettings.ResolveMaxContextTokens が
+        /// モデルの上限に収める。
+        /// </summary>
+        private void UpdateContextNote(MD3Text label, int configValue, int modelInputLimit)
+        {
+            bool over = configValue > 0 && modelInputLimit > 0 && configValue > modelInputLimit;
+            label.Text = over
+                ? string.Format(
+                    M("設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。"),
+                    FormatTokenCount(configValue), FormatTokenCount(modelInputLimit))
+                : "";
+            label.style.display = over ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        /// <summary>画像モデルと imageConfig の組み合わせに問題があれば注意を出す。問題なければ隠す。</summary>
+        private void UpdateImageIssue()
+        {
+            if (_imageIssueLabel == null) return;
+            string note = DescribeImageModelIssue();
+            _imageIssueLabel.Text = note ?? "";
+            _imageIssueLabel.style.display = note == null ? DisplayStyle.None : DisplayStyle.Flex;
+        }
+
+        /// <summary>提供終了モデル / 対応外の解像度なら注意文を返す。問題なければ null。</summary>
+        private string DescribeImageModelIssue()
+        {
+            if (Array.IndexOf(ProviderRegistry.RetiredGeminiImageModels, _imageModelName) >= 0)
+                return string.Format(
+                    M("モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。"), _imageModelName);
+
+            if (string.IsNullOrEmpty(_imageSize)) return null;
+
+            // 一覧に無いモデル名は判断材料が無いので何も言わない
+            var sizes = ProviderRegistry.GeminiImageSizesFor(_imageModelName);
+            if (sizes == null || Array.IndexOf(sizes, _imageSize) >= 0) return null;
+
+            return string.Format(
+                M("解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。"),
+                _imageSize, _imageModelName, string.Join(" / ", sizes));
         }
 
         // ═══════════════════════════════════════════════════════
@@ -2810,10 +2946,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             _configs = ProviderRegistry.LoadAllConfigs();
             _useThinking = SettingsStore.GetBool("UnityAgent_UseThinking", false);
             _thinkingBudget = SettingsStore.GetInt("UnityAgent_ThinkingBudget", 8192);
-            _effortLevel = Mathf.Clamp(SettingsStore.GetInt("UnityAgent_EffortLevel", 2), 0, 2);
+            _effortLevel = Mathf.Clamp(
+                SettingsStore.GetInt("UnityAgent_EffortLevel", ProviderRegistry.DefaultEffortLevel),
+                0, ProviderRegistry.EffortLevelLabels.Length - 1);
             _imageProviderType = SettingsStore.GetInt("UnityAgent_ImageProviderType", 0);
-            _imageModelName = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-2.5-flash-image");
+            _imageModelName = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-3.1-flash-image");
             _useCustomImageModel = Array.IndexOf(ProviderRegistry.GeminiImageModelPresets, _imageModelName) < 0;
+            _imageAspectRatio = SettingsStore.GetString("UnityAgent_ImageAspectRatio", "");
+            _imageSize = SettingsStore.GetString("UnityAgent_ImageSize", "");
             _imageApiKey = SettingsStore.GetString("UnityAgent_ImageApiKey", "");
             _imageConnectionMode = SettingsStore.GetInt("UnityAgent_ImageConnectionMode", 0);
             _imageApiVersion = SettingsStore.GetString("UnityAgent_ImageApiVersion", "v1beta");
@@ -2877,6 +3017,8 @@ namespace AjisaiFlow.UnityAgent.Editor
             SettingsStore.SetInt("UnityAgent_EffortLevel", _effortLevel);
             SettingsStore.SetInt("UnityAgent_ImageProviderType", _imageProviderType);
             SettingsStore.SetString("UnityAgent_ImageModelName", _imageModelName);
+            SettingsStore.SetString("UnityAgent_ImageAspectRatio", _imageAspectRatio);
+            SettingsStore.SetString("UnityAgent_ImageSize", _imageSize);
             SettingsStore.SetString("UnityAgent_ImageApiKey", _imageApiKey);
             SettingsStore.SetInt("UnityAgent_ImageConnectionMode", _imageConnectionMode);
             SettingsStore.SetString("UnityAgent_ImageApiVersion", _imageApiVersion);

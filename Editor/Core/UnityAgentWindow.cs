@@ -88,8 +88,8 @@ namespace AjisaiFlow.UnityAgent.Editor
         private Dictionary<LLMProviderType, ProviderConfig> _configs;
         private bool _useThinking;
         private int _thinkingBudget = 8192;
-        private int _effortLevel = 2;
-        private string _imageModelName = "gemini-2.5-flash-image";
+        private int _effortLevel = ProviderRegistry.DefaultEffortLevel;
+        private string _imageModelName = "gemini-3.1-flash-image";
         private bool _useCustomImageModel;
         private string _meshyApiKey = "";
 
@@ -864,8 +864,10 @@ namespace AjisaiFlow.UnityAgent.Editor
             _configs = ProviderRegistry.LoadAllConfigs();
             _useThinking = SettingsStore.GetBool("UnityAgent_UseThinking", false);
             _thinkingBudget = Mathf.Clamp(SettingsStore.GetInt("UnityAgent_ThinkingBudget", 8192), 0, 128000);
-            _effortLevel = Mathf.Clamp(SettingsStore.GetInt("UnityAgent_EffortLevel", 2), 0, 2);
-            _imageModelName = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-2.5-flash-image");
+            _effortLevel = Mathf.Clamp(
+                SettingsStore.GetInt("UnityAgent_EffortLevel", ProviderRegistry.DefaultEffortLevel),
+                0, ProviderRegistry.EffortLevelLabels.Length - 1);
+            _imageModelName = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-3.1-flash-image");
             _useCustomImageModel = _providerType == LLMProviderType.Gemini
                                    && Array.IndexOf(ProviderRegistry.GeminiImageModelPresets, _imageModelName) < 0;
             _meshyApiKey = SettingsStore.GetString("UnityAgent_MeshyApiKey", "");

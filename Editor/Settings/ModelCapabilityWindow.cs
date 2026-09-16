@@ -199,12 +199,14 @@ namespace AjisaiFlow.UnityAgent.Editor
             foreach (var modelId in ProviderRegistry.GeminiImageModelPresets)
             {
                 if (string.IsNullOrEmpty(modelId)) continue;
+                // 対応解像度が分かっているモデルはそれを並べる。一覧に無い名前は「可変」のまま
+                var imageSizes = ProviderRegistry.GeminiImageSizesFor(modelId);
                 geminiImageRows.Add(new ImageRow
                 {
                     DisplayName = FormatImageModelName(modelId),
                     ModelId = modelId,
                     Provider = "Gemini",
-                    OutputSize = M("可変"),
+                    OutputSize = imageSizes != null ? string.Join(" / ", imageSizes) : M("可変"),
                     EditSupport = true,
                     TimeoutSec = 120,
                 });

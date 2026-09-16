@@ -568,7 +568,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             LLMProviderType[] claudeAgy = { LLMProviderType.Claude_API, LLMProviderType.Claude_CLI, LLMProviderType.Antigravity_CLI };
             LLMProviderType[] agy    = { LLMProviderType.Antigravity_CLI };
             LLMProviderType[] oa     = { LLMProviderType.OpenAI };
-            LLMProviderType[] oaCdx  = { LLMProviderType.OpenAI, LLMProviderType.Codex_CLI };
             LLMProviderType[] cdx    = { LLMProviderType.Codex_CLI };
             LLMProviderType[] ds     = { LLMProviderType.DeepSeek };
             LLMProviderType[] grok   = { LLMProviderType.xAI_Grok };
@@ -605,20 +604,33 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             // ID は agy 1.1.20 の `agy models` が返す slug そのまま (2026-09-16 時点。Claude Sonnet 4.6 は上の Claude 節と共有)。
             // Gemini 系の -high / -medium / -low は推論の強さの違い。系列名だけ (gemini-3.8-flash) を渡して --effort で
             // 強さを選ぶこともでき、実機で確認した。その場合はカスタムモデルに書く。
-            // agy 経由の入力上限は公開されていない。UnityAgent 側で履歴を詰める目安にしか使わないので、控えめな値を置く。
-            Reg(d, "gemini-3.8-flash-high",   "Gemini 3.8 Flash (High)",   128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.8-flash-low",    "Gemini 3.8 Flash (Low)",    128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.7-flash-high",   "Gemini 3.7 Flash (High)",   128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.7-flash-medium", "Gemini 3.7 Flash (Medium)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.7-flash-low",    "Gemini 3.7 Flash (Low)",    128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.6-flash-high",   "Gemini 3.6 Flash (High)",   128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.6-flash-medium", "Gemini 3.6 Flash (Medium)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.6-flash-low",    "Gemini 3.6 Flash (Low)",    128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.1-pro-high",     "Gemini 3.1 Pro (High)",     128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gemini-3.1-pro-low",      "Gemini 3.1 Pro (Low)",      128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)", 128000, 8192, true, 0, 0, false, dropdowns: agy);
-            Reg(d, "gpt-oss-120b-medium",     "GPT-OSS 120B (Medium)",     128000, 8192, true, 0, 0, false, dropdowns: agy);
+            //
+            // コンテキスト長 / 最大出力は agy 固有の値が公開されていないので、同じ実モデルの公称値を置く。
+            // -high / -medium / -low は強さ違いで実モデルは同じなので、3 行とも同じ値になる。
+            // ここは UnityAgent が履歴を詰める / ツールループを止める目安に使う列で、以前は 13 モデル
+            // 一律 128K / 8K の仮値だった。そのせいで設定画面のコンテキストが 128K で頭打ちになっていた。
+            // 思考バジェット列を 0 / 0 のままにしているのは意図的で、agy は --effort で強さを渡すため
+            // バジェットのスライダーではなく Effort の UI を出す必要がある。
+            //
+            // Gemini 3.8 Flash は 1M コンテキスト / 64K 出力 (ai.google.dev/gemini-api/docs/latest-model)。
+            // 3.7 / 3.6 Flash は個別の公称値が出ていないが、同じ Flash 系列で 3.5 Flash (上の Gemini 節) も
+            // 3.8 Flash も 1,048,576 / 65,536 なので揃える。
+            // Gemini 3.1 Pro は上の gemini-3.1-pro-preview と、claude-opus-4-6-thinking は Claude 節の
+            // claude-opus-4-6 と同値。gpt-oss-120b は 131,072 / 131,072
+            // (developers.openai.com/api/docs/models/gpt-oss-120b)。
+            Reg(d, "gemini-3.8-flash-high",   "Gemini 3.8 Flash (High)",   1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)", 1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.8-flash-low",    "Gemini 3.8 Flash (Low)",    1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.7-flash-high",   "Gemini 3.7 Flash (High)",   1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.7-flash-medium", "Gemini 3.7 Flash (Medium)", 1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.7-flash-low",    "Gemini 3.7 Flash (Low)",    1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.6-flash-high",   "Gemini 3.6 Flash (High)",   1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.6-flash-medium", "Gemini 3.6 Flash (Medium)", 1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.6-flash-low",    "Gemini 3.6 Flash (Low)",    1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.1-pro-high",     "Gemini 3.1 Pro (High)",     1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gemini-3.1-pro-low",      "Gemini 3.1 Pro (Low)",      1048576, 65536, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)", 200000, 128000, true, 0, 0, false, dropdowns: agy);
+            Reg(d, "gpt-oss-120b-medium",     "GPT-OSS 120B (Medium)",      131072, 131072, true, 0, 0, false, dropdowns: agy);
 
             // ── Claude ── (ドロップダウンは最新3モデルのみ。旧モデルは性能照会用に登録)
             Reg(d, "claude-opus-4-8", "Claude Opus 4.8",
@@ -645,36 +657,50 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 200000, 32000, true, 1024, 128000, true, deprecated: true);
 
             // ── Codex CLI 専用モデル ── (Codex CLI ドロップダウンの先頭グループ)
+            // 一覧・コンテキスト長・最大出力は learn.chatgpt.com/docs/models と
+            // developers.openai.com/api/docs/models/* に準拠 (2026-09-16 時点)。
+            // モデルごとに使える推論の強さは Codex CLI 側がサーバーのモデルカタログから受け取るもので、
+            // CLI に固定で入っていない。UnityAgent 側は静的な写しを持つしかない。
+            //
+            // gpt-5.3-codex-spark は一覧に入れていない。推論フェーズを持たない設計 (強さ非対応) で
+            // コンテキスト長・最大出力も非公開のため、この表の列を埋められないため。カスタムモデル欄に
+            // 書けば使えて、その場合は強さを送らない (CodexCliProvider.NoEffortModels)。
+            Reg(d, "gpt-6-astra", "GPT-6 Astra",
+                1050000, 128000, true, 0, 0, false, dropdowns: cdx);
+            Reg(d, "gpt-5.6-sol", "GPT-5.6 Sol",
+                1050000, 128000, true, 0, 0, false, dropdowns: cdx);
+            Reg(d, "gpt-5.6-terra", "GPT-5.6 Terra",
+                1050000, 128000, true, 0, 0, false, dropdowns: cdx);
+            Reg(d, "gpt-5.6-luna", "GPT-5.6 Luna",
+                1050000, 128000, true, 0, 0, false, dropdowns: cdx);
+            // gpt-5.3-codex は ChatGPT サインイン経由では選べない (API キーでの利用のみ)。
+            // 現行のドキュメントには残っているので一覧にも残す。強さは max を受け付けない。
             Reg(d, "gpt-5.3-codex", "GPT-5.3 Codex",
-                200000, 16384, true, 0, 0, false, dropdowns: cdx);
-            // gpt-5.2-codex は API で廃止予定 (2026-10-23)。Codex CLI 経由のため当面現役。
-            Reg(d, "gpt-5.2-codex", "GPT-5.2 Codex",
-                200000, 16384, true, 0, 0, false, dropdowns: cdx);
-            Reg(d, "gpt-5.1-codex-max", "GPT-5.1 Codex Max",
-                200000, 32768, true, 0, 0, false, dropdowns: cdx);
-            Reg(d, "gpt-5.1-codex-mini", "GPT-5.1 Codex Mini",
-                200000, 16384, true, 0, 0, false, dropdowns: cdx);
-            // codex-mini: 旧 ID codex-mini-latest は 2026-02-12 廃止済み。現行 codex-mini の有効性は Codex CLI 側に依存。
-            Reg(d, "codex-mini", "Codex Mini",
-                200000, 16384, true, 0, 0, false, dropdowns: cdx);
+                400000, 128000, true, 0, 0, false, dropdowns: cdx);
+            // gpt-5.2-codex / gpt-5.1-codex-max / gpt-5.1-codex-mini / codex-mini は
+            // 現行の一覧から消えたため登録ごと削除した。
 
             // ── OpenAI ──
             Reg(d, "gpt-5.5", "GPT-5.5",
                 1000000, 128000, true, 0, 0, true, dropdowns: oa);
             Reg(d, "gpt-5.4", "GPT-5.4",
                 400000, 128000, true, 0, 0, true);
+            // gpt-4.1 / gpt-4.1-mini / o4-mini / o3 は OpenAI API のモデルで、Codex CLI が配る
+            // モデルの一覧には入っていない。Codex CLI のドロップダウンから外した。
             Reg(d, "gpt-4.1", "GPT-4.1",
-                1048576, 32768, false, 0, 0, true, dropdowns: oaCdx);
+                1048576, 32768, false, 0, 0, true, dropdowns: oa);
             Reg(d, "gpt-4.1-mini", "GPT-4.1 Mini",
-                1048576, 32768, false, 0, 0, true, dropdowns: oaCdx);
+                1048576, 32768, false, 0, 0, true, dropdowns: oa);
             Reg(d, "gpt-4o", "GPT-4o",
                 128000, 16384, false, 0, 0, true, dropdowns: oa);
             Reg(d, "o4-mini", "o4-mini",
-                200000, 100000, true, 0, 0, true, dropdowns: oaCdx);
+                200000, 100000, true, 0, 0, true, dropdowns: oa);
             Reg(d, "o3", "o3",
-                200000, 100000, true, 0, 0, true, dropdowns: oaCdx);
+                200000, 100000, true, 0, 0, true, dropdowns: oa);
+            // gpt-5.2 も Codex の一覧に無く、ChatGPT サインイン経由では選べない。
+            // Codex CLI のドロップダウンから外し、性能照会用の登録だけ残す。
             Reg(d, "gpt-5.2", "GPT-5.2",
-                400000, 128000, true, 0, 0, true, dropdowns: cdx);
+                400000, 128000, true, 0, 0, true);
             Reg(d, "gpt-5", "GPT-5",
                 400000, 128000, true, 0, 0, true);
             Reg(d, "gpt-5-mini", "GPT-5 Mini",

@@ -143,11 +143,61 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         public static readonly string[] VertexAIApiVersions = { "v1beta1", "v1" };
         public static readonly string[] VertexAIApiVersionLabels = { "v1beta1 (推奨: system_instruction, 思考モード対応)", "v1 (安定版: 基本生成のみ)" };
 
+        /// <summary>
+        /// Gemini の画像生成モデル。先頭が既定値。
+        /// gemini-2.5-flash-image は 2026-10-02 に提供が終わるので一覧から外した。
+        /// 設定に残っている値はカスタムモデル扱いでそのまま使える (各ウィンドウの LoadSettings)。
+        /// </summary>
         public static readonly string[] GeminiImageModelPresets =
         {
-            "gemini-2.5-flash-image",
             "gemini-3.1-flash-image",
+            "gemini-3.1-flash-lite-image",
+            "gemini-3-pro-image",
         };
+
+        /// <summary>
+        /// Google が提供を終えた画像生成モデル。設定に残っていても API は受け付けない。
+        /// チャットモデル側の RetiredGeminiPrefixes は画像モデルに当ててはいけないので別に持つ。
+        /// </summary>
+        public static readonly string[] RetiredGeminiImageModels =
+        {
+            "gemini-2.5-flash-image",
+            "gemini-2.5-flash-image-preview",
+            "gemini-3.1-flash-image-preview",
+        };
+
+        /// <summary>
+        /// generationConfig.imageConfig.aspectRatio に渡せる値。先頭の空文字は「指定しない」。
+        /// 公式が受け付ける 14 通りを全部並べ、縦長 → 正方形 → 横長の順にした
+        /// (ai.google.dev/gemini-api/docs/generate-content/image-generation)。
+        /// </summary>
+        public static readonly string[] GeminiImageAspectRatios =
+        {
+            "",
+            "1:8", "1:4", "9:16", "2:3", "3:4", "4:5",
+            "1:1",
+            "5:4", "4:3", "3:2", "16:9", "21:9", "4:1", "8:1",
+        };
+
+        /// <summary>generationConfig.imageConfig.imageSize に渡せる値。先頭の空文字は「指定しない」。</summary>
+        public static readonly string[] GeminiImageSizes = { "", "512", "1K", "2K", "4K" };
+
+        /// <summary>
+        /// そのモデルが受け付ける imageSize。知らないモデル名なら null を返し、呼び出し側は検証しない。
+        /// 知らない名前を弾く作りにすると、Google が新しいモデルを出すたびに UnityAgent の更新を
+        /// 待たないとカスタムモデル欄から使えなくなるため。
+        /// </summary>
+        public static string[] GeminiImageSizesFor(string modelId)
+        {
+            if (string.IsNullOrEmpty(modelId)) return null;
+            switch (modelId)
+            {
+                case "gemini-3.1-flash-image": return new[] { "512", "1K", "2K", "4K" };
+                case "gemini-3.1-flash-lite-image": return new[] { "1K" };
+                case "gemini-3-pro-image": return new[] { "1K", "2K", "4K" };
+                default: return null;
+            }
+        }
 
         public static readonly string[] ImageProviderDisplayNames = { "Gemini", "OpenAI", "ComfyUI" };
 
@@ -187,6 +237,27 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
             "MCP Server (External Agent)",
             "Antigravity CLI (agy)",
         };
+
+        // ─── 推論の強さ (effort) ───
+        //
+        // 強さの設定 (UnityAgent_EffortLevel) は全プロバイダー共通の 1 つで、値はこの配列の添字。
+        // 渡し方だけがプロバイダーごとに違う (Codex CLI は -c model_reasoning_effort、
+        // Claude CLI / agy は --effort、OpenAI 互換は reasoning_effort、Gemini は thinkingLevel)。
+
+        /// <summary>設定 UI に並べる推論の強さ。添字が UnityAgent_EffortLevel の値。</summary>
+        public static readonly string[] EffortLevelLabels = { "Low", "Medium", "High", "xHigh" };
+
+        /// <summary>
+        /// 未設定のときの推論の強さ。medium は Codex CLI と OpenAI の reasoning_effort の既定でもある。
+        /// </summary>
+        public const int DefaultEffortLevel = 1;
+
+        /// <summary>
+        /// そのプロバイダーが受け付ける最大の添字。xhigh を持つのは今のところ Codex CLI だけで、
+        /// 他は low / medium / high の 3 段階しかない。
+        /// </summary>
+        public static int MaxEffortLevel(LLMProviderType type)
+            => type == LLMProviderType.Codex_CLI ? 3 : 2;
 
         // ─── Model preset arrays ───
         //
@@ -418,9 +489,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     DisplayName = "Codex CLI", ShortName = "Codex CLI",
                     SettingsKind = ProviderSettingsKind.CliProvider,
                     EmptyModelOptionLabel = "(CLIデフォルト)",
+                    // 既定モデルは CLI に委ねる。Codex CLI はサインインしているアカウントで使える
+                    // モデルを自分で選ぶので、UnityAgent 側で固定すると新しいモデルが出るたびに
+                    // 設定を直すことになる。
                     DefaultModel = "",
                     ThinkingMode = ThinkingMode.Effort,
-                    ThinkingHintKey = "Responses API 対応モデルで適用",
+                    ThinkingHintKey = "-c model_reasoning_effort (low / medium / high / xhigh) として適用",
                     SupportsModelSelection = true,
                     SectionTitle = "Codex CLI",
                     DescriptionKey = "ローカルにインストールされた Codex CLI を使用します。",
@@ -646,6 +720,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         // ─── Provider factory ───
 
+        /// <summary>
+        /// そのプロバイダーに渡す推論の強さ。思考モードが無効なら -1 (送らない)。
+        ///
+        /// 強さの設定は全プロバイダー共通なので、Codex CLI で xhigh を選んだまま別のプロバイダーに
+        /// 切り替えると、そのプロバイダーにとっては範囲外の値が渡る。各プロバイダーは範囲外を
+        /// 「送らない」と解釈するため、丸めずに渡すと強さを上げたつもりが思考オフ相当になる。
+        /// </summary>
+        private static int EffortFor(LLMProviderType type, bool useThinking, int effortLevel)
+        {
+            if (!useThinking || effortLevel < 0) return -1;
+            int max = MaxEffortLevel(type);
+            return effortLevel > max ? max : effortLevel;
+        }
+
         public static ILLMProvider CreateProvider(LLMProviderType type, ProviderConfig cfg,
             bool useThinking, int thinkingBudget, int effortLevel)
         {
@@ -665,17 +753,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                     return new GeminiProvider(cfg.ApiKey, cfg.GeminiMode, cfg.ModelName,
                         cfg.ApiVersion, useThinking ? thinkingBudget : 0,
                         cfg.CustomEndpoint, cfg.ProjectId, cfg.Location,
-                        LLMProviderType.Gemini, useThinking ? effortLevel : -1, features);
+                        LLMProviderType.Gemini, EffortFor(type, useThinking, effortLevel), features);
 
                 case LLMProviderType.Vertex_AI:
                     return new GeminiProvider(cfg.ApiKey, GeminiConnectionMode.VertexAI_Express, cfg.ModelName,
                         cfg.ApiVersion, useThinking ? thinkingBudget : 0,
                         cfg.CustomEndpoint, cfg.ProjectId, cfg.Location,
-                        LLMProviderType.Vertex_AI, useThinking ? effortLevel : -1, features);
+                        LLMProviderType.Vertex_AI, EffortFor(type, useThinking, effortLevel), features);
 
                 case LLMProviderType.Claude_CLI:
                     return new ClaudeCliProvider(cfg.CliPath, cfg.ModelName,
-                        useThinking ? effortLevel : -1, useThinking ? thinkingBudget : 0);
+                        EffortFor(type, useThinking, effortLevel), useThinking ? thinkingBudget : 0);
 
                 case LLMProviderType.Gemini_CLI:
                     return new GeminiCliProvider(cfg.CliPath, cfg.ModelName,
@@ -683,11 +771,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                 case LLMProviderType.Codex_CLI:
                     return new CodexCliProvider(cfg.CliPath, cfg.ModelName,
-                        useThinking ? effortLevel : -1);
+                        EffortFor(type, useThinking, effortLevel));
 
                 case LLMProviderType.Antigravity_CLI:
                     return new AntigravityCliProvider(cfg.CliPath, cfg.ModelName,
-                        useThinking ? effortLevel : -1);
+                        EffortFor(type, useThinking, effortLevel));
 
                 case LLMProviderType.Clipboard:
                     return new ClipboardProvider();
@@ -705,11 +793,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 // OpenAI-compatible providers
                 case LLMProviderType.OpenAI:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.openai.com/v1",
-                        cfg.ModelName, useThinking ? effortLevel : -1, LLMProviderType.OpenAI);
+                        cfg.ModelName, EffortFor(type, useThinking, effortLevel), LLMProviderType.OpenAI);
 
                 case LLMProviderType.DeepSeek:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.deepseek.com/v1",
-                        cfg.ModelName, useThinking ? effortLevel : -1, LLMProviderType.DeepSeek);
+                        cfg.ModelName, EffortFor(type, useThinking, effortLevel), LLMProviderType.DeepSeek);
 
                 case LLMProviderType.Groq:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.groq.com/openai/v1",
@@ -721,7 +809,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                 case LLMProviderType.xAI_Grok:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.x.ai/v1", cfg.ModelName,
-                        useThinking ? effortLevel : -1, LLMProviderType.xAI_Grok);
+                        EffortFor(type, useThinking, effortLevel), LLMProviderType.xAI_Grok);
 
                 case LLMProviderType.Mistral:
                     return new OpenAICompatibleProvider(cfg.ApiKey, "https://api.mistral.ai/v1", cfg.ModelName,
@@ -733,7 +821,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
                 default: // OpenAI_Compatible
                     return new OpenAICompatibleProvider(cfg.ApiKey, cfg.BaseUrl, cfg.ModelName,
-                        useThinking ? effortLevel : -1, LLMProviderType.OpenAI_Compatible);
+                        EffortFor(type, useThinking, effortLevel), LLMProviderType.OpenAI_Compatible);
             }
         }
 
@@ -773,10 +861,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 default: // Gemini
                     string apiKey = SettingsStore.GetString("UnityAgent_ImageApiKey", "");
                     int connMode = SettingsStore.GetInt("UnityAgent_ImageConnectionMode", 0);
-                    string imageModel = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-2.5-flash-image");
+                    string imageModel = SettingsStore.GetString("UnityAgent_ImageModelName", "gemini-3.1-flash-image");
                     string customEndpoint = SettingsStore.GetString("UnityAgent_ImageCustomEndpoint", "");
                     string projectId = SettingsStore.GetString("UnityAgent_ImageProjectId", "");
                     string location = SettingsStore.GetString("UnityAgent_ImageLocation", "us-central1");
+                    // 未指定 (空文字) なら imageConfig 自体を送らない
+                    string aspectRatio = SettingsStore.GetString("UnityAgent_ImageAspectRatio", "");
+                    string imageSize = SettingsStore.GetString("UnityAgent_ImageSize", "");
 
                     // Migration: 旧設定 (Gemini LLM の API キー共有) からの移行
                     if (string.IsNullOrEmpty(apiKey))
@@ -790,7 +881,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                         default: mode = GeminiConnectionMode.GoogleAI; break;
                     }
 
-                    return new GeminiImageProvider(apiKey, mode, imageModel, customEndpoint, projectId, location);
+                    return new GeminiImageProvider(apiKey, mode, imageModel, customEndpoint, projectId, location,
+                        aspectRatio, imageSize);
             }
         }
 
