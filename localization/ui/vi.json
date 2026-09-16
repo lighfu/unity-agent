@@ -479,5 +479,12 @@
   "腕（右）": "Cánh tay (Phải)",
   "腕（左）": "Cánh tay (Trái)",
   "腕（両側）": "Cánh tay (Cả hai bên)",
-  "閾値 (貫通率)": "Ngưỡng (Tỷ lệ xuyên thấu)"
+  "閾値 (貫通率)": "Ngưỡng (Tỷ lệ xuyên thấu)",
+  "出力の比率": "Tỷ lệ khung hình đầu ra",
+  "出力の解像度": "Độ phân giải đầu ra",
+  "指定しない": "Không chỉ định",
+  "可変": "Biến đổi",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Mô hình '{0}' không còn được Google cung cấp. Vui lòng chuyển sang mô hình hiện đang khả dụng.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Độ phân giải {0} không khả dụng cho mô hình '{1}'. Mô hình này chấp nhận {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Giá trị đã đặt {0} vượt quá giới hạn {1} của mô hình này. {1} sẽ được sử dụng thay thế."
 }

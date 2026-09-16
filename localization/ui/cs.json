@@ -479,5 +479,12 @@
   "腕（右）": "Paže (Pravá)",
   "腕（左）": "Paže (Levá)",
   "腕（両側）": "Paže (Obě)",
-  "閾値 (貫通率)": "Práh (Míra průniku)"
+  "閾値 (貫通率)": "Práh (Míra průniku)",
+  "出力の比率": "Poměr stran výstupu",
+  "出力の解像度": "Rozlišení výstupu",
+  "指定しない": "Neurčeno",
+  "可変": "Proměnné",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Model '{0}' již společnost Google nenabízí. Přepněte na aktuálně dostupný model.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Rozlišení {0} není pro model '{1}' dostupné. Tento model přijímá {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Nastavená hodnota {0} přesahuje limit tohoto modelu {1}. Místo toho bude použito {1}."
 }

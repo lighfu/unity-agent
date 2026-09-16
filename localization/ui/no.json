@@ -130,5 +130,12 @@
   "有効 — 会話ログが開発者に送信されます": "Aktivert — Samtalelogger vil bli sendt til utvikleren",
   "有効にする": "Aktiver",
   "理解して有効にする": "Forstå og aktiver",
-  "理由: ": "Årsak: "
+  "理由: ": "Årsak: ",
+  "出力の比率": "Sideforhold for utdata",
+  "出力の解像度": "Oppløsning for utdata",
+  "指定しない": "Ikke angitt",
+  "可変": "Variabel",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Modellen '{0}' tilbys ikke lenger av Google. Bytt til en modell som er tilgjengelig nå.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Oppløsning {0} er ikke tilgjengelig for modellen '{1}'. Denne modellen godtar {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Den angitte verdien {0} overskrider denne modellens grense på {1}. {1} vil bli brukt i stedet."
 }

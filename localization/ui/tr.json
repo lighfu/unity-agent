@@ -479,5 +479,12 @@
   "腕（右）": "Kol (Sağ)",
   "腕（左）": "Kol (Sol)",
   "腕（両側）": "Kollar (İki Taraf)",
-  "閾値 (貫通率)": "Eşik (Penetrasyon Oranı)"
+  "閾値 (貫通率)": "Eşik (Penetrasyon Oranı)",
+  "出力の比率": "Çıktı en boy oranı",
+  "出力の解像度": "Çıktı çözünürlüğü",
+  "指定しない": "Belirtilmedi",
+  "可変": "Değişken",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "'{0}' modeli artık Google tarafından sunulmuyor. Lütfen şu anda kullanılabilir bir modele geçin.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "{0} çözünürlüğü '{1}' modeli için kullanılamaz. Bu model {2} kabul eder.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Ayarlanan değer {0}, bu modelin sınırı olan {1} değerini aşıyor. Bunun yerine {1} kullanılacak."
 }

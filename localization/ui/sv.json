@@ -479,5 +479,12 @@
   "腕（右）": "Arm (höger)",
   "腕（左）": "Arm (vänster)",
   "腕（両側）": "Armar (båda sidor)",
-  "閾値 (貫通率)": "Tröskelvärde (Genomträngningsgrad)"
+  "閾値 (貫通率)": "Tröskelvärde (Genomträngningsgrad)",
+  "出力の比率": "Bildförhållande för utdata",
+  "出力の解像度": "Utdataupplösning",
+  "指定しない": "Ej specificerat",
+  "可変": "Variabel",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Modellen '{0}' erbjuds inte längre av Google. Byt till en modell som är tillgänglig nu.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Upplösningen {0} är inte tillgänglig för modellen '{1}'. Denna modell accepterar {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Det angivna värdet {0} överskrider modellens gräns på {1}. {1} används istället."
 }

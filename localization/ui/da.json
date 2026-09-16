@@ -479,5 +479,12 @@
   "腕（右）": "Arm (Højre)",
   "腕（左）": "Arm (Venstre)",
   "腕（両側）": "Arme (Begge sider)",
-  "閾値 (貫通率)": "Tærskel (Penetrationsrate)"
+  "閾値 (貫通率)": "Tærskel (Penetrationsrate)",
+  "出力の比率": "Billedformat for output",
+  "出力の解像度": "Outputopløsning",
+  "指定しない": "Ikke angivet",
+  "可変": "Variabel",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Model '{0}' tilbydes ikke længere af Google. Skift til en aktuelt tilgængelig model.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Opløsning {0} er ikke tilgængelig for model '{1}'. Denne model accepterer {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Den angivne værdi {0} overskrider denne models grænse på {1}. {1} bruges i stedet."
 }

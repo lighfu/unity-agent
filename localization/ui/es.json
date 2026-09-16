@@ -505,5 +505,12 @@
   "腕（右）": "Brazo (Derecho)",
   "腕（左）": "Brazo (Izquierdo)",
   "腕（両側）": "Brazos (Ambos)",
-  "閾値 (貫通率)": "Umbral (Ratio de penetración)"
+  "閾値 (貫通率)": "Umbral (Ratio de penetración)",
+  "出力の比率": "Relación de aspecto de salida",
+  "出力の解像度": "Resolución de salida",
+  "指定しない": "No especificado",
+  "可変": "Variable",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "El modelo '{0}' ya no está disponible en Google. Cambie a un modelo actualmente disponible.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "La resolución {0} no está disponible para el modelo '{1}'. Este modelo acepta {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "El valor configurado {0} supera el límite de este modelo de {1}. Se usará {1} en su lugar."
 }

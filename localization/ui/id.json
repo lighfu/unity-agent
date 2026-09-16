@@ -479,5 +479,12 @@
   "腕（右）": "Lengan (Kanan)",
   "腕（左）": "Lengan (Kiri)",
   "腕（両側）": "Lengan (Kedua sisi)",
-  "閾値 (貫通率)": "Ambang Batas (Tingkat Penetrasi)"
+  "閾値 (貫通率)": "Ambang Batas (Tingkat Penetrasi)",
+  "出力の比率": "Rasio aspek output",
+  "出力の解像度": "Resolusi output",
+  "指定しない": "Tidak ditentukan",
+  "可変": "Variabel",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Model '{0}' tidak lagi ditawarkan oleh Google. Beralihlah ke model yang tersedia saat ini.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Resolusi {0} tidak tersedia untuk model '{1}'. Model ini menerima {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Nilai yang dikonfigurasi {0} melebihi batas model ini, yaitu {1}. {1} akan digunakan sebagai gantinya."
 }

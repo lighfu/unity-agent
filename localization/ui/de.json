@@ -505,5 +505,12 @@
   "腕（右）": "Arm (rechts)",
   "腕（左）": "Arm (links)",
   "腕（両側）": "Arme (beidseitig)",
-  "閾値 (貫通率)": "Schwellenwert (Durchdringung)"
+  "閾値 (貫通率)": "Schwellenwert (Durchdringung)",
+  "出力の比率": "Ausgabe-Seitenverhältnis",
+  "出力の解像度": "Ausgabeauflösung",
+  "指定しない": "Nicht angegeben",
+  "可変": "Variabel",
+  "モデル '{0}' は Google が提供を終了しています。現行のモデルに変更してください。": "Modell '{0}' wird von Google nicht mehr angeboten. Bitte wechseln Sie zu einem aktuell verfügbaren Modell.",
+  "解像度 {0} はモデル '{1}' では使えません。このモデルが受け付けるのは {2} です。": "Auflösung {0} ist für Modell '{1}' nicht verfügbar. Dieses Modell akzeptiert {2}.",
+  "設定値 {0} はこのモデルの上限 {1} を超えています。実際には {1} で打ち切ります。": "Der eingestellte Wert {0} überschreitet das Limit dieses Modells von {1}. Stattdessen wird {1} verwendet."
 }
