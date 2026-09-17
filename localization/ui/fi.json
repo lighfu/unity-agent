@@ -142,5 +142,15 @@
   "思考しない": "Ei ajattelua",
   "推論の強さ": "Päättelyn voimakkuus",
   "推論の強さで指定": "Määritetty päättelyn voimakkuudella",
-  "思考バジェットで指定": "Määritetty ajattelubudjetilla"
+  "思考バジェットで指定": "Määritetty ajattelubudjetilla",
+  "事業者の API に直接つなぐ": "Muodostaa yhteyden suoraan palveluntarjoajan API:han",
+  "ローカルの CLI を起動する": "Käynnistää paikallisen CLI:n",
+  "自分で用意したサーバーにつなぐ": "Muodostaa yhteyden itse ylläpitämääsi palvelimeen",
+  "この PC の上でモデルを動かす": "Suorittaa mallin tällä PC:llä",
+  "クラウド基盤ごしにつなぐ": "Muodostaa yhteyden pilvialustan kautta",
+  "推論に特化したサービスにつなぐ": "Muodostaa yhteyden päättelyyn erikoistuneeseen palveluun",
+  "Web 検索と組み合わせて答えるサービス": "Palvelu, joka vastaa hyödyntäen verkkohakua",
+  "ブラウザごしにやり取りする": "Kommunikoi verkkoselaimen kautta",
+  "手でコピーして貼り付ける": "Kopioi ja liitä käsin",
+  "外部のエージェントが UnityAgent につなぐ": "Ulkoiset agentit muodostavat yhteyden UnityAgentiin"
 }

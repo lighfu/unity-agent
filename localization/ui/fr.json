@@ -515,5 +515,15 @@
   "思考しない": "Pas de réflexion",
   "推論の強さ": "Intensité du raisonnement",
   "推論の強さで指定": "Défini par l'intensité du raisonnement",
-  "思考バジェットで指定": "Défini par le budget de réflexion"
+  "思考バジェットで指定": "Défini par le budget de réflexion",
+  "事業者の API に直接つなぐ": "Se connecte directement à l'API du fournisseur",
+  "ローカルの CLI を起動する": "Lance une CLI locale",
+  "自分で用意したサーバーにつなぐ": "Se connecte à un serveur que vous hébergez vous-même",
+  "この PC の上でモデルを動かす": "Exécute le modèle sur ce PC",
+  "クラウド基盤ごしにつなぐ": "Se connecte via une plateforme cloud",
+  "推論に特化したサービスにつなぐ": "Se connecte à un service spécialisé dans l'inférence",
+  "Web 検索と組み合わせて答えるサービス": "Un service qui répond en s'appuyant sur la recherche web",
+  "ブラウザごしにやり取りする": "Communique via un navigateur web",
+  "手でコピーして貼り付ける": "Copier-coller manuellement",
+  "外部のエージェントが UnityAgent につなぐ": "Des agents externes se connectent à UnityAgent"
 }

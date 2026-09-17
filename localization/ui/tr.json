@@ -491,5 +491,15 @@
   "思考しない": "Düşünme yok",
   "推論の強さ": "Akıl yürütme gücü",
   "推論の強さで指定": "Akıl yürütme gücüne göre ayarlanır",
-  "思考バジェットで指定": "Düşünme bütçesine göre ayarlanır"
+  "思考バジェットで指定": "Düşünme bütçesine göre ayarlanır",
+  "事業者の API に直接つなぐ": "Sağlayıcının API'sine doğrudan bağlanır",
+  "ローカルの CLI を起動する": "Yerel bir CLI başlatır",
+  "自分で用意したサーバーにつなぐ": "Kendi barındırdığınız bir sunucuya bağlanır",
+  "この PC の上でモデルを動かす": "Modeli bu bilgisayarda çalıştırır",
+  "クラウド基盤ごしにつなぐ": "Bir bulut platformu üzerinden bağlanır",
+  "推論に特化したサービスにつなぐ": "Çıkarıma özel bir hizmete bağlanır",
+  "Web 検索と組み合わせて答えるサービス": "Web araması ile birlikte yanıt veren bir hizmet",
+  "ブラウザごしにやり取りする": "Bir web tarayıcısı üzerinden iletişim kurar",
+  "手でコピーして貼り付ける": "Elle kopyala yapıştır",
+  "外部のエージェントが UnityAgent につなぐ": "Harici ajanlar UnityAgent'a bağlanır"
 }

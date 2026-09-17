@@ -564,5 +564,15 @@
   "思考しない": "No thinking",
   "推論の強さ": "Reasoning effort",
   "推論の強さで指定": "Set by reasoning effort",
-  "思考バジェットで指定": "Set by thinking budget"
+  "思考バジェットで指定": "Set by thinking budget",
+  "事業者の API に直接つなぐ": "Connects directly to the provider's API",
+  "ローカルの CLI を起動する": "Launches a local CLI",
+  "自分で用意したサーバーにつなぐ": "Connects to a server you host yourself",
+  "この PC の上でモデルを動かす": "Runs the model on this PC",
+  "クラウド基盤ごしにつなぐ": "Connects through a cloud platform",
+  "推論に特化したサービスにつなぐ": "Connects to an inference-focused service",
+  "Web 検索と組み合わせて答えるサービス": "A service that answers with web search",
+  "ブラウザごしにやり取りする": "Talks through a web browser",
+  "手でコピーして貼り付ける": "Copy and paste by hand",
+  "外部のエージェントが UnityAgent につなぐ": "External agents connect to UnityAgent"
 }

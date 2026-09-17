@@ -491,5 +491,15 @@
   "思考しない": "Không suy nghĩ",
   "推論の強さ": "Mức độ suy luận",
   "推論の強さで指定": "Xác định theo mức độ suy luận",
-  "思考バジェットで指定": "Xác định theo ngân sách suy nghĩ"
+  "思考バジェットで指定": "Xác định theo ngân sách suy nghĩ",
+  "事業者の API に直接つなぐ": "Kết nối trực tiếp với API của nhà cung cấp",
+  "ローカルの CLI を起動する": "Khởi chạy một CLI cục bộ",
+  "自分で用意したサーバーにつなぐ": "Kết nối với máy chủ do bạn tự lưu trữ",
+  "この PC の上でモデルを動かす": "Chạy mô hình trên PC này",
+  "クラウド基盤ごしにつなぐ": "Kết nối qua một nền tảng đám mây",
+  "推論に特化したサービスにつなぐ": "Kết nối với dịch vụ chuyên về suy luận",
+  "Web 検索と組み合わせて答えるサービス": "Dịch vụ trả lời kết hợp với tìm kiếm web",
+  "ブラウザごしにやり取りする": "Giao tiếp qua trình duyệt web",
+  "手でコピーして貼り付ける": "Sao chép và dán bằng tay",
+  "外部のエージェントが UnityAgent につなぐ": "Các tác nhân bên ngoài kết nối với UnityAgent"
 }

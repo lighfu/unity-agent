@@ -491,5 +491,15 @@
   "思考しない": "Bez přemýšlení",
   "推論の強さ": "Síla uvažování",
   "推論の強さで指定": "Nastaveno silou uvažování",
-  "思考バジェットで指定": "Nastaveno rozpočtem přemýšlení"
+  "思考バジェットで指定": "Nastaveno rozpočtem přemýšlení",
+  "事業者の API に直接つなぐ": "Připojuje se přímo k API poskytovatele",
+  "ローカルの CLI を起動する": "Spouští místní CLI",
+  "自分で用意したサーバーにつなぐ": "Připojuje se k serveru, který si sami hostujete",
+  "この PC の上でモデルを動かす": "Spouští model na tomto PC",
+  "クラウド基盤ごしにつなぐ": "Připojuje se přes cloudovou platformu",
+  "推論に特化したサービスにつなぐ": "Připojuje se ke službě specializované na inferenci",
+  "Web 検索と組み合わせて答えるサービス": "Služba, která odpovídá s využitím vyhledávání na webu",
+  "ブラウザごしにやり取りする": "Komunikuje prostřednictvím webového prohlížeče",
+  "手でコピーして貼り付ける": "Ruční kopírování a vkládání",
+  "外部のエージェントが UnityAgent につなぐ": "Externí agenti se připojují k UnityAgent"
 }

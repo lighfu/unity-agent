@@ -491,5 +491,15 @@
   "思考しない": "Geen nadenken",
   "推論の強さ": "Redeneersterkte",
   "推論の強さで指定": "Ingesteld via redeneersterkte",
-  "思考バジェットで指定": "Ingesteld via Denkbudget"
+  "思考バジェットで指定": "Ingesteld via Denkbudget",
+  "事業者の API に直接つなぐ": "Maakt direct verbinding met de API van de provider",
+  "ローカルの CLI を起動する": "Start een lokale CLI",
+  "自分で用意したサーバーにつなぐ": "Maakt verbinding met een server die je zelf host",
+  "この PC の上でモデルを動かす": "Voert het model uit op deze pc",
+  "クラウド基盤ごしにつなぐ": "Maakt verbinding via een cloudplatform",
+  "推論に特化したサービスにつなぐ": "Maakt verbinding met een dienst die gespecialiseerd is in inferentie",
+  "Web 検索と組み合わせて答えるサービス": "Een dienst die antwoordt met webzoekopdrachten",
+  "ブラウザごしにやり取りする": "Communiceert via een webbrowser",
+  "手でコピーして貼り付ける": "Handmatig kopiëren en plakken",
+  "外部のエージェントが UnityAgent につなぐ": "Externe agents maken verbinding met UnityAgent"
 }

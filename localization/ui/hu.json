@@ -491,5 +491,15 @@
   "思考しない": "Nincs gondolkodás",
   "推論の強さ": "Következtetési erősség",
   "推論の強さで指定": "Következtetési erősséggel megadva",
-  "思考バジェットで指定": "Gondolkodási kerettel megadva"
+  "思考バジェットで指定": "Gondolkodási kerettel megadva",
+  "事業者の API に直接つなぐ": "Közvetlenül csatlakozik a szolgáltató API-jához",
+  "ローカルの CLI を起動する": "Elindít egy helyi CLI-t",
+  "自分で用意したサーバーにつなぐ": "Egy általad üzemeltetett szerverhez csatlakozik",
+  "この PC の上でモデルを動かす": "A modellt ezen a gépen futtatja",
+  "クラウド基盤ごしにつなぐ": "Egy felhőplatformon keresztül csatlakozik",
+  "推論に特化したサービスにつなぐ": "Egy következtetésre specializált szolgáltatáshoz csatlakozik",
+  "Web 検索と組み合わせて答えるサービス": "Webes kereséssel válaszoló szolgáltatás",
+  "ブラウザごしにやり取りする": "Böngészőn keresztül kommunikál",
+  "手でコピーして貼り付ける": "Kézzel kell kimásolni és beilleszteni",
+  "外部のエージェントが UnityAgent につなぐ": "Külső ügynökök csatlakoznak a UnityAgenthez"
 }

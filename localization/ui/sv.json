@@ -491,5 +491,15 @@
   "思考しない": "Inget tänkande",
   "推論の強さ": "Resonemangsnivå",
   "推論の強さで指定": "Anges med resonemangsnivå",
-  "思考バジェットで指定": "Anges med tänkandebudget"
+  "思考バジェットで指定": "Anges med tänkandebudget",
+  "事業者の API に直接つなぐ": "Ansluter direkt till leverantörens API",
+  "ローカルの CLI を起動する": "Startar ett lokalt CLI",
+  "自分で用意したサーバーにつなぐ": "Ansluter till en server du hostar själv",
+  "この PC の上でモデルを動かす": "Kör modellen på den här datorn",
+  "クラウド基盤ごしにつなぐ": "Ansluter via en molnplattform",
+  "推論に特化したサービスにつなぐ": "Ansluter till en tjänst specialiserad på inferens",
+  "Web 検索と組み合わせて答えるサービス": "En tjänst som svarar med hjälp av webbsökning",
+  "ブラウザごしにやり取りする": "Kommunicerar via en webbläsare",
+  "手でコピーして貼り付ける": "Kopiera och klistra in manuellt",
+  "外部のエージェントが UnityAgent につなぐ": "Externa agenter ansluter till UnityAgent"
 }

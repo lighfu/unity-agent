@@ -142,5 +142,15 @@
   "思考しない": "Ingen tenking",
   "推論の強さ": "Resonneringsstyrke",
   "推論の強さで指定": "Angitt med resonneringsstyrke",
-  "思考バジェットで指定": "Angitt med Tenkebudsjett"
+  "思考バジェットで指定": "Angitt med Tenkebudsjett",
+  "事業者の API に直接つなぐ": "Kobler direkte til leverandørens API",
+  "ローカルの CLI を起動する": "Starter en lokal CLI",
+  "自分で用意したサーバーにつなぐ": "Kobler til en server du hoster selv",
+  "この PC の上でモデルを動かす": "Kjører modellen på denne PC-en",
+  "クラウド基盤ごしにつなぐ": "Kobler til via en skyplattform",
+  "推論に特化したサービスにつなぐ": "Kobler til en tjeneste som er spesialisert på inferens",
+  "Web 検索と組み合わせて答えるサービス": "En tjeneste som svarer med websøk",
+  "ブラウザごしにやり取りする": "Kommuniserer via en nettleser",
+  "手でコピーして貼り付ける": "Kopier og lim inn manuelt",
+  "外部のエージェントが UnityAgent につなぐ": "Eksterne agenter kobler til UnityAgent"
 }

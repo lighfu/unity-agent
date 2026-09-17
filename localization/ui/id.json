@@ -491,5 +491,15 @@
   "思考しない": "Tanpa berpikir",
   "推論の強さ": "Tingkat penalaran",
   "推論の強さで指定": "Ditentukan oleh tingkat penalaran",
-  "思考バジェットで指定": "Ditentukan oleh Anggaran Berpikir"
+  "思考バジェットで指定": "Ditentukan oleh Anggaran Berpikir",
+  "事業者の API に直接つなぐ": "Terhubung langsung ke API penyedia",
+  "ローカルの CLI を起動する": "Menjalankan CLI lokal",
+  "自分で用意したサーバーにつなぐ": "Terhubung ke server yang Anda hosting sendiri",
+  "この PC の上でモデルを動かす": "Menjalankan model di PC ini",
+  "クラウド基盤ごしにつなぐ": "Terhubung melalui platform cloud",
+  "推論に特化したサービスにつなぐ": "Terhubung ke layanan yang berfokus pada inferensi",
+  "Web 検索と組み合わせて答えるサービス": "Layanan yang menjawab dengan pencarian web",
+  "ブラウザごしにやり取りする": "Berkomunikasi lewat browser web",
+  "手でコピーして貼り付ける": "Salin dan tempel secara manual",
+  "外部のエージェントが UnityAgent につなぐ": "Agen eksternal terhubung ke UnityAgent"
 }

@@ -491,5 +491,15 @@
   "思考しない": "Fără gândire",
   "推論の強さ": "Intensitatea raționamentului",
   "推論の強さで指定": "Setat după intensitatea raționamentului",
-  "思考バジェットで指定": "Setat după bugetul de gândire"
+  "思考バジェットで指定": "Setat după bugetul de gândire",
+  "事業者の API に直接つなぐ": "Se conectează direct la API-ul furnizorului",
+  "ローカルの CLI を起動する": "Lansează un CLI local",
+  "自分で用意したサーバーにつなぐ": "Se conectează la un server pe care îl gestionezi tu",
+  "この PC の上でモデルを動かす": "Rulează modelul pe acest PC",
+  "クラウド基盤ごしにつなぐ": "Se conectează printr-o platformă cloud",
+  "推論に特化したサービスにつなぐ": "Se conectează la un serviciu specializat în inferență",
+  "Web 検索と組み合わせて答えるサービス": "Un serviciu care răspunde combinând cu căutarea web",
+  "ブラウザごしにやり取りする": "Comunică printr-un browser web",
+  "手でコピーして貼り付ける": "Copiere și lipire manuală",
+  "外部のエージェントが UnityAgent につなぐ": "Agenți externi se conectează la UnityAgent"
 }
