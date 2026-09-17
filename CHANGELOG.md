@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-17
+
 ### Added
 - 画像生成の出力の比率と解像度を指定できるようにした。設定画面の「画像生成プロバイダ」に「出力の比率」「出力の解像度」を追加
   - どちらも既定は「指定しない」。そのときは従来どおり `imageConfig` 自体を送らない。空の `imageConfig` を付けると、対応していないモデルや Vertex の旧エンドポイントが 400 を返すため
@@ -682,7 +684,8 @@
 - Claude CLI プロバイダーが出力をリアルタイムに流していなかった
 - 固定のタイムアウトを、無応答の時間で判定するタイムアウトに変えた。応答中なのにタイムアウトする誤判定を防ぐ
 
-[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.0...HEAD
+[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.1...HEAD
+[0.16.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.0...editor-v0.16.1
 [0.16.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.15.0...editor-v0.16.0
 [0.15.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.14.0...editor-v0.15.0
 [0.14.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.13.0...editor-v0.14.0
