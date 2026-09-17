@@ -59,6 +59,7 @@ const (
 	defaultIdleQuitGrace                    = 5 * time.Minute   // Quit after both sides are gone for this long.
 	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 	maintenanceInterval                     = 30 * time.Second  // How often the watchdog prunes and checks for idleness.
+	defaultHelloTimeout                     = 10 * time.Second  // How long a new connection has to authenticate before it is dropped.
 )
 
 var (
@@ -112,6 +113,10 @@ var errCallCanceled = errors.New("call canceled")
 type Bridge struct {
 	token string
 
+	// How long a freshly accepted connection has to send its hello. A field rather than a
+	// constant so tests can shorten it without a package-level global.
+	helloTimeout time.Duration
+
 	mu             sync.Mutex
 	unityConn      net.Conn // current Unity TCP connection (nil if disconnected)
 	unityWriter    *bufio.Writer
@@ -127,6 +132,7 @@ type Bridge struct {
 func newBridge(token string) *Bridge {
 	return &Bridge{
 		token:        token,
+		helloTimeout: defaultHelloTimeout,
 		pending:      make(map[string]*pendingCall),
 		lastActivity: time.Now(),
 	}
@@ -243,6 +249,17 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024) // 16MB max line for big tool results
 	authed := false
 
+	// Until the hello lands, nothing ties this connection to a live editor and nothing else
+	// will ever close it: swapUnityConn — which drops the connection it replaces — now runs
+	// only after the hello has been acknowledged. Without a deadline here, a local process
+	// that opens a socket and stays silent parks this goroutine and its file descriptor for
+	// the life of the bridge. Cleared once authenticated: an editor may legitimately sit
+	// idle for hours between calls.
+	if err := conn.SetReadDeadline(time.Now().Add(b.helloTimeout)); err != nil {
+		log.Printf("[bridge] failed to set hello deadline: %v", err)
+		return
+	}
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -275,6 +292,10 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 			// session, or race a call write with the handshake acknowledgement.
 			if err := b.writeUnityMsg(conn, wireMsg{Type: "hello_ack", OK: true}); err != nil {
 				log.Printf("[bridge] failed to acknowledge Unity hello: %v", err)
+				return
+			}
+			if err := conn.SetReadDeadline(time.Time{}); err != nil {
+				log.Printf("[bridge] failed to clear hello deadline: %v", err)
 				return
 			}
 			b.swapUnityConn(conn)

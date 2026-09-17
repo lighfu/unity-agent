@@ -156,6 +156,31 @@ test("background keeps the replacement content port after the old tab disconnect
   );
 });
 
+test("background forwards an answer that arrives on a replaced content port", () => {
+  const { runtime } = loadBackground();
+  const streamingPort = createPort();
+  runtime.onConnect.emit(streamingPort);
+  const socket = MockWebSocket.instances[0];
+  socket.emitOpen();
+
+  // A second tab connects while the first one is still producing the answer.
+  const newTabPort = createPort();
+  runtime.onConnect.emit(newTabPort);
+
+  streamingPort.onMessage.emit({ type: "partial", id: "req-1", text: "half" });
+  streamingPort.onMessage.emit({ type: "complete", id: "req-1", text: "done" });
+
+  const sent = socket.sent.map((raw) => JSON.parse(raw));
+  assert.ok(
+    sent.some((message) => message.type === "complete" && message.id === "req-1"),
+    "Unity waits on the request id with no deadline, so the answer must still be delivered"
+  );
+  assert.ok(
+    !sent.some((message) => message.type === "partial"),
+    "streaming updates from the replaced port are still dropped"
+  );
+});
+
 class FakeElement {
   constructor(tagName = "div") {
     this.tagName = tagName.toUpperCase();
@@ -357,6 +382,23 @@ test("content script does not complete an aborted request after a replacement pr
 
   const completions = port.messages.filter((message) => message.type === "complete");
   assert.deepEqual(completions.map((message) => message.id), ["second"]);
+});
+
+test("content script answers a request that a newer prompt replaced", async () => {
+  const { port, responses } = loadContent();
+  port.onMessage.emit({ type: "ws_connected" });
+  port.onMessage.emit({ type: "prompt", id: "first", text: "first prompt" });
+  port.onMessage.emit({ type: "prompt", id: "second", text: "second prompt" });
+
+  await waitFor(() => responses.length === 1);
+  await waitFor(() => port.messages.some((message) => message.type === "complete" && message.id === "second"));
+
+  const firstAnswers = port.messages.filter((message) => message.id === "first");
+  assert.deepEqual(
+    firstAnswers.map((message) => message.type),
+    ["error"],
+    "the superseded request must be answered exactly once, not left hanging"
+  );
 });
 
 test("content script stops contenteditable input work after request replacement", async () => {

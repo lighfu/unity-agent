@@ -237,3 +237,56 @@ func TestQueuedCallSurvivesUnityDisconnect(t *testing.T) {
 		t.Fatalf("queued call was removed from pending by the disconnect cleanup")
 	}
 }
+
+func TestSilentConnectionIsDroppedAfterHelloTimeout(t *testing.T) {
+	bridge := newBridge("secret")
+	bridge.helloTimeout = 50 * time.Millisecond
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	handlerReturned := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		bridge.handleUnityConn(conn)
+		close(handlerReturned)
+	}()
+
+	silent, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = silent.Close() })
+
+	select {
+	case <-handlerReturned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a connection that never sent hello was left open — its goroutine and fd would leak for the life of the bridge")
+	}
+
+	// Stopping the read is not enough; the socket itself has to go.
+	_ = silent.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := silent.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected the bridge to close the unauthenticated connection")
+	}
+}
+
+func TestAuthenticatedConnectionOutlivesTheHelloDeadline(t *testing.T) {
+	bridge := newBridge("secret")
+	bridge.helloTimeout = 50 * time.Millisecond
+	unity, reader := startFakeUnity(t, bridge)
+
+	// Well past the hello deadline. If it were not cleared once the handshake succeeded,
+	// an editor sitting idle between calls would be dropped mid-session.
+	time.Sleep(150 * time.Millisecond)
+
+	call := dispatchTestCall(t, bridge, reader, "GetEditorState")
+	bridge.cancelPendingCall(call)
+	_ = unity.Close()
+}

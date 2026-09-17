@@ -141,12 +141,21 @@ chrome.runtime.onConnect.addListener((p) => {
   p.postMessage({ type: isConnected ? "ws_connected" : "ws_disconnected" });
 
   p.onMessage.addListener((msg) => {
-    if (contentPort !== p || !msg || typeof msg !== "object") return;
+    if (!msg || typeof msg !== "object") return;
     // "keepalive" — just receiving it keeps the service worker alive, no forwarding needed
     if (msg.type === "keepalive") return;
 
+    // An answer that ends a request has to reach Unity even when it arrives on a port
+    // that has since been replaced — a second tab connecting is enough to replace one
+    // while the first tab is still streaming. Unity waits on the request id with no
+    // deadline of its own, so dropping the answer leaves the chat generating forever.
+    // Letting a stale one through is safe: BrowserBridgeState ignores any id that is
+    // not the request it is currently waiting on.
+    const isAnswer = msg.type === "complete" || msg.type === "error";
+    if (contentPort !== p && !isAnswer) return;
+
     // Messages from content script → forward to Unity
-    if (msg.type === "ready" || msg.type === "partial" || msg.type === "complete" || msg.type === "error" || msg.type === "pong") {
+    if (msg.type === "ready" || msg.type === "partial" || isAnswer || msg.type === "pong") {
       sendToUnity(msg);
     }
   });

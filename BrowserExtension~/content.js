@@ -426,8 +426,13 @@
           }
           console.log(`[UnityAgent] Received prompt (id=${msg.id}, ${msg.text.length} chars, newSession=${msg.newSession})`);
           if (activeRequest) {
-            activeRequest.aborted = true;
+            const superseded = activeRequest;
+            superseded.aborted = true;
             clickStopButton();
+            // The superseded loop returns without sending anything, so answer the old id
+            // here. Every request Unity sends has to come back answered — it matches on
+            // the id and has no deadline of its own.
+            send({ type: "error", id: superseded.id, message: "新しいリクエストで置き換えられました。" });
           }
           const request = { id: msg.id, aborted: false };
           activeRequest = request;
