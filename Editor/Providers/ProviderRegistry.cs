@@ -304,7 +304,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         {
             switch (type)
             {
-                case LLMProviderType.Claude_API: return 4;
+                // Claude Code も Claude API と同じ 5 段階を受け付ける
+                // (code.claude.com/docs/en/model-config)。どの値まで通るかはモデルによって違い、
+                // その絞り込みは EffortMaskFor がモデルの集合との積で行う。
+                case LLMProviderType.Claude_API:
+                case LLMProviderType.Claude_CLI: return 4;
                 case LLMProviderType.Codex_CLI:  return 3;
                 default:                         return 2;
             }

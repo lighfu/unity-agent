@@ -27,11 +27,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
         private readonly string _cliPath;
         private readonly string _modelName;
-        private readonly int _effortLevel; // -1=off, 0=low, 1=medium, 2=high
+        private readonly int _effortLevel; // -1=off, 0=low, 1=medium, 2=high, 3=xhigh, 4=max
         private readonly int _thinkingBudget;
         private const int TimeoutSeconds = 300;
 
-        private static readonly string[] EffortNames = { "low", "medium", "high" };
+        /// <summary>
+        /// --effort に渡す値。添字は設定 (ProviderConfig.EffortLevel) と共通で、
+        /// ProviderRegistry.EffortLevelLabels と対応する。
+        ///
+        /// Claude Code は Claude API と同じ low / medium / high / xhigh / max を受け付ける
+        /// (code.claude.com/docs/en/model-config)。どの値まで通るかはモデルによって違い、
+        /// 4.6 世代は xhigh だけを受け付けないので、実際に渡す値は ProviderRegistry 側が
+        /// モデルの集合と突き合わせて丸める。
+        ///
+        /// ultracode は入れない。これは Claude Code 側の設定で、モデルには xhigh を送ったうえで
+        /// ワークフローの組み立てを追加するものなので、強さの段階として並べると意味が揃わない。
+        /// </summary>
+        private static readonly string[] EffortNames = { "low", "medium", "high", "xhigh", "max" };
 
         public ClaudeCliProvider(string cliPath, string modelName, int effortLevel = -1, int thinkingBudget = 0)
         {
