@@ -9,9 +9,14 @@
 .vs/
 .vscode/
 *.csproj
+!Tests~/**/*.csproj
 *.sln
 *.suo
 *.user
+
+# Standalone regression harness outputs (outside Unity's imported assemblies)
+Tests~/**/bin/
+Tests~/**/obj/
 
 .DS_Store
 Thumbs.db

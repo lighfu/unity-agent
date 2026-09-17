@@ -128,10 +128,12 @@ Each direction is line-delimited JSON. One object per line.
   is `Unity connection lost while this call was running` instead — treat that as a possible
   crash. Calls that arrived while Unity was away (never sent) are queued as before.
 - **Unity reconnect**: After reload, Unity reconnects, sends `hello` again, queue is flushed.
-  Queued calls older than the 120 s per-call timeout are **dropped instead of dispatched** — the
-  HTTP side already gave up and answered its client, so running them would execute a tool nobody
-  is waiting for. Dropped calls are logged (`dropping stale queued call ...`). The same prune runs
-  every 30 s while Unity is away, so the queue cannot grow without bound.
+  If an MCP client cancels or disconnects while a call is still queued, that call is removed and
+  will not execute after reconnect. Queued calls older than the 120 s per-call timeout are also
+  **dropped instead of dispatched** — running them would execute a tool nobody is waiting for.
+  Dropped calls are logged (`dropping stale queued call ...`). The same prune runs every 30 s while
+  Unity is away, so the queue cannot grow without bound. Calls already sent to Unity cannot be
+  withdrawn from the wire; their result is dropped if the MCP request has gone away.
 - **Bridge death**: Unity's `AgentMCPServerBootstrap` keeps a supervisor on `EditorApplication.update`
   for the whole session, not just at startup. At startup it polls every 200 ms for ~5 s (the bridge
   is still coming up). If the connection is later lost — bridge killed, crashed, or idle-quit — it

@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
-using UnityEngine;
 
 namespace AjisaiFlow.UnityAgent.Editor.MCP
 {
@@ -41,6 +40,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// <summary>保留中の通知をスレッドセーフに取り出す。</summary>
         public List<MCPNotification> DrainNotifications()
         {
+            ProcessIncomingMessages();
             lock (_lock)
             {
                 if (_pendingNotifications.Count == 0) return null;
@@ -61,6 +61,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         readonly Queue<string> _lineQueue = new Queue<string>();
         readonly StringBuilder _stderrBuilder = new StringBuilder();
         readonly object _lock = new object();
+        readonly HashSet<int> _pendingRequests = new HashSet<int>();
+        readonly Dictionary<int, JNode> _responses = new Dictionary<int, JNode>();
+        readonly object _sendLock = new object();
+        readonly Queue<(System.Diagnostics.Process process, string json)> _sendQueue =
+            new Queue<(System.Diagnostics.Process, string)>();
+        bool _sendWorkerRunning;
         int _nextId = 1;
         bool _stdoutDone;
 
@@ -112,6 +118,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
 
             _process = process;
+            lock (_lock) _stdoutDone = false;
             AgentLogger.Info(LogTag.MCP, $"[{ServerName}] Process started. PID={process.Id}");
 
             // Async readers
@@ -119,6 +126,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 lock (_lock)
                 {
+                    if (_process != process) return;
                     if (e.Data != null)
                     {
                         _lineQueue.Enqueue(e.Data);
@@ -540,6 +548,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             AgentLogger.Info(LogTag.MCP, $"[{ServerName}] Dispose reason={reason ?? "unspecified"} wasConnected={wasConnected} pid={pid} hadExited={hadExited} tools={Tools.Count}");
 
             IsConnected = false;
+            lock (_lock)
+            {
+                _stdoutDone = true;
+                _lineQueue.Clear();
+                _pendingRequests.Clear();
+                _responses.Clear();
+                _pendingNotifications.Clear();
+            }
+            lock (_sendLock) _sendQueue.Clear();
             if (_process != null)
             {
                 try
@@ -576,6 +593,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         void SendRequest(string method, JNode parameters, int id)
         {
+            lock (_lock) _pendingRequests.Add(id);
             var msg = JNode.Obj(
                 ("jsonrpc", JNode.Str("2.0")),
                 ("method", JNode.Str(method)),
@@ -596,34 +614,32 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         void SendLine(string json)
         {
-            if (_process == null || _process.HasExited)
-            {
-                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] SendLine: process is null or exited, cannot send.");
-                return;
-            }
             try
             {
+                var process = _process;
+                if (process == null || process.HasExited)
+                {
+                    AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] SendLine: process is null or exited, cannot send.");
+                    return;
+                }
+
                 // 接続完了前のみログ出力
                 if (!IsConnected)
                 {
                     var preview = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
                     AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] STDIN> {preview}");
                 }
-                // Write on background thread to avoid blocking
-                var proc = _process;
-                var serverName = ServerName;
-                ThreadPool.QueueUserWorkItem(_ =>
+                // One worker preserves message order and keeps concurrent writes from
+                // interleaving on StreamWriter, while leaving the Editor thread free.
+                lock (_sendLock)
                 {
-                    try
+                    _sendQueue.Enqueue((process, json));
+                    if (!_sendWorkerRunning)
                     {
-                        proc.StandardInput.WriteLine(json);
-                        proc.StandardInput.Flush();
+                        _sendWorkerRunning = true;
+                        ThreadPool.QueueUserWorkItem(_ => DrainSendQueue());
                     }
-                    catch (Exception ex)
-                    {
-                        AgentLogger.Error(LogTag.MCP, $"[{serverName}] SendLine write error: {ex.Message}");
-                    }
-                });
+                }
             }
             catch (Exception ex)
             {
@@ -631,87 +647,127 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
         }
 
+        void DrainSendQueue()
+        {
+            while (true)
+            {
+                (System.Diagnostics.Process process, string json) item;
+                lock (_sendLock)
+                {
+                    if (_sendQueue.Count == 0)
+                    {
+                        _sendWorkerRunning = false;
+                        return;
+                    }
+                    item = _sendQueue.Dequeue();
+                }
+                try
+                {
+                    item.process.StandardInput.WriteLine(item.json);
+                    item.process.StandardInput.Flush();
+                }
+                catch (Exception ex)
+                {
+                    AgentLogger.Error(LogTag.MCP, $"[{ServerName}] SendLine write error: {ex.Message}");
+                }
+            }
+        }
+
+        void ProcessIncomingMessages()
+        {
+            List<string> lines;
+            lock (_lock)
+            {
+                if (_lineQueue.Count == 0) return;
+                lines = new List<string>(_lineQueue);
+                _lineQueue.Clear();
+            }
+
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrEmpty(line)) continue;
+                var node = JNode.Parse(line);
+                if (node.Type != JNode.JType.Object)
+                {
+                    AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] Failed to parse line: {line.Substring(0, Math.Min(200, line.Length))}");
+                    continue;
+                }
+
+                string method = node["method"].AsString;
+                if (!string.IsNullOrEmpty(method))
+                {
+                    lock (_lock)
+                        _pendingNotifications.Enqueue(new MCPNotification { Method = method, Params = node["params"] });
+                    AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Notification queued: {method}");
+                    continue;
+                }
+
+                var responseId = node["id"];
+                if (responseId.Type != JNode.JType.Number || responseId.AsNumber != responseId.AsInt)
+                    continue;
+                lock (_lock)
+                {
+                    // Ignore unsolicited or late replies instead of retaining them forever.
+                    if (_pendingRequests.Contains(responseId.AsInt) && !_responses.ContainsKey(responseId.AsInt))
+                        _responses.Add(responseId.AsInt, node);
+                }
+            }
+        }
+
         /// <summary>Poll for a JSON-RPC response with matching id.</summary>
         IEnumerator WaitForResponse(int id, Action<JNode> callback, int timeoutSeconds = TimeoutSeconds)
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-            while (stopwatch.Elapsed.TotalSeconds < timeoutSeconds)
+            try
             {
-                // Drain queue and look for matching response
-                List<string> lines = null;
+                while (stopwatch.Elapsed.TotalSeconds < timeoutSeconds)
+                {
+                    // Route every message before completing this request so other replies
+                    // and notifications in the same stdout batch are not discarded.
+                    ProcessIncomingMessages();
+                    JNode response;
+                    lock (_lock)
+                        _responses.TryGetValue(id, out response);
+                    if (response != null)
+                    {
+                        callback?.Invoke(response);
+                        yield break;
+                    }
+
+                    // Check if process died
+                    bool done;
+                    lock (_lock) done = _stdoutDone;
+                    if (done || (_process != null && _process.HasExited))
+                    {
+                        string stderr;
+                        lock (_lock) stderr = _stderrBuilder.ToString();
+                        int exitCode = -1;
+                        try { if (_process != null && _process.HasExited) exitCode = _process.ExitCode; } catch { }
+                        AgentLogger.Error(LogTag.MCP, $"[{ServerName}] Process died while waiting for id={id}. stdoutDone={done}, exitCode={exitCode}");
+                        if (!string.IsNullOrEmpty(stderr))
+                            AgentLogger.Error(LogTag.MCP, $"[{ServerName}] STDERR:\n{stderr}");
+                        callback?.Invoke(null);
+                        yield break;
+                    }
+
+                    yield return null;
+                }
+
+                string stderrTimeout;
+                lock (_lock) stderrTimeout = _stderrBuilder.ToString();
+                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] Response timeout for id={id} after {timeoutSeconds}s");
+                if (!string.IsNullOrEmpty(stderrTimeout))
+                    AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] STDERR at timeout:\n{stderrTimeout}");
+                callback?.Invoke(null);
+            }
+            finally
+            {
                 lock (_lock)
                 {
-                    if (_lineQueue.Count > 0)
-                    {
-                        lines = new List<string>(_lineQueue);
-                        _lineQueue.Clear();
-                    }
+                    _pendingRequests.Remove(id);
+                    _responses.Remove(id);
                 }
-
-                if (lines != null)
-                {
-                    foreach (var line in lines)
-                    {
-                        if (string.IsNullOrEmpty(line)) continue;
-                        var node = JNode.Parse(line);
-                        if (node == null || node.Type == JNode.JType.Null)
-                        {
-                            AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] Failed to parse line: {line.Substring(0, Math.Min(200, line.Length))}");
-                            continue;
-                        }
-                        if (node["id"].AsInt == id)
-                        {
-                            callback?.Invoke(node);
-                            yield break;
-                        }
-                        // Non-matching message: server notification or other response
-                        string method = node["method"].AsString;
-                        if (!string.IsNullOrEmpty(method))
-                        {
-                            // Server-initiated notification — queue for later processing (thread-safe)
-                            lock (_lock)
-                            {
-                                _pendingNotifications.Enqueue(new MCPNotification
-                                {
-                                    Method = method,
-                                    Params = node["params"],
-                                });
-                            }
-                            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Notification queued: {method}");
-                        }
-                        else
-                        {
-                            AgentLogger.Debug(LogTag.MCP, $"[{ServerName}] Non-matching response (waiting for id={id}): id={node["id"].AsInt}");
-                        }
-                    }
-                }
-
-                // Check if process died
-                bool done;
-                lock (_lock) done = _stdoutDone;
-                if (done || (_process != null && _process.HasExited))
-                {
-                    string stderr;
-                    lock (_lock) stderr = _stderrBuilder.ToString();
-                    int exitCode = -1;
-                    try { if (_process != null && _process.HasExited) exitCode = _process.ExitCode; } catch { }
-                    AgentLogger.Error(LogTag.MCP, $"[{ServerName}] Process died while waiting for id={id}. stdoutDone={done}, exitCode={exitCode}");
-                    if (!string.IsNullOrEmpty(stderr))
-                        AgentLogger.Error(LogTag.MCP, $"[{ServerName}] STDERR:\n{stderr}");
-                    callback?.Invoke(null);
-                    yield break;
-                }
-
-                yield return null;
             }
-
-            string stderrTimeout;
-            lock (_lock) stderrTimeout = _stderrBuilder.ToString();
-            AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] Response timeout for id={id} after {timeoutSeconds}s");
-            if (!string.IsNullOrEmpty(stderrTimeout))
-                AgentLogger.Warning(LogTag.MCP, $"[{ServerName}] STDERR at timeout:\n{stderrTimeout}");
-            callback?.Invoke(null);
         }
 
         // ─── Schema parsing ───

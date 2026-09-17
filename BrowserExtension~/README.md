@@ -23,3 +23,16 @@ python generate_icons.py
 
 The script creates the `icons/` directory and writes the three PNG files used
 by Chrome.
+
+## Regression tests
+
+The bridge regression tests use Node.js's built-in test runner and do not need
+npm dependencies. From the repository root, run:
+
+```sh
+node --test BrowserExtension~/tests/*.test.js
+```
+
+The tests execute the production background and content scripts in a minimal
+Chrome, WebSocket, and DOM mock so connection races and request cancellation
+remain covered without launching a browser.

@@ -106,7 +106,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                     continue;
                 }
 
-                // 対応する "</tool>" を探す。途中の <arg>...</arg> は気にせず、最初の </tool> を採用する。
+                // 対応する "</tool>" を探す。本文は生テキストとして扱うため、
+                // 終端の判定は既存の寛容な走査ルールに従う。
                 int closeStart = IndexOfCloseTag(text, contentStart, "tool");
 
                 if (closeStart < 0)
@@ -122,7 +123,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 }
 
                 int bodyEnd = closeStart;                       // <arg> をスキャンする範囲の終端（排他）
-                int closeEnd = closeStart + "</tool>".Length;
+                int closeEnd = GetCloseTagEnd(text, closeStart, "tool");
                 int toolLength = closeEnd - toolStart;          // XmlToolCall.Length
 
                 var args = ParseArgs(text, contentStart, bodyEnd);
@@ -196,7 +197,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 else
                 {
                     rawEnd = closeStart;
-                    nextPos = closeStart + "</arg>".Length;
+                    nextPos = GetCloseTagEnd(text, closeStart, "arg");
                 }
 
                 // name 属性が無い arg は寛容に無視する（内容のスキップだけ行う）。
@@ -401,14 +402,23 @@ namespace AjisaiFlow.UnityAgent.Editor
                     continue;
                 }
                 // 末尾の '>' を許容（間に空白可: "</tool >"）。
-                int j = after;
-                while (j < text.Length && (text[j] == ' ' || text[j] == '\t' || text[j] == '\r' || text[j] == '\n'))
-                    j++;
-                if (j < text.Length && text[j] == '>')
+                if (GetCloseTagEnd(text, idx, name) >= 0)
                     return idx;
                 // '>' が見つからない場合は不正 → 次を探す。
                 i = idx + 1;
             }
+        }
+
+        /// <summary>
+        /// 指定位置の閉じタグの直後を返す。IndexOfCloseTag は開始位置だけを返すため、
+        /// 許容されたタグ名後の空白を含めて Length/走査位置を正しく計算する。
+        /// </summary>
+        private static int GetCloseTagEnd(string text, int closeStart, string name)
+        {
+            int j = closeStart + 2 + name.Length;
+            while (j < text.Length && IsWhite(text[j]))
+                j++;
+            return j < text.Length && text[j] == '>' ? j + 1 : -1;
         }
 
         /// <summary>

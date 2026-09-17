@@ -5,7 +5,10 @@ const infoEl = document.getElementById("info");
 
 // Load saved port and status
 chrome.storage.local.get(["port", "connected"], (data) => {
-  portInput.value = data.port || 6090;
+  const savedPort = Number(data.port);
+  portInput.value = Number.isInteger(savedPort) && savedPort >= 1 && savedPort <= 65535
+    ? savedPort
+    : 6090;
   updateStatus(data.connected || false);
 });
 
@@ -27,10 +30,14 @@ function updateStatus(connected) {
 }
 
 saveBtn.addEventListener("click", () => {
-  const port = parseInt(portInput.value, 10);
-  if (port > 0 && port <= 65535) {
-    chrome.storage.local.set({ port }, () => {
-      infoEl.textContent = "ポートを " + port + " に設定しました。AI チャットページをリロードしてください。";
-    });
+  const rawPort = portInput.value.trim();
+  const port = Number(rawPort);
+  if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 1 || port > 65535) {
+    infoEl.textContent = "ポートは 1〜65535 の整数で入力してください。";
+    return;
   }
+
+  chrome.storage.local.set({ port }, () => {
+    infoEl.textContent = "ポートを " + port + " に設定しました。AI チャットページをリロードしてください。";
+  });
 });

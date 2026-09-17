@@ -83,6 +83,7 @@ jobs:
           zip -r "com.ajisaiflow.unityagent-${{ steps.version.outputs.version }}.zip" . \
             -x ".git/*" ".github/*" "README.md" "CHANGELOG.md" ".gitignore" \
             -x "SDK/*" "SDK.meta" \
+            -x "Tests~/*" "BrowserExtension~/tests/*" \
             -x "docs/*" "docs.meta"
 
       - name: Verify packaged package.json

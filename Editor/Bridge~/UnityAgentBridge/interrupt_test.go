@@ -13,6 +13,10 @@ import (
 // editor, completes the hello handshake, and returns the Unity-side end. Loopback TCP rather
 // than net.Pipe so writes are buffered and the test never deadlocks on an unread line.
 func startFakeUnity(t *testing.T, bridge *Bridge) (net.Conn, *bufio.Reader) {
+	return startFakeUnityWithToken(t, bridge, "secret")
+}
+
+func startFakeUnityWithToken(t *testing.T, bridge *Bridge, token string) (net.Conn, *bufio.Reader) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -25,7 +29,6 @@ func startFakeUnity(t *testing.T, bridge *Bridge) (net.Conn, *bufio.Reader) {
 		if err != nil {
 			return
 		}
-		bridge.swapUnityConn(conn)
 		bridge.handleUnityConn(conn)
 	}()
 
@@ -35,7 +38,7 @@ func startFakeUnity(t *testing.T, bridge *Bridge) (net.Conn, *bufio.Reader) {
 	}
 	t.Cleanup(func() { _ = unity.Close() })
 
-	if _, err := unity.Write([]byte(`{"type":"hello","version":"test","token":"secret"}` + "\n")); err != nil {
+	if _, err := unity.Write([]byte(`{"type":"hello","version":"test","token":"` + token + `"}` + "\n")); err != nil {
 		t.Fatalf("write hello: %v", err)
 	}
 	reader := bufio.NewReader(unity)
@@ -87,6 +90,55 @@ func awaitResult(t *testing.T, call *pendingCall) callResult {
 		t.Fatalf("call %s was not answered within 2 s — it would have waited the full callTimeout", call.ID)
 		return callResult{}
 	}
+}
+
+func TestUnauthenticatedConnectionCannotReplaceAuthenticatedUnity(t *testing.T) {
+	bridge := newBridge("secret")
+	healthy, reader := startFakeUnity(t, bridge)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen second connection: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			bridge.handleUnityConn(conn)
+		}
+	}()
+	attacker, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial second connection: %v", err)
+	}
+	t.Cleanup(func() { _ = attacker.Close() })
+	if _, err := attacker.Write([]byte(`{"type":"hello","version":"test","token":"wrong"}` + "\n")); err != nil {
+		t.Fatalf("write bad hello: %v", err)
+	}
+	ack, err := bufio.NewReader(attacker).ReadString('\n')
+	if err != nil || !strings.Contains(ack, `"error":"bad token"`) {
+		t.Fatalf("expected rejected hello, got %q (err=%v)", ack, err)
+	}
+
+	call := &pendingCall{
+		ID:       "call-after-bad-hello",
+		Tool:     "GetEditorState",
+		Args:     json.RawMessage(`{}`),
+		Response: make(chan callResult, 1),
+		Created:  time.Now(),
+	}
+	bridge.mu.Lock()
+	bridge.pending[call.ID] = call
+	bridge.mu.Unlock()
+	if err := bridge.dispatchToUnity(call); err != nil {
+		t.Fatalf("authenticated connection was replaced by bad hello: %v", err)
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil || !strings.Contains(line, call.ID) {
+		t.Fatalf("expected call on healthy connection, got %q (err=%v)", line, err)
+	}
+	bridge.cancelPendingCall(call)
+	_ = healthy.Close()
 }
 
 func assertNotPending(t *testing.T, bridge *Bridge, id string) {
