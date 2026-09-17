@@ -1,5 +1,6 @@
 using System;
 using AjisaiFlow.MD3SDK.Editor;
+using AjisaiFlow.UnityAgent.Editor.Providers;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -19,6 +20,7 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
         MD3IconButton _stopBtn;
         MD3IconButton _attachBtn;
         MD3Chip _providerChip;
+        Label _providerIcon;
         MD3Chip _modelChip;
         MD3Chip _thinkingChip;
         VisualElement _attachPreview;
@@ -99,10 +101,31 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
 
             _providerChip = new MD3Chip("Provider", false);
             _providerChip.clicked += () => OnProviderChipClicked?.Invoke();
+
+            // プロバイダーのアイコン。MD3Chip は中身が Label だけでアイコンを渡す口が無いが、
+            // .md3-chip は flex-direction: row / align-items: center なので、先頭に差し込めば
+            // そのまま内側に収まる。中身は UpdateProviderName が入れる。
+            _providerIcon = MD3Icon.Create(MD3Icon.Api, ProviderIconSize);
+            _providerIcon.style.marginRight = ProviderIconGap;
+            _providerIcon.style.display = DisplayStyle.None;
+            _providerChip.Insert(0, _providerIcon);
             chipRow.Add(_providerChip);
 
             _modelChip = new MD3Chip("Model", false);
             _modelChip.clicked += () => OnModelChipClicked?.Invoke();
+            // 狭いウィンドウでチップ行がはみ出さないように、モデル名だけは縮むようにする。
+            // .md3-chip は flex-shrink: 0 なので、放っておくと 3 つのチップが幅を譲らず、
+            // 右端の「ログを保存」が行の外へ押し出される。縮めてよいのは、モデル名だけが
+            // 唯一長さの上限を持たない (カスタムモデル欄に何を書いてもよい) ためで、
+            // 削られた分は末尾に … が出る。
+            _modelChip.style.flexShrink = 1;
+            var modelLabel = _modelChip.Q<Label>(className: "md3-chip__label");
+            if (modelLabel != null)
+            {
+                modelLabel.style.flexShrink = 1;
+                modelLabel.style.overflow = Overflow.Hidden;
+                modelLabel.style.textOverflow = TextOverflow.Ellipsis;
+            }
             chipRow.Add(_modelChip);
 
             // 思考の深さ。表示する名前も選択肢もモデルの指定方法で変わるので、
@@ -229,9 +252,36 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             _attachBtn.SetEnabled(!processing);
         }
 
-        public void UpdateProviderName(string name)
+        /// <summary>プロバイダーのアイコンの大きさ。.md3-chip__label が 13px なので、それに揃える。</summary>
+        const float ProviderIconSize = 13f;
+        /// <summary>アイコンとプロバイダー名の間。</summary>
+        const float ProviderIconGap = 5f;
+
+        /// <summary>
+        /// プロバイダー Chip を更新する。provider を渡すとアイコンも付く。
+        /// テスト実行中の乗っ取り表示のように、プロバイダーに対応しない名前を出すときは
+        /// provider を省略する (アイコンは消える)。
+        /// </summary>
+        public void UpdateProviderName(string name, LLMProviderType? provider = null)
         {
             _providerChip.Text = name ?? "Provider";
+
+            if (provider.HasValue)
+            {
+                _providerIcon.text = ProviderIconStyle.Glyph(provider.Value);
+                _providerIcon.style.color = ProviderIconStyle.Tint(provider.Value, _theme);
+                _providerIcon.style.display = DisplayStyle.Flex;
+                // アイコンを出した分だけ左の余白を詰める。MD3 の leading-icon chip は
+                // 左 8px / 右 16px なので、増えるのは実質 (13 + 5 - 8) = 10px で済む。
+                _providerChip.style.paddingLeft = 8;
+                _providerChip.tooltip = ProviderIconStyle.RouteHint(provider.Value);
+            }
+            else
+            {
+                _providerIcon.style.display = DisplayStyle.None;
+                _providerChip.style.paddingLeft = 16;
+                _providerChip.tooltip = null;
+            }
         }
 
         public void UpdateModelName(string name)

@@ -403,8 +403,15 @@ namespace AjisaiFlow.UnityAgent.Editor
             allModelsBtn.clicked += () => ModelCapabilityWindow.Open();
             parent.Add(allModelsBtn);
 
+            // 見出しの左に、いま選んでいるプロバイダーのアイコンを出す。
+            // ドロップダウンの項目そのものには付けられない。MD3Dropdown は MD3MenuItem を
+            // コンストラクタの中で作って private に抱えており、外から項目に触る口が無いうえ、
+            // メニューは開いたときに別の要素 (themed root) の下へ移されるので Query でも掴めない。
+            // MD3SDK を変えずに済ませるため、ここではドロップダウンの直上に出すだけにした。
             AddSectionLabel(parent, M("プロバイダ選択"),
-                M("使用するAIプロバイダを選択します。各プロバイダにはAPIキーが必要です。"));
+                M("使用するAIプロバイダを選択します。各プロバイダにはAPIキーが必要です。"),
+                ProviderIconStyle.Glyph(_providerType),
+                ProviderIconStyle.Tint(_providerType, _theme));
 
             // Provider selector
             var providerDropdown = new MD3Dropdown(M("プロバイダ"),
@@ -2832,14 +2839,39 @@ namespace AjisaiFlow.UnityAgent.Editor
             parent.Add(heading);
         }
 
-        private void AddSectionLabel(VisualElement parent, string title, string description = null)
+        /// <summary>
+        /// 節の見出しを足す。iconGlyph を渡すと、見出しの左にそのアイコンが並ぶ。
+        /// </summary>
+        private void AddSectionLabel(VisualElement parent, string title, string description = null,
+                                     string iconGlyph = null, Color? iconColor = null)
         {
             var titleText = new MD3Text(title, MD3TextStyle.TitleMedium,
                 color: _theme.Primary);
-            titleText.style.marginLeft = 12;
             titleText.style.marginRight = 12;
             titleText.style.marginTop = 8;
-            parent.Add(titleText);
+
+            if (iconGlyph != null)
+            {
+                // アイコンと見出しを 1 行に並べる。左の余白は行の側でまとめて持ち、
+                // 見出しの側は 0 に戻す (両方に 12px を付けると二重になる)。
+                var row = new VisualElement();
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignItems = Align.Center;
+                row.style.marginLeft = 12;
+
+                var icon = MD3Icon.Create(iconGlyph, 18f, iconColor ?? _theme.Primary);
+                icon.style.marginRight = 8;
+                row.Add(icon);
+
+                titleText.style.marginLeft = 0;
+                row.Add(titleText);
+                parent.Add(row);
+            }
+            else
+            {
+                titleText.style.marginLeft = 12;
+                parent.Add(titleText);
+            }
 
             if (description != null)
             {

@@ -1,5 +1,6 @@
 using System;
 using AjisaiFlow.MD3SDK.Editor;
+using AjisaiFlow.UnityAgent.Editor.Providers;
 using UnityEngine;
 using UnityEngine.UIElements;
 using static AjisaiFlow.UnityAgent.Editor.L10n;
@@ -50,7 +51,11 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             _menuCard = new MD3Card(null, null, MD3CardStyle.Elevated);
             _menuCard.style.position = Position.Absolute;
             _menuCard.style.minWidth = 200;
-            _menuCard.style.maxWidth = 320;
+            // 360px はプロバイダー名で最も長い「Web Browser (Gemini / ChatGPT / Copilot)」が
+            // アイコンを足しても 1 行に収まる幅。.md3-menu-item は height 48px / overflow: hidden
+            // なので、折り返すと 2 行目が切れて読めなくなる。
+            // 想定している最も狭いウィンドウ (632px) でも、左端 8px + 360px で収まる。
+            _menuCard.style.maxWidth = 360;
             _menuCard.style.maxHeight = 400;
             MD3Elevation.AddInnerShadow(_menuCard, 16f, 2);
 
@@ -61,8 +66,13 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
             Add(_menuCard);
         }
 
-        /// <summary>プロバイダー選択メニューを表示する。</summary>
-        public void ShowProviderMenu(string[] names, string[] shortNames, int currentIndex, Rect anchorRect)
+        /// <summary>
+        /// プロバイダー選択メニューを表示する。
+        /// types を渡すと、項目の先頭にそのプロバイダーのアイコンが付く
+        /// (names の添字と対応させること)。
+        /// </summary>
+        public void ShowProviderMenu(string[] names, string[] shortNames, int currentIndex, Rect anchorRect,
+                                     LLMProviderType[] types = null)
         {
             _scrollView.Clear();
 
@@ -75,6 +85,18 @@ namespace AjisaiFlow.UnityAgent.Editor.UI
                 var item = new MD3MenuItem(label);
                 if (selected)
                     item.style.backgroundColor = _theme.SecondaryContainer;
+
+                if (types != null && i < types.Length)
+                {
+                    // MD3MenuItem も中身は Label だけだが、.md3-menu-item は
+                    // flex-direction: row / align-items: center なので先頭に差し込める。
+                    var icon = ProviderIconStyle.CreateIcon(types[i], _theme, 16f);
+                    icon.style.marginRight = 10;
+                    item.Insert(0, icon);
+                    // 増える幅を抑えるため、左の余白を 16px から 12px に詰める。
+                    item.style.paddingLeft = 12;
+                    item.tooltip = ProviderIconStyle.RouteHint(types[i]);
+                }
 
                 item.clicked += () =>
                 {

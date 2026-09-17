@@ -750,7 +750,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private void UpdateProviderModelChips()
         {
-            _inputBar?.UpdateProviderName(GetProviderShortName());
+            _inputBar?.UpdateProviderName(GetProviderShortName(), _providerType);
             _inputBar?.UpdateModelName(GetActiveModelDisplayName());
             _inputBar?.UpdateThinkingName(DescribeThinkingChip());
             RefreshApiKeyNotice();
@@ -843,7 +843,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 shortNames[i] = desc.ShortName;
             }
             _quickMenuOverlay.ShowProviderMenu(names, shortNames, (int)_providerType,
-                _inputBar?.worldBound ?? Rect.zero);
+                _inputBar?.worldBound ?? Rect.zero, providers);
         }
 
         private void ShowModelQuickMenu()
@@ -1176,7 +1176,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 if (_welcomePanel != null)
                     _welcomePanel.style.display = _chatHistory.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
                 if (_backupInputBarText != null) _inputBar?.SetText(_backupInputBarText);
-                if (_backupProviderName != null) _inputBar?.UpdateProviderName(_backupProviderName);
+                if (_backupProviderName != null) _inputBar?.UpdateProviderName(_backupProviderName, _providerType);
                 if (_backupModelName != null) _inputBar?.UpdateModelName(_backupModelName);
                 _backupAgent = null;
                 _backupChatHistory = null;
