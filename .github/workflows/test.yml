@@ -1,0 +1,49 @@
+name: Regression tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Editor/Bridge~/UnityAgentBridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: false
+      - run: go test -race ./...
+      - run: go vet ./...
+
+  csharp:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - run: dotnet run --project Tests~/Core/Core.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/MCPClient/MCPClient.Tests.csproj --configuration Release
+
+  browser-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check BrowserExtension~/background.js
+      - run: node --check BrowserExtension~/content.js
+      - run: node --check BrowserExtension~/popup.js
+      - run: node --test BrowserExtension~/tests/*.test.js

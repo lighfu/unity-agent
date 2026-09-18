@@ -9,6 +9,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     internal sealed class JNode
     {
         public enum JType { Null, Bool, Number, String, Array, Object }
+        const int MaxParseDepth = 128;
 
         public readonly JType Type;
         readonly string _s;
@@ -28,13 +29,25 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public static JNode Num(double v) => new JNode(JType.Number, n: v);
         public static JNode Bool(bool v) => new JNode(JType.Bool, b: v);
 
-        public static JNode Arr(params JNode[] items) =>
-            new JNode(JType.Array, a: new List<JNode>(items));
+        public static JNode Arr(params JNode[] items)
+        {
+            var list = new List<JNode>(items?.Length ?? 0);
+            if (items != null)
+            {
+                foreach (var item in items)
+                    list.Add(item ?? NullNode);
+            }
+            return new JNode(JType.Array, a: list);
+        }
 
         public static JNode Obj(params (string key, JNode val)[] pairs)
         {
             var d = new Dictionary<string, JNode>();
-            foreach (var (k, v) in pairs) d[k] = v;
+            if (pairs != null)
+            {
+                foreach (var (k, v) in pairs)
+                    d[k] = v ?? NullNode;
+            }
             return new JNode(JType.Object, o: d);
         }
 
@@ -64,20 +77,33 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             if (string.IsNullOrEmpty(json)) return NullNode;
             int pos = 0;
-            var result = ParseValue(json, ref pos);
-            return result ?? NullNode;
+            var result = ParseValue(json, ref pos, 0);
+            if (result == null)
+                return NullNode;
+
+            SkipWs(json, ref pos);
+            return pos == json.Length ? result : NullNode;
         }
 
-        static JNode ParseValue(string s, ref int i)
+        static JNode ParseValue(string s, ref int i, int depth)
         {
             SkipWs(s, ref i);
             if (i >= s.Length) return NullNode;
             char c = s[i];
             if (c == '"') return ParseString(s, ref i);
-            if (c == '{') return ParseObject(s, ref i);
-            if (c == '[') return ParseArray(s, ref i);
-            if (c == 't' || c == 'f') return ParseBool(s, ref i);
-            if (c == 'n') { i += 4; return NullNode; }
+            if (c == '{')
+            {
+                if (depth >= MaxParseDepth) return null;
+                return ParseObject(s, ref i, depth + 1);
+            }
+            if (c == '[')
+            {
+                if (depth >= MaxParseDepth) return null;
+                return ParseArray(s, ref i, depth + 1);
+            }
+            if (c == 't' && MatchKeyword(s, ref i, "true")) return Bool(true);
+            if (c == 'f' && MatchKeyword(s, ref i, "false")) return Bool(false);
+            if (c == 'n' && MatchKeyword(s, ref i, "null")) return NullNode;
             return ParseNumber(s, ref i);
         }
 
@@ -102,14 +128,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         case 'b': sb.Append('\b'); break;
                         case 'f': sb.Append('\f'); break;
                         case 'u':
-                            if (i + 5 < s.Length && int.TryParse(s.Substring(i + 2, 4),
-                                NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int cp))
-                            {
-                                sb.Append((char)cp);
-                                i += 4;
-                            }
+                            if (i + 5 >= s.Length || !int.TryParse(s.Substring(i + 2, 4),
+                                NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out int cp))
+                                return null;
+                            sb.Append((char)cp);
+                            i += 4;
                             break;
-                        default: sb.Append('\\'); sb.Append(next); break;
+                        default: return null;
                     }
                     i += 2;
                 }
@@ -120,34 +145,63 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
                 else
                 {
+                    if (c < 0x20)
+                        return null;
                     sb.Append(c);
                     i++;
                 }
             }
-            return Str(sb.ToString());
+            return null;
         }
 
         static JNode ParseNumber(string s, ref int i)
         {
             int start = i;
             if (i < s.Length && s[i] == '-') i++;
-            while (i < s.Length && (char.IsDigit(s[i]) || s[i] == '.' || s[i] == 'e' || s[i] == 'E' || s[i] == '+' || s[i] == '-'))
+
+            if (i >= s.Length)
+                return null;
+
+            if (s[i] == '0')
             {
-                if ((s[i] == '+' || s[i] == '-') && i > start && s[i - 1] != 'e' && s[i - 1] != 'E') break;
                 i++;
             }
-            if (double.TryParse(s.Substring(start, i - start), NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            else if (s[i] >= '1' && s[i] <= '9')
+            {
+                while (i < s.Length && char.IsDigit(s[i])) i++;
+            }
+            else
+            {
+                return null;
+            }
+
+            if (i < s.Length && s[i] == '.')
+            {
+                i++;
+                int fractionStart = i;
+                while (i < s.Length && char.IsDigit(s[i])) i++;
+                if (i == fractionStart)
+                    return null;
+            }
+
+            if (i < s.Length && (s[i] == 'e' || s[i] == 'E'))
+            {
+                i++;
+                if (i < s.Length && (s[i] == '+' || s[i] == '-')) i++;
+                int exponentStart = i;
+                while (i < s.Length && char.IsDigit(s[i])) i++;
+                if (i == exponentStart)
+                    return null;
+            }
+
+            if (double.TryParse(s.Substring(start, i - start), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out double v) &&
+                !double.IsInfinity(v) && !double.IsNaN(v))
                 return Num(v);
-            return Num(0);
+            return null;
         }
 
-        static JNode ParseBool(string s, ref int i)
-        {
-            if (s[i] == 't') { i += 4; return Bool(true); }
-            i += 5; return Bool(false);
-        }
-
-        static JNode ParseObject(string s, ref int i)
+        static JNode ParseObject(string s, ref int i, int depth)
         {
             i++; // skip {
             var dict = new Dictionary<string, JNode>();
@@ -158,20 +212,29 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             {
                 SkipWs(s, ref i);
                 if (i >= s.Length || s[i] != '"') break;
-                string key = ParseString(s, ref i).AsString;
+                var keyNode = ParseString(s, ref i);
+                if (keyNode == null)
+                    return null;
+                string key = keyNode.AsString;
                 SkipWs(s, ref i);
-                if (i < s.Length && s[i] == ':') i++;
-                var val = ParseValue(s, ref i);
+                if (i >= s.Length || s[i] != ':')
+                    return null;
+                i++;
+                var val = ParseValue(s, ref i, depth);
+                if (val == null)
+                    return null;
                 dict[key] = val;
                 SkipWs(s, ref i);
                 if (i < s.Length && s[i] == ',') { i++; continue; }
                 if (i < s.Length && s[i] == '}') { i++; break; }
-                break;
+                return null;
             }
-            return new JNode(JType.Object, o: dict);
+            return i <= s.Length && i > 0 && s[i - 1] == '}'
+                ? new JNode(JType.Object, o: dict)
+                : null;
         }
 
-        static JNode ParseArray(string s, ref int i)
+        static JNode ParseArray(string s, ref int i, int depth)
         {
             i++; // skip [
             var list = new List<JNode>();
@@ -180,18 +243,32 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             while (i < s.Length)
             {
-                list.Add(ParseValue(s, ref i));
+                var value = ParseValue(s, ref i, depth);
+                if (value == null)
+                    return null;
+                list.Add(value);
                 SkipWs(s, ref i);
                 if (i < s.Length && s[i] == ',') { i++; continue; }
                 if (i < s.Length && s[i] == ']') { i++; break; }
-                break;
+                return null;
             }
-            return new JNode(JType.Array, a: list);
+            return i <= s.Length && i > 0 && s[i - 1] == ']'
+                ? new JNode(JType.Array, a: list)
+                : null;
         }
 
         static void SkipWs(string s, ref int i)
         {
-            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            while (i < s.Length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n')) i++;
+        }
+
+        static bool MatchKeyword(string s, ref int i, string keyword)
+        {
+            if (i + keyword.Length > s.Length ||
+                string.CompareOrdinal(s, i, keyword, 0, keyword.Length) != 0)
+                return false;
+            i += keyword.Length;
+            return true;
         }
 
         // ─── Stringify ───
@@ -205,12 +282,21 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void WriteJson(StringBuilder sb, JNode node)
         {
+            if (node == null)
+            {
+                sb.Append("null");
+                return;
+            }
+
             switch (node.Type)
             {
                 case JType.Null: sb.Append("null"); break;
                 case JType.Bool: sb.Append(node._b ? "true" : "false"); break;
                 case JType.Number:
-                    sb.Append(node._n.ToString(CultureInfo.InvariantCulture));
+                    if (double.IsNaN(node._n) || double.IsInfinity(node._n))
+                        sb.Append("null");
+                    else
+                        sb.Append(node._n.ToString(CultureInfo.InvariantCulture));
                     break;
                 case JType.String:
                     sb.Append('"');

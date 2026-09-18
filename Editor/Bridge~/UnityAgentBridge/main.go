@@ -27,6 +27,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -57,6 +59,7 @@ const (
 	defaultIdleQuitGrace                    = 5 * time.Minute   // Quit after both sides are gone for this long.
 	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 	maintenanceInterval                     = 30 * time.Second  // How often the watchdog prunes and checks for idleness.
+	defaultHelloTimeout                     = 10 * time.Second  // How long a new connection has to authenticate before it is dropped.
 )
 
 var (
@@ -77,8 +80,9 @@ type pendingCall struct {
 	ID       string          // bridge-internal request id (uuid-ish string)
 	Tool     string          // tool name
 	Args     json.RawMessage // tool arguments
-	Response chan callResult // closed when Unity responds (or timeout)
+	Response chan callResult // receives when Unity responds, disconnects, or times out
 	Created  time.Time
+	Context  context.Context // MCP request context; nil for internal/test calls
 	// The Unity connection this call was written to, nil while it sits in queueWhenDown.
 	// Lets the connection's cleanup fail exactly the calls that died with it — not the ones
 	// still queued, and not ones already re-dispatched on a newer connection. Guarded by
@@ -101,9 +105,17 @@ type callResult struct {
 // AgentMCPServer reject a call up front when a modal dialog holds the main thread).
 const errCodeInterrupted = -32003
 
+// errCallCanceled is internal: it tells a reconnect flush that the HTTP caller
+// went away before the queued call could be dispatched.
+var errCallCanceled = errors.New("call canceled")
+
 // Bridge holds the routing state. There is exactly one of these per process.
 type Bridge struct {
 	token string
+
+	// How long a freshly accepted connection has to send its hello. A field rather than a
+	// constant so tests can shorten it without a package-level global.
+	helloTimeout time.Duration
 
 	mu             sync.Mutex
 	unityConn      net.Conn // current Unity TCP connection (nil if disconnected)
@@ -120,6 +132,7 @@ type Bridge struct {
 func newBridge(token string) *Bridge {
 	return &Bridge{
 		token:        token,
+		helloTimeout: defaultHelloTimeout,
 		pending:      make(map[string]*pendingCall),
 		lastActivity: time.Now(),
 	}
@@ -182,9 +195,6 @@ func (b *Bridge) startUnityTCPServer(addr string) error {
 				log.Printf("[bridge] accept error: %v", err)
 				return
 			}
-			// Single-connection model: if a previous Unity is still connected, drop the old one
-			// (likely a stale handle from before reload).
-			b.swapUnityConn(conn)
 			go b.handleUnityConn(conn)
 		}
 	}()
@@ -194,7 +204,7 @@ func (b *Bridge) startUnityTCPServer(addr string) error {
 func (b *Bridge) swapUnityConn(newConn net.Conn) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.unityConn != nil {
+	if b.unityConn != nil && b.unityConn != newConn {
 		log.Printf("[bridge] dropping previous Unity connection (new connection arrived)")
 		_ = b.unityConn.Close()
 	}
@@ -239,6 +249,17 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024) // 16MB max line for big tool results
 	authed := false
 
+	// Until the hello lands, nothing ties this connection to a live editor and nothing else
+	// will ever close it: swapUnityConn — which drops the connection it replaces — now runs
+	// only after the hello has been acknowledged. Without a deadline here, a local process
+	// that opens a socket and stays silent parks this goroutine and its file descriptor for
+	// the life of the bridge. Cleared once authenticated: an editor may legitimately sit
+	// idle for hours between calls.
+	if err := conn.SetReadDeadline(time.Now().Add(b.helloTimeout)); err != nil {
+		log.Printf("[bridge] failed to set hello deadline: %v", err)
+		return
+	}
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -265,8 +286,20 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 				log.Printf("[bridge] unity auth failed (token mismatch)")
 				return
 			}
+			// Do not replace the current Unity connection until this connection has
+			// authenticated and its acknowledgement is on the wire. Otherwise any
+			// local process can connect with a bad token, evict a healthy editor
+			// session, or race a call write with the handshake acknowledgement.
+			if err := b.writeUnityMsg(conn, wireMsg{Type: "hello_ack", OK: true}); err != nil {
+				log.Printf("[bridge] failed to acknowledge Unity hello: %v", err)
+				return
+			}
+			if err := conn.SetReadDeadline(time.Time{}); err != nil {
+				log.Printf("[bridge] failed to clear hello deadline: %v", err)
+				return
+			}
+			b.swapUnityConn(conn)
 			authed = true
-			_ = b.writeUnityMsg(conn, wireMsg{Type: "hello_ack", OK: true})
 			log.Printf("[bridge] unity authed (version=%s)", msg.Version)
 			b.flushQueuedCalls()
 			continue
@@ -304,10 +337,9 @@ func (b *Bridge) writeUnityMsg(conn net.Conn, msg wireMsg) error {
 
 // pruneStaleQueuedCalls drops queued calls older than callTimeout and returns how many went.
 //
-// The HTTP handler gives up on a call after callTimeout and has already answered its client by
-// then, but it only removes the call from `pending` — never from `queueWhenDown`. Without this
-// prune, a call nobody is waiting for any more would still be dispatched to Unity on reconnect
-// and actually run, which is dangerous for destructive tools.
+// The HTTP handler gives up on a call after callTimeout, but a call that remains in
+// `queueWhenDown` would still be dispatched to Unity on reconnect and actually run, which is
+// dangerous for destructive tools. Pruning also wakes a handler that lost the timeout race.
 func (b *Bridge) pruneStaleQueuedCalls(now time.Time) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -317,6 +349,11 @@ func (b *Bridge) pruneStaleQueuedCalls(now time.Time) int {
 	for _, call := range b.queueWhenDown {
 		if age := now.Sub(call.Created); age > callTimeout {
 			delete(b.pending, call.ID)
+			select {
+			case call.Response <- callResult{OK: false, Error: "Timeout", ErrCode: -32001,
+				Data: fmt.Sprintf("Tool '%s' was queued for longer than %s while Unity was disconnected.", call.Tool, callTimeout)}:
+			default:
+			}
 			log.Printf("[bridge] dropping stale queued call id=%s tool=%s age=%s (over %s, caller already gave up)",
 				call.ID, call.Tool, age.Round(time.Second), callTimeout)
 			dropped++
@@ -343,6 +380,10 @@ func (b *Bridge) flushQueuedCalls() {
 	for _, call := range queue {
 		log.Printf("[bridge] flushing queued call id=%s tool=%s", call.ID, call.Tool)
 		if err := b.dispatchToUnity(call); err != nil {
+			if errors.Is(err, errCallCanceled) {
+				log.Printf("[bridge] skipping canceled queued call id=%s tool=%s", call.ID, call.Tool)
+				continue
+			}
 			b.deliverResult(call.ID, callResult{OK: false, Error: "dispatch after reconnect failed: " + err.Error(), ErrCode: -32603})
 		}
 	}
@@ -353,6 +394,16 @@ func (b *Bridge) flushQueuedCalls() {
 func (b *Bridge) dispatchToUnity(call *pendingCall) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if call.Context != nil {
+		select {
+		case <-call.Context.Done():
+			return errCallCanceled
+		default:
+		}
+	}
+	if current, ok := b.pending[call.ID]; !ok || current != call {
+		return errCallCanceled
+	}
 
 	if b.unityConn == nil {
 		log.Printf("[bridge] queueing call id=%s (unity not connected)", call.ID)
@@ -373,6 +424,33 @@ func (b *Bridge) dispatchToUnity(call *pendingCall) error {
 		return err
 	}
 	return b.unityWriter.Flush()
+}
+
+// cancelPendingCall removes a call from the pending map and, when it has not
+// been sent yet, from the reconnect queue. A call already written to Unity
+// cannot be withdrawn from the wire, so its eventual result is simply dropped.
+func (b *Bridge) cancelPendingCall(call *pendingCall) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	current, ok := b.pending[call.ID]
+	if !ok || current != call {
+		return false
+	}
+	delete(b.pending, call.ID)
+	if call.DispatchedOn != nil {
+		return true
+	}
+	for i, queued := range b.queueWhenDown {
+		if queued != call {
+			continue
+		}
+		copy(b.queueWhenDown[i:], b.queueWhenDown[i+1:])
+		b.queueWhenDown[len(b.queueWhenDown)-1] = nil
+		b.queueWhenDown = b.queueWhenDown[:len(b.queueWhenDown)-1]
+		break
+	}
+	return true
 }
 
 // failInterruptedCalls answers every call that was dispatched on `conn` and is still
@@ -595,6 +673,18 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 		writeJSONRPCError(w, json.RawMessage("null"), -32700, "Parse error", err.Error())
 		return
 	}
+	if req.JsonRPC != "2.0" {
+		writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "jsonrpc must be \"2.0\".")
+		return
+	}
+	if !validJSONRPCID(req.ID) {
+		writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "id must be a string, number, or null.")
+		return
+	}
+	if req.Method != "" && (len(req.Result) > 0 || req.Error != nil) {
+		writeJSONRPCError(w, json.RawMessage("null"), -32600, "Invalid Request", "request must not include result or error.")
+		return
+	}
 
 	if *verbose {
 		log.Printf("[bridge] mcp ← %s id=%s", req.Method, string(req.ID))
@@ -638,7 +728,7 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	case "resources/templates/list":
 		writeJSONRPCResult(w, req.ID, map[string]any{"resourceTemplates": []any{}})
 	case "tools/call":
-		b.handleToolsCall(w, req)
+		b.handleToolsCallContext(w, req, r.Context())
 	default:
 		writeJSONRPCError(w, req.ID, -32601, "Method not found", req.Method)
 	}
@@ -866,7 +956,29 @@ func (b *Bridge) handleToolsList() map[string]any {
 	}
 }
 
-func (b *Bridge) handleToolsCall(w http.ResponseWriter, req rpcRequest) {
+func validJSONRPCID(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return true
+	}
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return false
+	}
+	switch value.(type) {
+	case string, json.Number:
+		return true
+	default:
+		return false
+	}
+}
+
+func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, ctx context.Context) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -886,12 +998,17 @@ func (b *Bridge) handleToolsCall(w http.ResponseWriter, req rpcRequest) {
 		Args:     params.Arguments,
 		Response: make(chan callResult, 1),
 		Created:  time.Now(),
+		Context:  ctx,
 	}
 	b.mu.Lock()
 	b.pending[call.ID] = call
 	b.mu.Unlock()
 
 	if err := b.dispatchToUnity(call); err != nil {
+		if errors.Is(err, errCallCanceled) {
+			b.cancelPendingCall(call)
+			return
+		}
 		b.mu.Lock()
 		delete(b.pending, call.ID)
 		b.mu.Unlock()
@@ -899,25 +1016,43 @@ func (b *Bridge) handleToolsCall(w http.ResponseWriter, req rpcRequest) {
 		return
 	}
 
+	timer := time.NewTimer(callTimeout)
+	defer timer.Stop()
+
 	select {
 	case res := <-call.Response:
-		if !res.OK {
-			writeJSONRPCError(w, req.ID, res.ErrCode, res.Error, res.Data)
+		writeToolCallResult(w, req.ID, res)
+	case <-ctx.Done():
+		if b.cancelPendingCall(call) {
+			log.Printf("[bridge] canceled call id=%s tool=%s because MCP request ended", call.ID, call.Tool)
+		}
+		return
+	case <-timer.C:
+		if !b.cancelPendingCall(call) {
+			// A result may have won the race with the timeout and removed the
+			// call from pending just before the timer fired. Consume it instead
+			// of reporting a false timeout.
+			select {
+			case res := <-call.Response:
+				writeToolCallResult(w, req.ID, res)
+			case <-ctx.Done():
+			}
 			return
 		}
-		writeJSONRPCResult(w, req.ID, map[string]any{
-			"content": []any{
-				map[string]any{"type": "text", "text": res.Text},
-			},
-			"isError": false,
-		})
-	case <-time.After(callTimeout):
-		b.mu.Lock()
-		delete(b.pending, call.ID)
-		b.mu.Unlock()
 		writeJSONRPCError(w, req.ID, -32001, "Timeout",
 			fmt.Sprintf("Tool '%s' did not complete within %s.", params.Name, callTimeout))
 	}
+}
+
+func writeToolCallResult(w http.ResponseWriter, id json.RawMessage, res callResult) {
+	if !res.OK {
+		writeJSONRPCError(w, id, res.ErrCode, res.Error, res.Data)
+		return
+	}
+	writeJSONRPCResult(w, id, map[string]any{
+		"content": []any{map[string]any{"type": "text", "text": res.Text}},
+		"isError": false,
+	})
 }
 
 func writeJSONRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {

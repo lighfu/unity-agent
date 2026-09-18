@@ -20,6 +20,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
         private string _currentRequestId;
         private volatile bool _aborted;
 
+        /// <summary>
+        /// 部分応答も完了通知も届かないまま待ち続ける上限 (秒)。拡張機能側の打ち切り (5 分) より
+        /// 後に置いてあるので、拡張機能が生きているあいだは向こうのエラーが先に届く。
+        /// </summary>
+        private const int NoProgressTimeoutSeconds = 360;
+
         public BrowserBridgeProvider(int port = 6090)
         {
             _port = port;
@@ -97,12 +103,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
             // Poll for response
             string lastPartial = "";
+            // タブが閉じられた、応答中にページが再読み込みされた、拡張機能がメッセージを 1 通
+            // 落とした — どれでも complete も error も届かなくなる。ここに上限が無いと、
+            // 「生成中」の表示のまま中断するまで戻ってこない。部分応答が届くたびに測り直すので、
+            // 時間のかかる応答を途中で打ち切ることはない。
+            var sinceProgress = System.Diagnostics.Stopwatch.StartNew();
             while (!BrowserBridgeState.IsCompleted && !_aborted)
             {
                 string partial = BrowserBridgeState.PartialResponse;
                 if (partial != lastPartial)
                 {
                     lastPartial = partial;
+                    sinceProgress.Restart();
                     onPartialResponse?.Invoke(partial);
                 }
 
@@ -110,6 +122,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
                 if (!BrowserBridgeState.IsConnected)
                 {
                     onError?.Invoke("Chrome 拡張機能との接続が切断されました。");
+                    yield break;
+                }
+
+                if (sinceProgress.Elapsed.TotalSeconds >= NoProgressTimeoutSeconds)
+                {
+                    // ブラウザー側がまだ生成を続けているなら止めておく。残したままだと、
+                    // 次のリクエストの応答検出が前の応答を拾ってしまう。
+                    if (BrowserBridgeServerManager.Server != null)
+                        BrowserBridgeServerManager.Server.Send(BrowserBridgeProtocol.BuildAbortMessage(requestId));
+                    onError?.Invoke($"ブラウザーから {NoProgressTimeoutSeconds / 60} 分間応答がありませんでした。タブが閉じられたか、拡張機能が応答を返していない可能性があります。");
                     yield break;
                 }
 

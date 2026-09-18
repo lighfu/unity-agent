@@ -179,10 +179,10 @@
   }
 
   let bgPort = null;
-  let currentRequestId = null;
-  let aborted = false;
+  let activeRequest = null;
   let wsConnected = false;
   let keepaliveTimer = null;
+  let bgReconnectTimer = null;
   let messageQueue = [];
 
   // ─── Service worker keepalive ───
@@ -207,7 +207,11 @@
 
   function flushQueue() {
     while (messageQueue.length > 0 && bgPort && wsConnected) {
-      try { bgPort.postMessage(messageQueue.shift()); }
+      const message = messageQueue[0];
+      try {
+        bgPort.postMessage(message);
+        messageQueue.shift();
+      }
       catch (e) { break; }
     }
   }
@@ -347,24 +351,60 @@
                wsConnected ? "Unity 接続中" : "Unity 未接続");
   }
 
+  function requestIsActive(request) {
+    return activeRequest === request && !request.aborted;
+  }
+
+  function requestShouldStop(request) {
+    if (requestIsActive(request)) return false;
+    if (activeRequest === request) {
+      finishRequest(request);
+    }
+    return true;
+  }
+
+  function clearActiveRequest(request) {
+    if (activeRequest === request) activeRequest = null;
+  }
+
+  function finishRequest(request) {
+    clearActiveRequest(request);
+    resetOverlay();
+  }
+
+  function scheduleBackgroundReconnect(delay) {
+    if (bgReconnectTimer) return;
+    bgReconnectTimer = setTimeout(() => {
+      bgReconnectTimer = null;
+      if (!bgPort) connectToBackground();
+    }, delay);
+  }
+
   // ─── Background port connection ───
 
   function connectToBackground() {
+    if (bgPort) return;
+
+    let port;
     try {
-      bgPort = chrome.runtime.connect({ name: "gemini-bridge" });
+      port = chrome.runtime.connect({ name: "gemini-bridge" });
     } catch (e) {
       console.error("[UnityAgent] Failed to connect to background:", e);
-      setTimeout(connectToBackground, 2000);
+      scheduleBackgroundReconnect(2000);
       return;
     }
+    bgPort = port;
     console.log("[UnityAgent] Connected to background service worker");
 
-    bgPort.onMessage.addListener((msg) => {
+    port.onMessage.addListener((msg) => {
+      if (bgPort !== port) return;
+      if (!msg || typeof msg !== "object") return;
+
       switch (msg.type) {
         case "ws_connected":
           console.log("[UnityAgent] WebSocket connected to Unity Editor");
           wsConnected = true;
-          bgPort.postMessage({
+          send({
             type: "ready",
             userAgent: navigator.userAgent,
             geminiUrl: location.href,
@@ -380,32 +420,47 @@
           break;
 
         case "prompt":
+          if (typeof msg.text !== "string" || msg.id === undefined || msg.id === null) {
+            send({ type: "error", id: msg.id ?? null, message: "不正なプロンプトです。" });
+            break;
+          }
           console.log(`[UnityAgent] Received prompt (id=${msg.id}, ${msg.text.length} chars, newSession=${msg.newSession})`);
-          currentRequestId = msg.id;
-          aborted = false;
-          handlePrompt(msg.id, msg.text, !!msg.newSession);
+          if (activeRequest) {
+            const superseded = activeRequest;
+            superseded.aborted = true;
+            clickStopButton();
+            // The superseded loop returns without sending anything, so answer the old id
+            // here. Every request Unity sends has to come back answered — it matches on
+            // the id and has no deadline of its own.
+            send({ type: "error", id: superseded.id, message: "新しいリクエストで置き換えられました。" });
+          }
+          const request = { id: msg.id, aborted: false };
+          activeRequest = request;
+          handlePrompt(request, msg.text, !!msg.newSession);
           break;
 
         case "abort":
-          if (msg.id === currentRequestId) {
+          if (activeRequest && msg.id === activeRequest.id) {
             console.log("[UnityAgent] Abort requested");
-            aborted = true;
+            activeRequest.aborted = true;
             clickStopButton();
           }
           break;
 
         case "ping":
-          bgPort.postMessage({ type: "pong" });
+          send({ type: "pong" });
           break;
       }
     });
 
-    bgPort.onDisconnect.addListener(() => {
+    port.onDisconnect.addListener(() => {
+      if (bgPort !== port) return;
       console.log("[UnityAgent] Background port disconnected, reconnecting...");
       bgPort = null;
       wsConnected = false;
+      stopKeepalive();
       setOverlay("disconnected", "Unity 未接続");
-      setTimeout(connectToBackground, 500);
+      scheduleBackgroundReconnect(500);
     });
 
     startKeepalive();
@@ -444,7 +499,7 @@
 
   // ─── New chat ───
 
-  async function startNewChat() {
+  async function startNewChat(request) {
     const existingResponses = document.querySelectorAll(site.response);
     if (existingResponses.length === 0) {
       console.log("[UnityAgent] Already in a new chat");
@@ -459,6 +514,7 @@
       newChatBtn.click();
       for (let i = 0; i < 50; i++) {
         await sleep(200);
+        if (request && requestShouldStop(request)) return false;
         const responses = document.querySelectorAll(site.response);
         if (responses.length === 0) {
           console.log("[UnityAgent] New chat ready");
@@ -475,6 +531,7 @@
     window.location.href = site.newChatUrl;
     for (let i = 0; i < 50; i++) {
       await sleep(200);
+      if (request && requestShouldStop(request)) return false;
       const responses = document.querySelectorAll(site.response);
       if (responses.length === 0) {
         console.log("[UnityAgent] New chat ready (via URL)");
@@ -509,18 +566,22 @@
 
   // ─── Prompt handler ───
 
-  async function handlePrompt(id, text, newSession) {
+  async function handlePrompt(request, text, newSession) {
+    const id = request.id;
     try {
+      if (requestShouldStop(request)) return;
       setOverlay("active", "処理中...");
       if (newSession) {
-        await startNewChat();
+        await startNewChat(request);
         await sleep(500);
       }
+      if (requestShouldStop(request)) return;
 
       const input = findInputElement();
       if (!input) {
         console.error("[UnityAgent] Input element not found");
         send({ type: "error", id, message: "入力欄が見つかりません。AI チャットサイトの画面を開いてください。" });
+        finishRequest(request);
         return;
       }
       const isCE = input.isContentEditable;
@@ -529,8 +590,9 @@
 
       markExistingResponses();
 
-      await setInputText(input, text, isCE);
+      await setInputText(input, text, isCE, request);
       await sleep(300);
+      if (requestShouldStop(request)) return;
 
       const currentText = isCE
         ? (input.innerText || input.textContent || "")
@@ -538,13 +600,16 @@
       console.log(`[UnityAgent] Input length after insert: ${currentText.length} (original: ${text.length})`);
       if (currentText.trim().length === 0) {
         send({ type: "error", id, message: "テキスト入力に失敗しました。" });
+        finishRequest(request);
         return;
       }
 
       await sleep(200);
+      if (requestShouldStop(request)) return;
       const sendBtn = findSendButton();
       if (!sendBtn) {
         send({ type: "error", id, message: "送信ボタンが見つかりません。" });
+        finishRequest(request);
         return;
       }
       console.log("[UnityAgent] Clicking send:", sendBtn.getAttribute("aria-label"));
@@ -554,21 +619,29 @@
       // 送信後にユーザーの発言をマークしてからアシスタント応答を待つ
       if (site.markAfterSend) {
         await sleep(1000);
+        if (requestShouldStop(request)) return;
         markExistingResponses();
         console.log("[UnityAgent] Re-marked after send (markAfterSend)");
       }
 
-      await waitForNewResponse(id);
-      if (aborted) resetOverlay();
+      await waitForNewResponse(request);
+      if (!requestIsActive(request) && activeRequest === request) {
+        finishRequest(request);
+      }
 
     } catch (e) {
       console.error("[UnityAgent] handlePrompt error:", e);
+      if (activeRequest !== request) return;
+      if (request.aborted) {
+        finishRequest(request);
+        return;
+      }
       send({ type: "error", id, message: e.message || "Unknown error" });
-      resetOverlay();
+      finishRequest(request);
     }
   }
 
-  async function setInputText(el, text, isContentEditable) {
+  async function setInputText(el, text, isContentEditable, request) {
     text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n{3,}/g, "\n\n");
     const expectedLen = text.replace(/\n/g, "").length * 0.8;
 
@@ -576,6 +649,7 @@
       el.focus();
       el.click();
       await sleep(150);
+      if (request && requestShouldStop(request)) return false;
 
       // Strategy 1: insertText + insertLineBreak (simulates Shift+Enter → <br>
       // instead of Enter → <div>/<p>, avoiding doubled paragraph spacing)
@@ -588,6 +662,7 @@
         if (lines[i]) document.execCommand("insertText", false, lines[i]);
       }
       await sleep(100);
+      if (request && requestShouldStop(request)) return false;
       const len1 = (el.innerText || "").length;
       console.log(`[UnityAgent] Strategy 1 (insertText): len=${len1}, expected=${expectedLen}`);
       if (len1 >= expectedLen) return;
@@ -608,6 +683,7 @@
         clipboardData: dt, bubbles: true, cancelable: true,
       }));
       await sleep(200);
+      if (request && requestShouldStop(request)) return false;
       const len2 = (el.innerText || "").length;
       console.log(`[UnityAgent] Strategy 2 (paste): len=${len2}`);
       if (len2 >= expectedLen) return;
@@ -620,6 +696,7 @@
       const html = escapeHtml(text).replace(/\n/g, "<br>");
       const ok = document.execCommand("insertHTML", false, html);
       await sleep(100);
+      if (request && requestShouldStop(request)) return false;
       const len3 = (el.innerText || "").length;
       console.log(`[UnityAgent] Strategy 3 (insertHTML): ok=${ok}, len=${len3}`);
       if (len3 >= expectedLen) return;
@@ -653,20 +730,22 @@
 
   // ─── Response monitoring ───
 
-  async function waitForNewResponse(id) {
+  async function waitForNewResponse(request) {
+    const id = request.id;
     // Wait for the response container to appear (max 30s)
     let container = null;
     for (let i = 0; i < 300; i++) {
-      if (aborted) return;
+      if (requestShouldStop(request)) return;
       container = getNewResponseContainer();
       if (container) break;
       await sleep(100);
     }
 
     if (!container) {
+      if (requestShouldStop(request)) return;
       console.error("[UnityAgent] No new response appeared");
       send({ type: "error", id, message: "応答が開始されませんでした。" });
-      resetOverlay();
+      finishRequest(request);
       return;
     }
 
@@ -678,7 +757,7 @@
     let totalIterations = 0;
 
     while (true) {
-      if (aborted) return;
+      if (requestShouldStop(request)) return;
       totalIterations++;
 
       // Re-query container and text element each iteration (React may replace DOM nodes)
@@ -715,7 +794,7 @@
       // C) Safety timeout: 5 min
       if (totalIterations >= 3000) {
         send({ type: "error", id, message: "応答のタイムアウト (5分)" });
-        resetOverlay();
+        finishRequest(request);
         return;
       }
 
@@ -724,12 +803,13 @@
 
     // Final text: re-query one more time for the latest DOM state
     await sleep(300);
+    if (requestShouldStop(request)) return;
     container = getNewResponseContainer() || container;
     const finalEl = getResponseTextElement(container);
     const finalText = (finalEl ? (finalEl.innerText || finalEl.textContent) : "") || "";
     console.log(`[UnityAgent] Response complete (${finalText.length} chars, stopBtnSeen=${stopBtnEverSeen})`);
     send({ type: "complete", id, text: finalText });
-    currentRequestId = null;
+    clearActiveRequest(request);
     setOverlay("connected", "Unity 接続中");
   }
 
