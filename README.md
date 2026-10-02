@@ -57,7 +57,10 @@ Modular Avatar · NDMF · VRCFury · Avatar Optimizer (AAO) · lilToon · FaceEm
 
 ### Via ALCOM / VCC (recommended)
 
-1. Add the [VPM repository](https://lighfu.github.io/vpm/) to ALCOM / VCC
+1. Add the VPM repository to ALCOM / VCC: [add it in one click](https://lighfu.github.io/vpm/add-repo.html), or add this URL manually:
+   ```
+   https://lighfu.github.io/vpm/index.json
+   ```
 2. Add **UnityAgent** to your project
 
 ### Manual installation
