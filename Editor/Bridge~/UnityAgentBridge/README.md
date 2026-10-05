@@ -69,7 +69,7 @@ Unity will then connect over TCP and HTTP MCP clients can hit `http://127.0.0.1:
 | `--token` | *(required)* | Shared secret for both the MCP Bearer auth and the Unity hello |
 | `--public-port` | `17800` | HTTP port for MCP clients |
 | `--internal-port` | `17801` | TCP port where Unity connects |
-| `--idle-quit` | `5m` | Exit after this long with no Unity connection **and** no MCP client activity. `0` (or any negative value) disables the idle quit, so the bridge runs until killed |
+| `--idle-quit` | `5m` | Exit after this long with no living Unity owner, no Unity connection, **and** no MCP client activity. `0` (or any negative value) disables the idle quit, so the bridge runs until killed |
 | `--log` | *(none)* | Log file path. Empty = stderr only |
 | `--verbose` | `false` | Verbose logging |
 
@@ -92,8 +92,8 @@ Each direction is line-delimited JSON. One object per line.
 ### Unity → Bridge
 
 ```jsonc
-// handshake (must be first message)
-{"type":"hello","version":"1","token":"<shared-secret>"}
+// handshake (must be first message); unityPid is optional for older clients
+{"type":"hello","version":"1","token":"<shared-secret>","unityPid":12345}
 
 // tool result
 {"type":"result","id":"<bridge-id>","ok":true,"text":"<output>"}
@@ -127,7 +127,13 @@ Each direction is line-delimited JSON. One object per line.
   which would otherwise run twice. If the socket closes with no `shutdown` notice, the message
   is `Unity connection lost while this call was running` instead — treat that as a possible
   crash. Calls that arrived while Unity was away (never sent) are queued as before.
-- **Unity reconnect**: After reload, Unity reconnects, sends `hello` again, queue is flushed.
+- **Unity reconnect**: After reload, Unity starts on the first `EditorApplication.update`, sends
+  `hello` again, and the queue is flushed. Startup does not wait for Inspector-driven `delayCall`.
+  While Bridge mode is enabled, a 200 ms timer calls Unity's thread-safe native `SignalTick`
+  entry point to keep startup, reconnect supervision, and tool coroutines moving when the editor
+  is unfocused. Socket readers also signal a tick on incoming calls. These signals do not execute
+  tools on the timer thread or bring Unity to the foreground. If a Unity version removes this
+  internal API, a warning is logged and ordinary Editor updates remain the fallback.
   If an MCP client cancels or disconnects while a call is still queued, that call is removed and
   will not execute after reconnect. Queued calls older than the 120 s per-call timeout are also
   **dropped instead of dispatched** — running them would execute a tool nobody is waiting for.
@@ -141,9 +147,12 @@ Each direction is line-delimited JSON. One object per line.
   the binary before each attempt. It never gives up permanently; recovery no longer needs a domain
   reload or a manual settings toggle.
 - **Idle quit**: Bridge exits after `--idle-quit` (default 5 m) with no Unity connection AND no MCP
-  client activity. Every authenticated `/mcp` request refreshes that timer, and a request still in
-  flight blocks the quit outright, so a bridge being actively used never exits while Unity is down.
-  Pass `--idle-quit 0` to disable it.
+  client activity, provided its owning Unity process is also gone. An authenticated `hello` with
+  `unityPid` identifies that owner: a long reload or deferred background reconnect cannot kill
+  the HTTP endpoint while Unity is still alive. A `shutdown` with any reason other than
+  `domain_reload` (MCP disabled, switched to InProc) releases that owner, since nothing will
+  reconnect. Older clients omitting `unityPid` keep the legacy idle behavior. Every authenticated `/mcp` request refreshes the timer, and a request still in
+  flight blocks the quit outright. Pass `--idle-quit 0` to disable it.
 
 ## Limitations (P1)
 

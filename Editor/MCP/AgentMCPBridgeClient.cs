@@ -26,11 +26,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     ///
     /// Domain reload 対応:
     /// - <see cref="AssemblyReloadEvents.beforeAssemblyReload"/> で <c>{"type":"shutdown"}</c>
-    ///   を送ってからソケットを閉じる。bridge 側はこれを見て受信した未完了 call を queue に保持する。
+    ///   を送ってからソケットを閉じる。bridge 側は実行中 call を中断応答にし、未送信 call を保持する。
     /// - reload 後、AgentMCPServerBootstrap が <see cref="Connect"/> を再呼出しする。
     ///   bridge は再 hello を受け取って queue を flush する。
     ///
-    /// P1 スコープ: 1 connection、再接続なし、最低限の call ルーティングのみ。
+    /// AgentMCPServerBootstrap が接続を監視し、失われた場合は再接続する。
     /// </summary>
     internal sealed class AgentMCPBridgeClient
     {
@@ -91,6 +91,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 _tcp.NoDelay = true;
                 _tcp.Connect("127.0.0.1", port);
                 _stream = _tcp.GetStream();
+                // Results and the courtesy shutdown frame must not hold up a domain reload
+                // indefinitely when the bridge stops reading from its socket.
+                _stream.WriteTimeout = 1000;
                 _reader = new StreamReader(_stream, new UTF8Encoding(false));
                 _writer = new StreamWriter(_stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
 
@@ -114,7 +117,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 _starting = false;
                 AgentLogger.Info(LogTag.MCP, $"[BridgeClient] connected to bridge at 127.0.0.1:{port}");
 
-                _readerThread = new Thread(ReaderLoop)
+                // Capture this connection. An old reader finishing after a settings toggle
+                // must not read from, or mark disconnected, the replacement connection.
+                var reader = _reader;
+                var tcp = _tcp;
+                _readerThread = new Thread(() => ReaderLoop(reader, tcp))
                 {
                     IsBackground = true,
                     Name = "UnityAgent-BridgeReader",
@@ -191,16 +198,24 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         void CleanupSocket()
         {
+            // Close the socket BEFORE disposing StreamWriter: Dispose flushes, and a writer
+            // held by a blocked send cannot safely be disposed concurrently. Closing TCP
+            // unblocks the send/read without another managed stream write.
+            var tcp = _tcp;
+            _tcp = null;
+            try { tcp?.Close(); } catch { }
+
             // Prefer to dispose the writer under the lock so a concurrent send is not holding it.
             // Do not wait forever, for the same reason as Disconnect: a blocked socket write would
             // otherwise take the main thread down with it. If the lock cannot be had, closing the
-            // underlying socket below unblocks that write anyway (it throws, and SendResultBack
+            // underlying socket above unblocks that write anyway (it throws, and SendResultBack
             // already treats a failed send as a dropped result).
             bool writeLockTaken = false;
             try
             {
                 System.Threading.Monitor.TryEnter(_writeLock, 500, ref writeLockTaken);
-                try { _writer?.Dispose(); } catch { }
+                if (writeLockTaken)
+                    try { _writer?.Dispose(); } catch { }
                 _writer = null;
             }
             finally
@@ -218,10 +233,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         void SendHello()
         {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
             var msg = JNode.Obj(
                 ("type", JNode.Str("hello")),
                 ("version", JNode.Str(ProtocolVersion)),
-                ("token", JNode.Str(_token))
+                ("token", JNode.Str(_token)),
+                // Lets the bridge survive arbitrarily long reloads while its Unity owner lives.
+                ("unityPid", JNode.Num(process.Id))
             );
             _writer.WriteLine(msg.ToJson());
             AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] sent hello (version={ProtocolVersion}, token.len={_token?.Length ?? 0})");
@@ -229,13 +247,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         // ─── Reader loop (background thread) ───
 
-        void ReaderLoop()
+        void ReaderLoop(StreamReader reader, TcpClient tcp)
         {
             try
             {
-                while (_running)
+                while (_running && ReferenceEquals(_tcp, tcp))
                 {
-                    string line = _reader.ReadLine();
+                    string line = reader.ReadLine();
+                    if (!_running || !ReferenceEquals(_tcp, tcp)) break;
                     if (line == null)
                     {
                         AgentLogger.Info(LogTag.MCP, "[BridgeClient] reader EOF; bridge closed connection");
@@ -316,6 +335,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         qdepth = _pending.Count;
                     }
                     AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] recv call id={call.ID} tool={call.Tool} argsBytes={call.ArgsJson.Length} qdepth={qdepth}");
+                    MCPMainThreadWakeup.RequestTick();
                 }
             }
             catch (IOException ex)
@@ -329,7 +349,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             finally
             {
-                _connected = false;
+                if (ReferenceEquals(_tcp, tcp))
+                    _connected = false;
             }
         }
 
