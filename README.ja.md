@@ -34,6 +34,7 @@
 | 🎨 **メッシュ・マテリアル・テクスチャ** | メッシュ/UV/BlendShape/ウェイト編集、lilToon、さらに **AI テクスチャ生成(img2img)**。 |
 | 📱 **Quest・パフォーマンス** | 最適化、パフォーマンスランク診断、Quest 変換補助。 |
 | 🔌 **MCP サーバー** | ツールを Model Context Protocol で公開し、外部クライアント(例: Claude Code)から Unity を操作可能。 |
+| 🖱️ **Unity UI の検査・操作** | UI Toolkit・IMGUI・Canvas UI の検査、クリック、入力、ドラッグ、イベント実行。[対応範囲と使い方](docs/ui-automation.md)。 |
 | 🌍 **多言語 UI** | 日本語 / English / 繁體中文 / 简体中文。 |
 
 ### 🤖 対応プロバイダー

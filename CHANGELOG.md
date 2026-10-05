@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Added
+- Unity UI の検査と操作ツールを追加。EditorWindow・UIDocument の一覧、UI Toolkit の要素 ID・値・状態の検査とクリック／値変更／イベント／スクロール、IMGUI 描画情報の検査と座標クリック／キー入力／ドラッグ、Canvas・uGUI・TMP の検査と Play Mode での EventSystem／UnityEvent 実行に対応。
+- UI 操作を次の Editor 更新にキューし、`GetUIActionResult` で実行状態を確認できるようにした。同名対象の曖昧性、無効・非表示の要素、古い要素 ID、実行前の対象破棄や Play Mode の変更を検出する。
+- [UI 操作ガイド](docs/ui-automation.md) と、エージェント向けの UI 検査・操作手順（スキル `ui-automation`）を追加。IMGUI の描画情報は部分的な検査であり、独自描画・ネイティブ UI の完全な意味認識を保証しない。
+- 新しい UI ツール 17 件の説明を日本語・簡体字中国語・繁体字中国語に翻訳。説明が変わった `SearchTools` は 22 言語すべてで訳し直し、ウクライナ語の訳が日本語になっていた誤りも直した。
+
 ### Fixed
 - Bridge モードで、Unity が前面にないと再コンパイル後の再接続やツール実行が進まない問題。起動を Inspector の更新待ちになる `delayCall` から最初の Editor 更新に移し、Bridge 有効中は別スレッドから 200 ms ごとに Unity の更新を通知する。ツールの実行は引き続きメインスレッドで行う
 - Unity プロセスが生きていても、再コンパイル中の TCP 切断が 5 分を超えると Bridge が待機時間切れで終了し、MCP の HTTP 接続まで失われる問題。認証済みの Unity が送るプロセス ID で生存を確認し、その間は Bridge を保持する。MCP の無効化や InProc への切り替え、旧クライアント、手動起動では従来どおり待機時間切れで終了する

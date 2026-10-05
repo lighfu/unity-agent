@@ -43,6 +43,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 case "GetEditorState":
                     return Tools.EditorStateTools.GetEditorState;
 
+                // These read locked caches only. An action's callback can hold the main thread
+                // in a modal, so its status must not wait behind the callback it describes.
+                case "GetUIActionResult":
+                    return () => Tools.UIActionTools.GetUIActionResult(Str(args, "actionId"));
+
+                case "GetIMGUIInspectionResult":
+                    return () => Tools.IMGUIInspectionTools.GetIMGUIInspectionResult(Str(args, "inspectionId"));
+
                 case "AnswerModalDialog":
                 {
                     string button = Str(args, "button");
