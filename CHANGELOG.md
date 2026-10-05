@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-05
+
 ### Added
 - Unity UI の検査と操作ツールを追加。EditorWindow・UIDocument の一覧、UI Toolkit の要素 ID・値・状態の検査とクリック／値変更／イベント／スクロール、IMGUI 描画情報の検査と座標クリック／キー入力／ドラッグ、Canvas・uGUI・TMP の検査と Play Mode での EventSystem／UnityEvent 実行に対応。
 - UI 操作を次の Editor 更新にキューし、`GetUIActionResult` で実行状態を確認できるようにした。同名対象の曖昧性、無効・非表示の要素、古い要素 ID、実行前の対象破棄や Play Mode の変更を検出する。
@@ -706,7 +708,8 @@
 - Claude CLI プロバイダーが出力をリアルタイムに流していなかった
 - 固定のタイムアウトを、無応答の時間で判定するタイムアウトに変えた。応答中なのにタイムアウトする誤判定を防ぐ
 
-[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.1...HEAD
+[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.17.0...HEAD
+[0.17.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.1...editor-v0.17.0
 [0.16.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.0...editor-v0.16.1
 [0.16.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.15.0...editor-v0.16.0
 [0.15.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.14.0...editor-v0.15.0
