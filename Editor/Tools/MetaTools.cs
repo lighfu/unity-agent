@@ -95,7 +95,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             sb.AppendLine();
         }
 
-        [AgentTool("Search for available tools by keyword to understand how to use them.")]
+        [AgentTool("Search for available tools by name, description, declaring class or category keyword to understand how to use them.")]
         public static string SearchTools(string keyword)
         {
             if (string.IsNullOrEmpty(keyword)) return "Error: Endpoint keyword cannot be empty.";
@@ -104,6 +104,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var matchedTools = allToolInfos
                 .Where(t => t.method.Name.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0 ||
                             (t.attribute?.Description ?? "").IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            (t.attribute?.Category ?? "").IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0 ||
                             t.method.DeclaringType.Name.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
                 .ToList();
 

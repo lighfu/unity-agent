@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Added
+- Unity UI の検査と操作ツールを追加。EditorWindow・UIDocument の一覧、UI Toolkit の要素 ID・値・状態の検査とクリック／値変更／イベント／スクロール、IMGUI 描画情報の検査と座標クリック／キー入力／ドラッグ、Canvas・uGUI・TMP の検査と Play Mode での EventSystem／UnityEvent 実行に対応。
+- UI 操作を次の Editor 更新にキューし、`GetUIActionResult` で実行状態を確認できるようにした。同名対象の曖昧性、無効・非表示の要素、古い要素 ID、実行前の対象破棄や Play Mode の変更を検出する。
+- [UI 操作ガイド](docs/ui-automation.md) と、エージェントの UI 検査・操作手順を追加。IMGUI の描画情報は部分的な検査であり、独自描画・ネイティブ UI の完全な意味認識を保証しない。
+
+
 ## [0.16.1] - 2026-09-17
 
 ### Added
