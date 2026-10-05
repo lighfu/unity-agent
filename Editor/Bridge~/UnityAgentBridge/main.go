@@ -56,7 +56,7 @@ const (
 	latestProtocolVersion                   = "2025-06-18"
 	defaultProtocolVersionWhenHeaderMissing = "2025-03-26"
 	headerProtocolVersion                   = "MCP-Protocol-Version"
-	defaultIdleQuitGrace                    = 5 * time.Minute   // Quit after both sides are gone for this long.
+	defaultIdleQuitGrace                    = 5 * time.Minute   // Quit after the editor owner and both connections are gone.
 	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 	maintenanceInterval                     = 30 * time.Second  // How often the watchdog prunes and checks for idleness.
 	defaultHelloTimeout                     = 10 * time.Second  // How long a new connection has to authenticate before it is dropped.
@@ -69,7 +69,7 @@ var (
 	logFile       = flag.String("log", "", "Optional log file path. Empty = stderr only.")
 	verbose       = flag.Bool("verbose", false, "Verbose logging")
 	idleQuitGrace = flag.Duration("idle-quit", defaultIdleQuitGrace,
-		"Exit after this long with no Unity connection AND no MCP client activity (e.g. 5m, 30s). Zero or negative disables the idle quit entirely.")
+		"Exit after this long with no living Unity owner, Unity connection, or MCP client activity (e.g. 5m, 30s). Zero or negative disables the idle quit entirely.")
 )
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -124,6 +124,7 @@ type Bridge struct {
 	queueWhenDown  []*pendingCall          // calls received while Unity was disconnected
 	mcpClientCount int                     // MCP HTTP requests currently being served (idle-quit guard)
 	lastActivity   time.Time               // last Unity message OR MCP HTTP request; drives the idle quit
+	ownerUnityPID  int                     // authenticated editor process; survives its TCP disconnect during reload
 
 	// Atomic counters for diagnostics
 	callsServed atomic.Uint64
@@ -146,7 +147,10 @@ func newBridge(token string) *Bridge {
 //
 // Unity → Bridge (handshake):
 //
-//	{"type":"hello","version":"1","token":"..."}
+//	{"type":"hello","version":"1","token":"...","unityPid":1234}
+//
+// unityPid is optional for compatibility with older editors. When present, the bridge keeps
+// its HTTP endpoint alive while that editor process is running, including long reloads.
 //
 // Unity → Bridge (response to a call):
 //
@@ -166,19 +170,20 @@ func newBridge(token string) *Bridge {
 //	{"type":"hello_ack","ok":true}
 //	{"type":"hello_ack","ok":false,"error":"bad token"}
 type wireMsg struct {
-	Type    string          `json:"type"`
-	Version string          `json:"version,omitempty"`
-	Token   string          `json:"token,omitempty"`
-	ID      string          `json:"id,omitempty"`
-	Tool    string          `json:"tool,omitempty"`
-	Args    json.RawMessage `json:"args,omitempty"`
-	OK      bool            `json:"ok,omitempty"`
-	Text    string          `json:"text,omitempty"`
-	Error   string          `json:"error,omitempty"`
-	Message string          `json:"message,omitempty"`
-	Code    int             `json:"code,omitempty"`
-	Data    string          `json:"data,omitempty"`
-	Reason  string          `json:"reason,omitempty"`
+	Type     string          `json:"type"`
+	Version  string          `json:"version,omitempty"`
+	Token    string          `json:"token,omitempty"`
+	UnityPID int             `json:"unityPid,omitempty"`
+	ID       string          `json:"id,omitempty"`
+	Tool     string          `json:"tool,omitempty"`
+	Args     json.RawMessage `json:"args,omitempty"`
+	OK       bool            `json:"ok,omitempty"`
+	Text     string          `json:"text,omitempty"`
+	Error    string          `json:"error,omitempty"`
+	Message  string          `json:"message,omitempty"`
+	Code     int             `json:"code,omitempty"`
+	Data     string          `json:"data,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
 }
 
 func (b *Bridge) startUnityTCPServer(addr string) error {
@@ -201,7 +206,7 @@ func (b *Bridge) startUnityTCPServer(addr string) error {
 	return nil
 }
 
-func (b *Bridge) swapUnityConn(newConn net.Conn) {
+func (b *Bridge) swapUnityConn(newConn net.Conn, unityPID int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.unityConn != nil && b.unityConn != newConn {
@@ -210,6 +215,10 @@ func (b *Bridge) swapUnityConn(newConn net.Conn) {
 	}
 	b.unityConn = newConn
 	b.unityWriter = bufio.NewWriter(newConn)
+	// Only an authenticated hello reaches this method. Keep the owner after TCP disconnect:
+	// Unity can spend much longer than idleQuitGrace reloading or wait for focus to reconnect.
+	// A legacy hello without a PID keeps the original connection-based idle behavior.
+	b.ownerUnityPID = unityPID
 	b.lastActivity = time.Now()
 }
 
@@ -298,9 +307,9 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 				log.Printf("[bridge] failed to clear hello deadline: %v", err)
 				return
 			}
-			b.swapUnityConn(conn)
+			b.swapUnityConn(conn, msg.UnityPID)
 			authed = true
-			log.Printf("[bridge] unity authed (version=%s)", msg.Version)
+			log.Printf("[bridge] unity authed (version=%s ownerPid=%d)", msg.Version, msg.UnityPID)
 			b.flushQueuedCalls()
 			continue
 		}
@@ -579,6 +588,27 @@ func (b *Bridge) endMCPRequest() {
 	}
 	b.lastActivity = time.Now()
 	b.mu.Unlock()
+}
+
+// shouldQuitWhenIdle preserves the HTTP endpoint while its owning editor is still running,
+// even if that editor has no TCP connection during a long domain reload. Older editors that
+// omit unityPid retain the original idle timeout. Process checks run outside the bridge lock.
+func (b *Bridge) shouldQuitWhenIdle(now time.Time, grace time.Duration, isAlive func(int) bool) bool {
+	if grace <= 0 {
+		return false
+	}
+	b.mu.Lock()
+	idle := b.unityConn == nil && b.mcpClientCount == 0 && now.Sub(b.lastActivity) > grace
+	ownerPID := b.ownerUnityPID
+	b.mu.Unlock()
+	if !idle || (ownerPID > 0 && isAlive(ownerPID)) {
+		return false
+	}
+	// A new hello or MCP request may arrive during the OS query. Recheck the same owner
+	// and idle state before deciding to exit rather than relying on the earlier snapshot.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ownerUnityPID == ownerPID && b.unityConn == nil && b.mcpClientCount == 0 && now.Sub(b.lastActivity) > grace
 }
 
 func (b *Bridge) startMCPHTTPServer(addr string) error {
@@ -1117,14 +1147,14 @@ func main() {
 
 	grace := *idleQuitGrace
 	if grace > 0 {
-		log.Printf("[bridge] idle quit after %s with no Unity and no MCP activity", grace)
+		log.Printf("[bridge] idle quit after %s with no living Unity owner, connection, or MCP activity", grace)
 	} else {
 		log.Printf("[bridge] idle quit disabled (--idle-quit=%s)", grace)
 	}
 
 	// Maintenance loop: expire queued calls nobody waits for any more, and — unless the idle quit
-	// is disabled — shut down once Unity has been gone AND no MCP client has touched us for the
-	// whole grace period. Both an in-flight MCP request and a completed one keep the bridge alive.
+	// is disabled — shut down once the owning Unity process is gone AND no connection or MCP
+	// activity remains for the whole grace period. A TCP disconnect alone may be a long reload.
 	go func() {
 		ticker := time.NewTicker(maintenanceInterval)
 		defer ticker.Stop()
@@ -1132,16 +1162,8 @@ func main() {
 			if dropped := b.pruneStaleQueuedCalls(time.Now()); dropped > 0 {
 				log.Printf("[bridge] discarded %d stale queued call(s) while Unity was away", dropped)
 			}
-			if grace <= 0 {
-				continue
-			}
-			b.mu.Lock()
-			idleSince := time.Since(b.lastActivity)
-			hasUnity := b.unityConn != nil
-			inFlight := b.mcpClientCount
-			b.mu.Unlock()
-			if !hasUnity && inFlight == 0 && idleSince > grace {
-				log.Printf("[bridge] idle for %s with no Unity and no MCP activity — exiting", idleSince)
+			if b.shouldQuitWhenIdle(time.Now(), grace, processAlive) {
+				log.Printf("[bridge] idle for more than %s with no living Unity owner or MCP activity — exiting", grace)
 				os.Exit(0)
 			}
 		}

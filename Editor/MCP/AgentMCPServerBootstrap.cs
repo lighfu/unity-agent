@@ -21,15 +21,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     /// Bridge モードでは接続後も監視 tick (<see cref="SupervisorTick"/>) を張り続け、
     /// bridge プロセスが落ちた場合はバックオフしながら再 spawn / 再接続を繰り返す。
     /// 監視状態は静的フィールドに持つだけなのでドメインリロードで消えるが、
-    /// リロード後は再び delayCall → <see cref="StartIfEnabled"/> から張り直される。
+    /// リロード後は最初の update → <see cref="StartIfEnabled"/> から張り直される。
     /// </summary>
     [InitializeOnLoad]
     internal static class AgentMCPServerBootstrap
     {
         static AgentMCPServerBootstrap()
         {
-            // DelayCall で domain reload 後に安定してから起動
-            EditorApplication.delayCall += StartIfEnabled;
+            // delayCall waits for inspector updates, which can be deferred while unfocused.
+            // Defer until the first main-thread update and wake that update independently.
+            EditorApplication.update += StartOnFirstUpdate;
+            MCPMainThreadWakeup.Start();
 
             AssemblyReloadEvents.beforeAssemblyReload += StopBeforeReload;
             EditorApplication.quitting += StopBeforeReload;
@@ -41,6 +43,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             EditorApplication.quitting += ModalAutoAnswer.Shutdown;
         }
 
+        static void StartOnFirstUpdate()
+        {
+            EditorApplication.update -= StartOnFirstUpdate;
+            StartIfEnabled();
+        }
+
         /// <summary>
         /// 有効化トグルや mode 切替からも呼び出される再入可能なエントリポイント。
         /// 内部の各層 (<see cref="AgentMCPServer"/>, <see cref="AgentMCPBridgeClient"/>) は
@@ -48,7 +56,11 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// </summary>
         internal static void StartIfEnabled()
         {
-            if (!AgentSettings.MCPServerEnabled) return;
+            if (!AgentSettings.MCPServerEnabled)
+            {
+                StopSupervisor();
+                return;
+            }
 
             switch (AgentSettings.MCPServerMode)
             {
@@ -57,6 +69,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     break;
                 case MCPServerMode.InProc:
                 default:
+                    StopSupervisor();
                     AgentMCPServer.StartShared();
                     break;
             }
@@ -64,12 +77,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void StopBeforeReload()
         {
+            EditorApplication.update -= StartOnFirstUpdate;
+            StopSupervisor();
             var mode = AgentSettings.MCPServerMode;
             AgentLogger.Info(LogTag.MCP, $"[Bootstrap] StopBeforeReload mode={mode}");
             switch (mode)
             {
                 case MCPServerMode.Bridge:
-                    StopSupervisor();
                     AgentMCPBridgeClient.Shared.Disconnect("domain_reload");
                     break;
                 case MCPServerMode.InProc:
@@ -136,6 +150,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void EnsureSupervisorRunning()
         {
+            MCPMainThreadWakeup.Start();
             if (_supervisorTick != null) return;
             _supervisorTick = SupervisorTick;
             EditorApplication.update += _supervisorTick;
@@ -143,6 +158,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void StopSupervisor()
         {
+            MCPMainThreadWakeup.Stop();
             if (_supervisorTick == null) return;
             EditorApplication.update -= _supervisorTick;
             _supervisorTick = null;

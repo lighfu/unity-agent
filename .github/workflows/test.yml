@@ -35,6 +35,7 @@ jobs:
           dotnet-version: '9.0.x'
       - run: dotnet run --project Tests~/Core/Core.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/MCPClient/MCPClient.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/MCPBridge/MCPBridge.Tests.csproj --configuration Release
 
   browser-extension:
     runs-on: ubuntu-latest

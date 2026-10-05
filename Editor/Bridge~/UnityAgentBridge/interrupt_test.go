@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,10 @@ func startFakeUnity(t *testing.T, bridge *Bridge) (net.Conn, *bufio.Reader) {
 }
 
 func startFakeUnityWithToken(t *testing.T, bridge *Bridge, token string) (net.Conn, *bufio.Reader) {
+	return startFakeUnityWithHello(t, bridge, wireMsg{Type: "hello", Version: "test", Token: token})
+}
+
+func startFakeUnityWithHello(t *testing.T, bridge *Bridge, hello wireMsg) (net.Conn, *bufio.Reader) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -38,7 +43,11 @@ func startFakeUnityWithToken(t *testing.T, bridge *Bridge, token string) (net.Co
 	}
 	t.Cleanup(func() { _ = unity.Close() })
 
-	if _, err := unity.Write([]byte(`{"type":"hello","version":"test","token":"` + token + `"}` + "\n")); err != nil {
+	helloJSON, err := json.Marshal(hello)
+	if err != nil {
+		t.Fatalf("marshal hello: %v", err)
+	}
+	if _, err := unity.Write(append(helloJSON, '\n')); err != nil {
 		t.Fatalf("write hello: %v", err)
 	}
 	reader := bufio.NewReader(unity)
@@ -94,7 +103,9 @@ func awaitResult(t *testing.T, call *pendingCall) callResult {
 
 func TestUnauthenticatedConnectionCannotReplaceAuthenticatedUnity(t *testing.T) {
 	bridge := newBridge("secret")
-	healthy, reader := startFakeUnity(t, bridge)
+	healthy, reader := startFakeUnityWithHello(t, bridge,
+		wireMsg{Type: "hello", Version: "test", Token: "secret", UnityPID: os.Getpid()})
+	waitForUnityOwner(t, bridge, os.Getpid(), true)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -112,12 +123,18 @@ func TestUnauthenticatedConnectionCannotReplaceAuthenticatedUnity(t *testing.T) 
 		t.Fatalf("dial second connection: %v", err)
 	}
 	t.Cleanup(func() { _ = attacker.Close() })
-	if _, err := attacker.Write([]byte(`{"type":"hello","version":"test","token":"wrong"}` + "\n")); err != nil {
+	if _, err := attacker.Write([]byte(`{"type":"hello","version":"test","token":"wrong","unityPid":123}` + "\n")); err != nil {
 		t.Fatalf("write bad hello: %v", err)
 	}
 	ack, err := bufio.NewReader(attacker).ReadString('\n')
 	if err != nil || !strings.Contains(ack, `"error":"bad token"`) {
 		t.Fatalf("expected rejected hello, got %q (err=%v)", ack, err)
+	}
+	bridge.mu.Lock()
+	ownerPID := bridge.ownerUnityPID
+	bridge.mu.Unlock()
+	if ownerPID != os.Getpid() {
+		t.Fatalf("unauthenticated hello changed Unity owner to %d", ownerPID)
 	}
 
 	call := &pendingCall{
