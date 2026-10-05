@@ -65,7 +65,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var sb = new StringBuilder();
             sb.AppendLine($"Canvas UI: {rows.Count} shown, {matched} matches, {Math.Max(0, matched - rows.Count)} omitted. playMode={EditorApplication.isPlaying}.");
             sb.AppendLine("Actions dispatch to the selected object's handlers; alpha, culling and raycast flags describe rendering/input configuration, not a physical hit-test or occlusion test. Renderer values reflect the last Canvas update.");
-            if (capped) sb.AppendLine($"Walk stopped after {MaxWalkNodes} loaded scene objects; match count is a lower bound. Use rootSelector to narrow the UI.");
+            if (capped) sb.AppendLine($"Walk stopped after {MaxWalkNodes} Canvas UI objects; match count is a lower bound. Use rootSelector to narrow the UI.");
             if (rows.Count == 0) sb.AppendLine("No matching Canvas UI. Use ListUIAutomationTargets and InspectUIToolkit for UI Toolkit UIDocuments.");
             foreach (string row in rows) sb.AppendLine(row);
             return sb.ToString().TrimEnd();
@@ -192,13 +192,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         private static IEnumerable<GameObject> InspectionObjects(GameObject root)
         {
-            if (root == null)
-            {
-                foreach (GameObject go in SceneObjects().OrderBy(g => UIAutomationUtility.InstanceId(g))) yield return go;
-                yield break;
-            }
             var pending = new Stack<Transform>();
-            pending.Push(root.transform);
+            if (root != null) pending.Push(root.transform);
+            else
+            {
+                // Start from outermost Canvases so the walk cap counts UI objects only; a scene
+                // with many avatar bones must not push its Canvas UI past the cap.
+                var roots = Resources.FindObjectsOfTypeAll<Canvas>()
+                    .Where(c => c != null && c.gameObject.scene.IsValid() && c.gameObject.scene.isLoaded &&
+                                !EditorUtility.IsPersistent(c) &&
+                                (c.transform.parent == null || c.transform.parent.GetComponentInParent<Canvas>(true) == null))
+                    .Select(c => c.transform).Distinct()
+                    .OrderByDescending(t => UIAutomationUtility.InstanceId(t.gameObject));
+                foreach (Transform canvasRoot in roots) pending.Push(canvasRoot);
+            }
             while (pending.Count > 0)
             {
                 Transform current = pending.Pop();
