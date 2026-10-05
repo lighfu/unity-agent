@@ -93,7 +93,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (_active != null)
                 return $"Error: IMGUI inspection {_active.Id} is still pending. Poll GetIMGUIInspectionResult first.";
             var window = UIAutomationUtility.ResolveWindow(windowTitleContains, windowInstanceId, matchIndex, out string error);
-            if (window == null) return "Error: " + error;
+            if (window == null) return error;
             var session = new Session
             {
                 Id = "imgui-" + Guid.NewGuid().ToString("N"), Window = window,

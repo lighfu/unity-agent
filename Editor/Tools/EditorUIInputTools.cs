@@ -36,7 +36,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 return "Error: " + error;
 
             var window = UIAutomationUtility.ResolveWindow(windowTitleContains, windowInstanceId, matchIndex, out error);
-            if (window == null) return "Error: " + error;
+            if (window == null) return error;
             if (usesPosition && !ValidatePositions(events, window.position.size, out error))
                 return "Error: " + error;
 
@@ -75,7 +75,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         {
             if (!TryBuildTextEvents(text, out var events, out string error)) return "Error: " + error;
             var window = UIAutomationUtility.ResolveWindow(windowTitleContains, windowInstanceId, matchIndex, out error);
-            if (window == null) return "Error: " + error;
+            if (window == null) return error;
             return UIAutomationUtility.Queue(window, () => Dispatch(window, events, false));
         }
 
