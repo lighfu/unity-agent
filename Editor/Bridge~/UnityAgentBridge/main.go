@@ -222,6 +222,18 @@ func (b *Bridge) swapUnityConn(newConn net.Conn, unityPID int) {
 	b.lastActivity = time.Now()
 }
 
+// releaseUnityOwner forgets the owning editor when it leaves for a reason other than a
+// domain reload (MCP disabled, switched to InProc). Nothing will reconnect, so the bridge
+// falls back to the ordinary idle quit instead of lingering until the editor exits.
+// Only the current connection may release: a retired one must not clear its replacement.
+func (b *Bridge) releaseUnityOwner(conn net.Conn) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.unityConn == conn {
+		b.ownerUnityPID = 0
+	}
+}
+
 func (b *Bridge) handleUnityConn(conn net.Conn) {
 	// Set from the "shutdown" message, if Unity sends one before the socket closes. Local to
 	// this connection on purpose: a reason announced on one connection must never be
@@ -324,6 +336,9 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 			// Connection will close shortly — the deferred cleanup fails the in-flight
 			// calls and uses this reason to tell a planned reload from a lost connection.
 			shutdownReason = msg.Reason
+			if msg.Reason != "domain_reload" {
+				b.releaseUnityOwner(conn)
+			}
 		default:
 			log.Printf("[bridge] unknown message type from unity: %s", msg.Type)
 		}

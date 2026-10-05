@@ -149,8 +149,9 @@ Each direction is line-delimited JSON. One object per line.
 - **Idle quit**: Bridge exits after `--idle-quit` (default 5 m) with no Unity connection AND no MCP
   client activity, provided its owning Unity process is also gone. An authenticated `hello` with
   `unityPid` identifies that owner: a long reload or deferred background reconnect cannot kill
-  the HTTP endpoint while Unity is still alive. Older clients omitting `unityPid` keep the legacy
-  idle behavior. Every authenticated `/mcp` request refreshes the timer, and a request still in
+  the HTTP endpoint while Unity is still alive. A `shutdown` with any reason other than
+  `domain_reload` (MCP disabled, switched to InProc) releases that owner, since nothing will
+  reconnect. Older clients omitting `unityPid` keep the legacy idle behavior. Every authenticated `/mcp` request refreshes the timer, and a request still in
   flight blocks the quit outright. Pass `--idle-quit 0` to disable it.
 
 ## Limitations (P1)

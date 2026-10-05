@@ -123,6 +123,38 @@ func TestAuthenticatedHelloKeepsEndpointAliveDuringLongReload(t *testing.T) {
 	}
 }
 
+func TestShutdownOtherThanReloadReleasesUnityOwner(t *testing.T) {
+	for _, test := range []struct {
+		reason    string
+		wantOwner int
+	}{
+		{"domain_reload", os.Getpid()},
+		{"user_disabled", 0},
+		{"mode_change", 0},
+	} {
+		t.Run(test.reason, func(t *testing.T) {
+			bridge := newBridge("secret")
+			unity, _ := startFakeUnityWithHello(t, bridge,
+				wireMsg{Type: "hello", Version: "test", Token: "secret", UnityPID: os.Getpid()})
+			waitForUnityOwner(t, bridge, os.Getpid(), true)
+			if _, err := unity.Write([]byte(`{"type":"shutdown","reason":"` + test.reason + `"}` + "\n")); err != nil {
+				t.Fatalf("write shutdown: %v", err)
+			}
+			waitForUnityOwner(t, bridge, test.wantOwner, true)
+			_ = unity.Close()
+			waitForUnityOwner(t, bridge, test.wantOwner, false)
+			bridge.mu.Lock()
+			bridge.lastActivity = time.Now().Add(-30 * time.Minute)
+			bridge.mu.Unlock()
+			// The owner (this test process) is alive: only a reload should keep the endpoint.
+			wantQuit := test.wantOwner == 0
+			if quit := bridge.shouldQuitWhenIdle(time.Now(), defaultIdleQuitGrace, processAlive); quit != wantQuit {
+				t.Fatalf("quit=%v after shutdown reason %q, want %v", quit, test.reason, wantQuit)
+			}
+		})
+	}
+}
+
 func TestLegacyHelloReplacesPreviousUnityOwner(t *testing.T) {
 	bridge := newBridge("secret")
 	_, _ = startFakeUnityWithHello(t, bridge,
