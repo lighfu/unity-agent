@@ -201,7 +201,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         //  Lifecycle
         // ═══════════════════════════════════════════════════════
 
-        [MenuItem("UnityAgent/UnityAgent")]
+        [MenuItem(UnityAgentMenu.OpenChat, false, UnityAgentMenu.OpenChatOrder)]
         public static void ShowWindow()
         {
             GetWindow<UnityAgentWindow>(M("UnityAgent"));

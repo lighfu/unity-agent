@@ -80,7 +80,7 @@ Durations accept Go syntax (`30s`, `5m`, `1h30m`). UnityAgent's auto-spawn does 
 
 In Unity:
 
-1. UnityAgent → UnityAgent → Settings → MCP tab
+1. UnityAgent → Open Chat → Settings → MCP tab
 2. Set `Server Mode` to `Bridge`
 3. Enable `MCP Server`
 4. The bridge is auto-spawned by `AgentMCPServerBootstrap` and Unity connects automatically

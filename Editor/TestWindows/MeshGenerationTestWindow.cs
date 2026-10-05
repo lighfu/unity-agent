@@ -43,7 +43,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private static readonly string[] AiModelOptions = { "latest", "meshy-6", "meshy-5" };
         private static readonly string[] AiModelLabels = { "Latest", "Meshy-6", "Meshy-5" };
 
-        [MenuItem("UnityAgent/Mesh Generation")]
+        [MenuItem(UnityAgentMenu.MeshGeneration, false, UnityAgentMenu.MeshGenerationOrder)]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

@@ -18,7 +18,6 @@ namespace AjisaiFlow.UnityAgent.Editor
     /// </summary>
     public class AvatarOptimizerWindow : EditorWindow
     {
-        private const string MenuPath = "UnityAgent/Avatar Optimizer";
 
         // ─── Theme ───
         private MD3Theme _theme;
@@ -49,7 +48,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private VisualElement _simplifierBody;
         private Label _resultLabel;
 
-        [MenuItem(MenuPath)]
+        [MenuItem(UnityAgentMenu.AvatarOptimizer, false, UnityAgentMenu.AvatarOptimizerOrder)]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

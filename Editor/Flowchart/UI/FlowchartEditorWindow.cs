@@ -32,7 +32,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Flowchart.UI
         TextField _titleField;
         MD3Theme _theme;
 
-        [MenuItem("UnityAgent/フローチャート")]
+        [MenuItem(UnityAgentMenu.Flowchart, false, UnityAgentMenu.FlowchartOrder)]
         public static void Open()
         {
             var w = GetWindow<FlowchartEditorWindow>();

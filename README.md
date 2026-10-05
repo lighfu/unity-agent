@@ -70,7 +70,7 @@ Download the latest zip from [Releases](https://github.com/lighfu/unity-agent/re
 
 ## Usage
 
-1. Open the agent window from **`Tools ▸ UnityAgent`**
+1. Open the agent window from **`UnityAgent ▸ Open Chat`**
 2. In settings, choose an LLM provider and enter its API key (Claude / OpenAI / Gemini / local CLI, etc.)
 3. Chat in natural language — the agent calls tools to operate the Editor
 4. *(Optional)* To use AI texture generation, also configure an image provider (Gemini / OpenAI / ComfyUI)

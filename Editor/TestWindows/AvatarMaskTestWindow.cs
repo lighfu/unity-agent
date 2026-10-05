@@ -51,7 +51,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private VisualElement _detectedMasksList;
         private Label _detectedMasksHint;
 
-        [MenuItem("UnityAgent/_Debug/AvatarMask")]
+        [MenuItem(UnityAgentMenu.AvatarMaskTest, false, UnityAgentMenu.AvatarMaskTestOrder)]
         public static void Open()
         {
             var w = GetWindow<AvatarMaskTestWindow>();

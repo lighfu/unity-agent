@@ -101,7 +101,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             public string stagesLog;
         }
 
-        [MenuItem("UnityAgent/Outfit Fitting")]
+        [MenuItem(UnityAgentMenu.OutfitFitting, false, UnityAgentMenu.OutfitFittingOrder)]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

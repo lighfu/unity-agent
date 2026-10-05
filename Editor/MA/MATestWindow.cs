@@ -8,7 +8,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MA
 {
     internal class MATestWindow : EditorWindow
     {
-        [MenuItem("UnityAgent/MA Test")]
+        [MenuItem(UnityAgentMenu.MATest, false, UnityAgentMenu.MATestOrder)]
         private static void Open()
         {
             var w = GetWindow<MATestWindow>();

@@ -16,7 +16,6 @@ namespace AjisaiFlow.UnityAgent.Editor
     /// </summary>
     public class NDMFTestWindow : EditorWindow
     {
-        private const string MenuPath = "UnityAgent/NDMF Tester";
 
         private MD3Theme _theme;
 
@@ -28,7 +27,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private Label _resultLabel;
         private Label _ndmfStatusValue;
 
-        [MenuItem(MenuPath)]
+        [MenuItem(UnityAgentMenu.NDMFTester, false, UnityAgentMenu.NDMFTesterOrder)]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

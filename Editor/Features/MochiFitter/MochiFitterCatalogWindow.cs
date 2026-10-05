@@ -80,7 +80,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private UnityWebRequest _fetchReq;
 
         // ── Menu ────────────────────────────────────────────────────
-        [MenuItem("UnityAgent/MochiFitter Catalog")]
+        [MenuItem(UnityAgentMenu.MochiFitterCatalog, false, UnityAgentMenu.MochiFitterCatalogOrder)]
         public static void Open()
         {
             if (UpdateChecker.IsBlocked)

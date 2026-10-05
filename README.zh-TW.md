@@ -69,7 +69,7 @@ Modular Avatar · NDMF · VRCFury · Avatar Optimizer (AAO) · lilToon · FaceEm
 
 ## 使用方式
 
-1. 從 **`Tools ▸ UnityAgent`** 開啟代理視窗
+1. 從 **`UnityAgent ▸ Open Chat`** 開啟代理視窗
 2. 在設定中選擇 LLM 提供者並輸入 API 金鑰(Claude / OpenAI / Gemini / 本機 CLI 等)
 3. 以自然語言對話 → 代理會呼叫工具操作 Editor
 4. *(選用)* 若要使用 AI 貼圖生成，請一併設定影像提供者(Gemini / OpenAI / ComfyUI)

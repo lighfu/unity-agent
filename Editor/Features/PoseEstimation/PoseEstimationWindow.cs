@@ -78,7 +78,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                 { "RightToes", HumanBodyBones.RightToes },
             };
 
-        [MenuItem("UnityAgent/Pose Estimation")]
+        [MenuItem(UnityAgentMenu.PoseEstimation, false, UnityAgentMenu.PoseEstimationOrder)]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

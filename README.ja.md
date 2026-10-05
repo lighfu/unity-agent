@@ -70,7 +70,7 @@ Modular Avatar · NDMF · VRCFury · Avatar Optimizer (AAO) · lilToon · FaceEm
 
 ## 使い方
 
-1. Unity メニュー **`Tools ▸ UnityAgent`** からエージェントウィンドウを開く
+1. Unity メニュー **`UnityAgent ▸ Open Chat`** からエージェントウィンドウを開く
 2. 設定で LLM プロバイダーと API キーを入力(Claude / OpenAI / Gemini / ローカル CLI 等)
 3. チャットで自然言語で指示 → エージェントがツールを呼び出して Editor を操作
 4. *(任意)* AI テクスチャ生成を使うなら画像プロバイダー(Gemini / OpenAI / ComfyUI)も設定

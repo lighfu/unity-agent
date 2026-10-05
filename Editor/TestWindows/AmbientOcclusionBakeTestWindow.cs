@@ -46,7 +46,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private static readonly string[] QualityLabels = { "Low (32)", "Medium (64)", "High (128)" };
         private static readonly string[] QualityValues = { "low", "medium", "high" };
 
-        [MenuItem("UnityAgent/AO Bake (Test)")]
+        [MenuItem(UnityAgentMenu.AOBake, false, UnityAgentMenu.AOBakeOrder)]
         public static void Open()
         {
             var window = GetWindow<AmbientOcclusionBakeTestWindow>();

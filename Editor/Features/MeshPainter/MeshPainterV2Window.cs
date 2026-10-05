@@ -86,7 +86,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             public string fullPath;
         }
 
-        [MenuItem("UnityAgent/Mesh Painter v2")]
+        [MenuItem(UnityAgentMenu.MeshPainter, false, UnityAgentMenu.MeshPainterOrder)]
         public static void ShowWindow()
         {
             var w = GetWindow<MeshPainterV2Window>();

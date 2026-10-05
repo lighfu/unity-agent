@@ -12,6 +12,12 @@
 - [UI 操作ガイド](docs/ui-automation.md) と、エージェント向けの UI 検査・操作手順（スキル `ui-automation`）を追加。IMGUI の描画情報は部分的な検査であり、独自描画・ネイティブ UI の完全な意味認識を保証しない。
 - 新しい UI ツール 17 件の説明を日本語・簡体字中国語・繁体字中国語に翻訳。説明が変わった `SearchTools` は 22 言語すべてで訳し直し、ウクライナ語の訳が日本語になっていた誤りも直した。
 
+### Changed
+- メニューバーの「UnityAgent」を整理した。チャットを開く項目を `UnityAgent/UnityAgent` から `UnityAgent/Open Chat` に改め、一番上に置いた。残りはアバター、メッシュとポーズ、エージェントの管理の 3 グループに区切り線で分けた
+- テスト用・開発用のウィンドウ（AO Bake、Mesh Generation、FaceEmo Test、MA Test、NDMF Tester、旧 `_Debug` の 4 項目）を `UnityAgent/Developer` サブメニューにまとめた
+- Mesh Painter は v2 を `Mesh Painter` としてメインに出し、v1 は `Developer/Mesh Painter (Legacy)` に移した。`Mesh & Weight Editor` は Windows で `&` が消えて「Mesh  Weight Editor」と表示されていたため `Mesh and Weight Editor` に、`フローチャート` は `Flowchart` に改めた
+- README と公式サイトの手順が、実在しないメニュー（`Tools ▸ UnityAgent`、`AjisaiFlow → UnityAgent`）を案内していたので、`UnityAgent ▸ Open Chat` に直した
+
 ### Fixed
 - Bridge モードで、Unity が前面にないと再コンパイル後の再接続やツール実行が進まない問題。起動を Inspector の更新待ちになる `delayCall` から最初の Editor 更新に移し、Bridge 有効中は別スレッドから 200 ms ごとに Unity の更新を通知する。ツールの実行は引き続きメインスレッドで行う
 - Unity プロセスが生きていても、再コンパイル中の TCP 切断が 5 分を超えると Bridge が待機時間切れで終了し、MCP の HTTP 接続まで失われる問題。認証済みの Unity が送るプロセス ID で生存を確認し、その間は Bridge を保持する。MCP の無効化や InProc への切り替え、旧クライアント、手動起動では従来どおり待機時間切れで終了する

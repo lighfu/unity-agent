@@ -158,7 +158,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         // Lifecycle
         // ════════════════════════════════════════
 
-        [MenuItem("UnityAgent/Mesh & Weight Editor")]
+        [MenuItem(UnityAgentMenu.MeshWeightEditor, false, UnityAgentMenu.MeshWeightEditorOrder)]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)

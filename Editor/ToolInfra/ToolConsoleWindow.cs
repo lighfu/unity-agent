@@ -69,7 +69,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private GUIStyle _sigStyle;
         private GUIStyle _paramLabelStyle;
 
-        [MenuItem("UnityAgent/Tool Console")]
+        [MenuItem(UnityAgentMenu.ToolConsole, false, UnityAgentMenu.ToolConsoleOrder)]
         public static void Open()
         {
             if (UpdateChecker.IsBlocked)

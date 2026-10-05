@@ -59,7 +59,7 @@ maAc.EditMenuItemOnSelf().Toggle(p).Name(""Sample Toggle"");
 return ""Built SampleFx layer (OFF/ON) + MA toggle holder"";
 ";
 
-        [MenuItem("UnityAgent/_Debug/Animator-as-Code")]
+        [MenuItem(UnityAgentMenu.AnimatorAsCodeTest, false, UnityAgentMenu.AnimatorAsCodeTestOrder)]
         public static void Open()
         {
             var w = GetWindow<AacToolsTestWindow>();

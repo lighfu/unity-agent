@@ -41,7 +41,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             // Done outside the lock because Resources.FindObjectsOfTypeAll touches Unity main-thread state.
             var window = UnityAgentWindow.FindOpenInstance();
             if (window == null)
-                throw new InvalidOperationException("No UnityAgentWindow is open. Open it first via the 'UnityAgent > UnityAgent' menu before starting a test session.");
+                throw new InvalidOperationException("No UnityAgentWindow is open. Open it first via the 'UnityAgent > Open Chat' menu before starting a test session.");
 
             lock (_sessionsLock)
             {

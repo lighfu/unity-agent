@@ -26,7 +26,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             public string group;
         }
 
-        [MenuItem("UnityAgent/Shrink Editor")]
+        [MenuItem(UnityAgentMenu.ShrinkEditor, false, UnityAgentMenu.ShrinkEditorOrder)]
         public static void ShowWindow()
         {
             if (UpdateChecker.IsBlocked)
