@@ -3082,6 +3082,101 @@ Agent: From the image, [2] Manuka_hair_front and [3] Manuka_hair_bun
 </tool>
 ```
 (Continue with texture-editing skill workflow → CaptureSceneView → AskUser)" },
+
+            { "ui-automation", @"---
+title: Unity UI Inspection and Interaction
+description: Inspect and operate EditorWindow, IMGUI and Canvas UI
+tags: UI, UIAutomation, EditorWindow, UI Toolkit, IMGUI, uGUI, Canvas, click, input, button
+---
+
+# Unity UI Inspection and Interaction
+
+## Overview
+Inspect and operate Unity's own UI: EditorWindows (UI Toolkit and IMGUI), scene UIDocuments and
+Canvas/uGUI/TMP. Inspect first, act with the exact IDs or measured coordinates it returns, then
+verify. Read-only UI requests authorize inspection only.
+
+## Decision Flow
+
+| Target | Inspect | Act |
+|--------|---------|-----|
+| EditorWindow, UI Toolkit | ListUIAutomationTargets → InspectUIToolkit | ClickUIToolkitElement / SetUIToolkitValue / SendUIToolkitEvent / ScrollUIToolkitElement |
+| EditorWindow, IMGUI (OnGUI) | InspectIMGUI → GetIMGUIInspectionResult, CaptureEditorWindow | ClickEditorUIAt / SendEditorUIEvent / TypeEditorUIText |
+| Scene UIDocument | ListUIAutomationTargets → InspectUIToolkit(documentInstanceId) | UI Toolkit tools, Play Mode only |
+| Canvas / uGUI / TMP | ListRuntimeUI | ClickRuntimeUI / SetRuntimeUIValue / SendRuntimeUIEvent / InvokeRuntimeUIUnityEvent, Play Mode only |
+| Menu item | SearchMenu | ExecuteMenu |
+| Blocking modal dialog | GetEditorState | AnswerModalDialog (Windows) |
+
+## Procedure
+
+### Step 1: Find the Target
+```
+<tool name=""ListUIAutomationTargets""></tool>
+```
+← Lists loaded EditorWindows (windowInstanceId) and scene UIDocuments (documentInstanceId).
+Closed windows are not listed: open them through their menu first (SearchMenu/ExecuteMenu).
+Several windows with the same title → use windowInstanceId, never pick one arbitrarily.
+
+### Step 2a: UI Toolkit
+```
+<tool name=""InspectUIToolkit"">
+<arg name=""windowInstanceId"">12345</arg>
+<arg name=""filter"">Apply</arg>
+</tool>
+```
+← Returns elementId, labels, values, bounds and enabled/visible state.
+Use these elementIds with ClickUIToolkitElement, SetUIToolkitValue, SendUIToolkitEvent or
+ScrollUIToolkitElement. ListUIElements row numbers are NOT element IDs.
+Reinspect after the UI rebuilds or after scrolling a virtualized list.
+
+### Step 2b: IMGUI
+If InspectUIToolkit finds only a root or an IMGUIContainer, the window draws with OnGUI:
+```
+<tool name=""InspectIMGUI"">
+<arg name=""windowInstanceId"">12345</arg>
+</tool>
+```
+then read the snapshot with GetIMGUIInspectionResult(inspectionId).
+Rows are draw instructions (best-effort text/rect/style), not a complete widget tree. For custom
+drawing or ambiguous controls, CaptureEditorWindow and compare against the pixels.
+Click with ClickEditorUIAt at the measured rect center; keys, scrolling and dragging with
+SendEditorUIEvent; Unicode text with TypeEditorUIText after focusing the field (the clipboard is not used).
+Coordinates are window-relative logical points. Divide capture pixel coordinates by the capture scale.
+Never guess coordinates from an empty element tree.
+
+### Step 2c: Canvas / uGUI / TMP
+```
+<tool name=""ListRuntimeUI"">
+<arg name=""filter"">Button</arg>
+</tool>
+```
+← Returns GameObject IDs, labels, values, event handlers and named UnityEvents.
+Actions require Play Mode. Do not enter Play Mode unless the user authorized runtime interaction.
+EventSystem dispatch targets the selected object directly, without a screen hit-test.
+
+### Step 3: Confirm the Result
+Every action returns a queued actionId:
+```
+<tool name=""GetUIActionResult"">
+<arg name=""actionId"">actionId</arg>
+</tool>
+```
+← ""queued"" is not success, and ""completed"" only confirms dispatch. Inspect or capture again to
+verify the UI actually changed.
+
+## Common Mistakes
+
+1. **Clicking a disabled or hidden control** → check enabled/visible in the inspection first
+2. **Reusing a stale ID** → reinspect after rebuilds, scrolling or Play Mode changes
+3. **Repeating an action whose result is pending** → poll GetUIActionResult first
+4. **Treating completed as success** → inspect or capture afterward
+
+## Troubleshooting
+
+- **Action stays running / Unity stops responding**: the click opened a modal dialog. Use GetEditorState,
+  then AnswerModalDialog (Windows) before continuing.
+- **InspectIMGUI reports busy**: another IMGUI debugger session is active; wait or close it, then retry.
+- **No IMGUI instructions**: this does not prove the window is empty. Use CaptureEditorWindow." },
         };
     }
 }

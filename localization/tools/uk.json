@@ -191,7 +191,7 @@
     "EnableIslandSelectionMode": "直接的なカラー操作のために、Scene ビューでインタラクティブなアイランド選択モードを有効にします。クリックでアイランドを選択し、グラデーションや HSV 調整を適用できるビジュアルツールが開きます。",
     "GetSelectedIslands": "インタラクティブ選択モードで現在選択されているアイランドのインデックスを取得します。AdjustHSV や ApplyGradientEx の islandIndices パラメータに使用可能な形式で返します。まず EnableIslandSelectionMode を呼び出し、ユーザーに Scene ビューでアイランドを選択させた後、このツールを呼び出してください。",
     "ListTools": "登録されているすべてのツールを、有効、無効、外部のステータス別にリスト表示します。オプションの filter パラメータで特定のグループのみを表示できます。",
-    "SearchTools": "使用方法を理解するために、キーワードで使用可能なツールを検索します。",
+    "SearchTools": "Шукає доступні інструменти за ключовим словом у назві, описі, класі, що їх оголошує, або категорії, щоб зрозуміти, як ними користуватися.",
     "SetupOSCDrivenBlendTree": "2つの OSC float パラメータによって制御される 2D Freeform Directional ブレンドツリーレイヤーを FX コントローラーに作成します。フェイストラッキングの BlendShape 制御やジョイスティック入力に便利です。\nparamX/paramY: X/Y軸用の float パラメータ（ExpressionParameters に Float, Local として追加されます）。\nmotionPaths: セミコロン区切りの AnimationClip へのアセットパス。\npositions: 各モーションに対応するセミコロン区切りの 'x,y' 座標。\n実行には確認が必要です。",
     "SetupOSCSmoothingLayer": "Motion Time 手法を用いた OSC 入力スムージングレイヤーを作成します。生の OSC float 入力を滑らかにして見た目を良くします。\nparamName: 生の OSC 入力パラメータ（Float。既に存在するか、Local として追加されます）。\nスムージングされた出力パラメータとして '{paramName}Smoothed' を作成します。\nsmoothingSpeed: 0.1 (非常に滑らか) から 1.0 (即時)。アニメーションカーブのイージングを制御します。\n実行には確認が必要です。",
     "SetupOSCParameterDriver": "ある OSC パラメータを別のパラメータにコピーまたはリマップする Parameter Driver レイヤーを作成します。範囲変換（例: 心拍数 60-200 BPM -> 0-1 Float）に便利です。\nsourceParam: ソース（元）のパラメータ名。\ndestParam: デスティネーション（先）のパラメータ名。\ndriverType: 'copy' (直接コピー) または 'remap' (範囲変換)。\nremap の場合: sourceMin/sourceMax で入力範囲を、destMin/destMax で出力範囲を定義します。\n実行には確認が必要です。",

@@ -34,6 +34,7 @@ Control the Unity Editor in natural language — **400+ tools** specialized for 
 | 🎨 **Mesh · material · texture** | Mesh/UV/BlendShape/weight editing, lilToon, plus **AI texture generation (img2img)**. |
 | 📱 **Quest & performance** | Optimization, performance-rank diagnostics, Quest conversion helpers. |
 | 🔌 **MCP server** | Exposes its tools over the Model Context Protocol so external clients (e.g. Claude Code) can drive Unity. |
+| 🖱️ **Unity UI inspection and interaction** | Inspect UI Toolkit, IMGUI and Canvas UI; click, type, drag and dispatch events. [Usage and coverage (Japanese)](docs/ui-automation.md). |
 | 🌍 **Multi-language UI** | Japanese / English / 繁體中文 / 简体中文. |
 
 ### 🤖 Supported providers
