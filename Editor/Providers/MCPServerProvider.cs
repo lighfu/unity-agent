@@ -46,7 +46,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Providers
 
             string message = running
                 ? $"このモードでは UnityAgent 側の LLM は動作しません。外部エージェントから http://localhost:{port}/mcp に接続してツールを呼び出してください。"
-                : $"MCP Server が起動していません。設定の MCP タブから UnityAgent MCP Server を有効化してください (ポート: {port})。";
+                : $"MCP Server が起動していません。設定の MCP タブ（メニューの UnityAgent ▸ MCP Settings）から UnityAgent MCP Server を有効化してください (ポート: {port})。";
 
             onDebugLog?.Invoke("[MCPServerProvider] no-op CallLLM");
             onError?.Invoke(message);

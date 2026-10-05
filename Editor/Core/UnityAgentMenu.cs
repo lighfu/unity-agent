@@ -16,6 +16,8 @@ namespace AjisaiFlow.UnityAgent.Editor
         // ─── チャット ───
         public const string OpenChat = Root + "Open Chat";
         public const int OpenChatOrder = 0;
+        public const string MCPSettings = Root + "MCP Settings";
+        public const int MCPSettingsOrder = 1;
 
         // ─── アバター ───
         public const string AvatarOptimizer = Root + "Avatar Optimizer";

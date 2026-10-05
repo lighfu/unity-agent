@@ -13,7 +13,7 @@
 - 新しい UI ツール 17 件の説明を日本語・簡体字中国語・繁体字中国語に翻訳。説明が変わった `SearchTools` は 22 言語すべてで訳し直し、ウクライナ語の訳が日本語になっていた誤りも直した。
 
 ### Changed
-- メニューバーの「UnityAgent」を整理した。チャットを開く項目を `UnityAgent/UnityAgent` から `UnityAgent/Open Chat` に改め、一番上に置いた。残りはアバター、メッシュとポーズ、エージェントの管理の 3 グループに区切り線で分けた
+- メニューバーの「UnityAgent」を整理した。チャットを開く項目を `UnityAgent/UnityAgent` から `UnityAgent/Open Chat` に改め、一番上に置いた。その下に、設定ウィンドウの MCP タブを直接開く `MCP Settings` を足した。残りはアバター、メッシュとポーズ、エージェントの管理の 3 グループに区切り線で分けた
 - テスト用・開発用のウィンドウ（AO Bake、Mesh Generation、FaceEmo Test、MA Test、NDMF Tester、旧 `_Debug` の 4 項目）を `UnityAgent/Developer` サブメニューにまとめた
 - Mesh Painter は v2 を `Mesh Painter` としてメインに出し、v1 は `Developer/Mesh Painter (Legacy)` に移した。`Mesh & Weight Editor` は Windows で `&` が消えて「Mesh  Weight Editor」と表示されていたため `Mesh and Weight Editor` に、`フローチャート` は `Flowchart` に改めた
 - README と公式サイトの手順が、実在しないメニュー（`Tools ▸ UnityAgent`、`AjisaiFlow → UnityAgent`）を案内していたので、`UnityAgent ▸ Open Chat` に直した

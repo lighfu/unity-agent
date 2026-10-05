@@ -23,6 +23,10 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private MD3Theme _theme;
         private int _settingsTabIndex;
+        private MD3SegmentedButton _tabButtons;
+
+        // タブの並びは BuildLayout の tabLabels と同じ。
+        private const int MCPTabIndex = 4;
 
         // ═══════════════════════════════════════════════════════
         //  Settings — Provider (registry-based)
@@ -106,6 +110,22 @@ namespace AjisaiFlow.UnityAgent.Editor
             window.Show();
         }
 
+        /// <summary>設定ウィンドウを開いて MCP タブを選ぶ。開いていれば今のウィンドウのタブを切り替える。</summary>
+        [MenuItem(UnityAgentMenu.MCPSettings, false, UnityAgentMenu.MCPSettingsOrder)]
+        public static void OpenMCP()
+        {
+            Open();
+            GetWindow<UnityAgentSettingsWindow>().SelectTab(MCPTabIndex);
+        }
+
+        private void SelectTab(int index)
+        {
+            _settingsTabIndex = index;
+            // まだ CreateGUI 前なら、BuildLayout が _settingsTabIndex を見てこのタブで作る。
+            // 作成済みなら SelectedIndex の changed が中身を作り直す。
+            if (_tabButtons != null) _tabButtons.SelectedIndex = index;
+        }
+
         private void OnEnable()
         {
             LoadSettings();
@@ -164,6 +184,7 @@ namespace AjisaiFlow.UnityAgent.Editor
 
             var tabLabels = new[] { M("一般"), M("プロバイダ"), M("詳細"), M("テーマ"), "MCP" };
             var segmented = new MD3SegmentedButton(tabLabels, _settingsTabIndex);
+            _tabButtons = segmented;
             segmented.style.flexGrow = 1;
             segmented.style.maxWidth = 560;
             segmented.changed += idx =>
