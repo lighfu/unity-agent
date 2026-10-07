@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GmEnabled Condition="'$(GmEnabled)' == ''">true</GmEnabled>
+    <DefineConstants Condition="'$(GmEnabled)' == 'true'">$(DefineConstants);GESTURE_MANAGER</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="TestHost.cs" />
+    <Compile Include="..\..\Editor\Tools\GestureManagerUtilityTools.cs" Link="GestureManagerUtilityTools.cs" />
+    <Compile Include="..\..\SDK\AgentToolAttribute.cs" Link="AgentToolAttribute.cs" />
+  </ItemGroup>
+</Project>

@@ -18,7 +18,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     /// パッケージ未導入でもコンパイルは通る（全 API が "not installed" を返す）。
     /// GM は Play mode ではなく Edit mode の simulation tool なので、Play mode 判定は不要。
     /// </summary>
-    public static class GestureManagerTools
+    public static partial class GestureManagerTools
     {
 #if GESTURE_MANAGER
         private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
@@ -32,14 +32,36 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 #endif
             return all.Length == 0 ? null : all[0];
         }
+
+        private static bool TryGetVrc3(out GestureManager gm,
+            out BlackStartX.GestureManager.Editor.Modules.Vrc3.ModuleVrc3 vrc3, out string error)
+        {
+            gm = FindInstance();
+            vrc3 = gm == null ? null : gm.Module as BlackStartX.GestureManager.Editor.Modules.Vrc3.ModuleVrc3;
+            error = gm == null ? "Error: No GestureManager instance in scene. Start a GM preview first."
+                : gm.Module == null ? "Error: GestureManager is not previewing any avatar."
+                : vrc3 == null ? $"Error: Current module is {gm.Module.GetType().Name}, not ModuleVrc3."
+                : !vrc3.Active ? "Error: GestureManager preview is not active."
+                : null;
+            return error == null;
+        }
 #endif
 
         [AgentTool(@"Report the BlackStartX Gesture Manager state in the current scene.
 Returns: whether GM is installed, how many GM instances exist, which avatar is being previewed,
 whether the preview module is active, current gestures (left/right), and a short parameter sample.
+section: all (default), instances, or controlled. Each selected collection has independent page metadata.
+offset/limit apply independently to each collection; default limit 50, range 1..200.
+Collections use ordinal name order then instance ID. Continue with that collection's nextOffset.
 Use before calling GestureManagerSetParam / ExitPreview to confirm a preview is running.")]
-        public static string GetGestureManagerState()
+        public static string GetGestureManagerState(int offset = 0, int limit = GestureManagerPaging.DefaultLimit,
+            string section = "all")
         {
+            string pagingError = GestureManagerPaging.Validate(offset, limit);
+            if (pagingError != null) return pagingError;
+            string selectedSection = (section ?? "").Trim().ToLowerInvariant();
+            if (selectedSection != "all" && selectedSection != "instances" && selectedSection != "controlled")
+                return "Error: section must be all, instances, or controlled.";
 #if !GESTURE_MANAGER
             return "Error: Gesture Manager package not installed (vrchat.blackstartx.gesture-manager). Tool is a no-op.";
 #else
@@ -55,15 +77,17 @@ Use before calling GestureManagerSetParam / ExitPreview to confirm a preview is 
             sb.AppendLine($"  Instances in scene: {instances.Length}");
 
             if (instances.Length == 0)
-            {
                 sb.AppendLine("  (No GestureManager GameObject present. Spawn the GestureManager prefab or call GestureManagerEnterPreview.)");
-                return sb.ToString().TrimEnd();
-            }
 
-            for (int i = 0; i < instances.Length; i++)
+            var orderedInstances = instances.OrderBy(instance => instance.gameObject.name, System.StringComparer.Ordinal)
+                .ThenBy(instance => instance.GetInstanceID()).ToArray();
+            int shownInstances = 0;
+            var instancePage = selectedSection == "controlled" ? Enumerable.Empty<GestureManager>()
+                : orderedInstances.Skip(offset).Take(limit);
+            foreach (var gm in instancePage)
             {
-                var gm = instances[i];
-                sb.AppendLine($"  [{i}] '{gm.gameObject.name}' activeInHierarchy={gm.gameObject.activeInHierarchy}");
+                sb.AppendLine($"  [{offset + shownInstances}] '{gm.gameObject.name}' instanceId={gm.GetInstanceID()} activeInHierarchy={gm.gameObject.activeInHierarchy}");
+                shownInstances++;
                 var mod = gm.Module;
                 if (mod == null)
                 {
@@ -75,16 +99,36 @@ Use before calling GestureManagerSetParam / ExitPreview to confirm a preview is 
                 var vrc3 = mod as BlackStartX.GestureManager.Editor.Modules.Vrc3.ModuleVrc3;
                 if (vrc3 != null)
                 {
+                    foreach (var hand in new[] { "Left", "Right" })
+                        if (vrc3.Params.TryGetValue("Gesture" + hand, out var gesture))
+                        {
+                            int index = gesture.IntValue();
+                            string gestureName = index >= 0 && index <= 7 ? gm.Module.GetGestureTextNameByIndex(index) : "Unknown";
+                            string weight = vrc3.Params.TryGetValue("Gesture" + hand + "Weight", out var wp)
+                                ? wp.FloatValue().ToString("F3", System.Globalization.CultureInfo.InvariantCulture) : "unavailable";
+                            sb.AppendLine($"      {hand} hand: {index} ({gestureName}), weight={weight}");
+                        }
                     sb.AppendLine($"      Params: {vrc3.Params.Count} total");
-                    var sample = vrc3.Params.Take(8).Select(kv =>
+                    var sample = vrc3.Params.OrderBy(kv => kv.Key, System.StringComparer.Ordinal).Take(8).Select(kv =>
                         $"{kv.Key}={kv.Value.FloatValue().ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
                     sb.AppendLine($"      Sample: {string.Join(", ", sample)}");
                 }
             }
+            if (selectedSection != "controlled")
+                sb.AppendLine("instancesPage: " + GestureManagerPaging.Metadata(instances.Length, offset, limit, shownInstances).ToJson());
 
             sb.AppendLine($"  ControlledAvatars: {GestureManager.ControlledAvatars.Count}");
-            foreach (var kv in GestureManager.ControlledAvatars)
-                sb.AppendLine($"    - {kv.Key.name}");
+            if (selectedSection != "instances")
+            {
+                int shownControlled = 0;
+                foreach (var kv in GestureManager.ControlledAvatars.OrderBy(kv => kv.Key.name, System.StringComparer.Ordinal)
+                    .ThenBy(kv => kv.Key.GetInstanceID()).Skip(offset).Take(limit))
+                {
+                    sb.AppendLine($"    - {kv.Key.name} instanceId={kv.Key.GetInstanceID()}");
+                    shownControlled++;
+                }
+                sb.AppendLine("controlledAvatarsPage: " + GestureManagerPaging.Metadata(GestureManager.ControlledAvatars.Count, offset, limit, shownControlled).ToJson());
+            }
             return sb.ToString().TrimEnd();
 #endif
         }
@@ -237,7 +281,7 @@ Does NOT enter Unity Play mode - GM is an Edit-mode simulator.")]
 
         [AgentTool(@"Stop the current Gesture Manager preview (if any).
 Calls UnlinkModule() on the first GestureManager instance in the scene.
-Leaves the GestureManager GameObject in place. Use GestureManagerDestroy if you want it removed.")]
+Leaves the GestureManager GameObject in place.")]
         public static string GestureManagerExitPreview()
         {
 #if !GESTURE_MANAGER
@@ -253,10 +297,18 @@ Leaves the GestureManager GameObject in place. Use GestureManagerDestroy if you 
         }
 
         [AgentTool(@"Read a VRC3 Animator parameter value WITHOUT side effects via Gesture Manager.
-Returns current value, default value, and type. Requires an active GM preview.
+Returns current value and type. Requires an active GM preview.
+Omit paramName (or pass an empty string) to list parameters in ordinal name order.
+offset is zero-based, limit defaults to 50 (1..200). The final Page JSON contains nextOffset.
+For a named single-parameter read, offset must be 0.
 Unlike GestureManagerSetParam, this does not trigger OnChange handlers.")]
-        public static string GestureManagerGetParam(string paramName)
+        public static string GestureManagerGetParam(string paramName = "", int offset = 0,
+            int limit = GestureManagerPaging.DefaultLimit)
         {
+            string pagingError = GestureManagerPaging.Validate(offset, limit);
+            if (pagingError != null) return pagingError;
+            if (string.IsNullOrWhiteSpace(paramName)) return ListGestureManagerParams(limit: limit, offset: offset);
+            if (offset != 0) return "Error: offset must be 0 when reading a named parameter.";
 #if !GESTURE_MANAGER
             return "Error: Gesture Manager package not installed.";
 #else
@@ -293,12 +345,18 @@ Unlike GestureManagerSetParam, this does not trigger OnChange handlers.")]
 #endif
         }
 
-        [AgentTool(@"List ALL Gesture Manager VRC3 parameters with their current runtime values in one call.
+        [AgentTool(@"List a page of Gesture Manager VRC3 parameters with their current runtime values.
 Includes both user-defined ExpressionParameters and VRC base params (GestureLeft, Viseme, Grounded, etc).
 Much richer than ListAnimatorRuntimeParameters during GM preview (where Animator has no runtimeAnimatorController).
-filter: case-insensitive substring match on param name. limit caps output (default 200).")]
-        public static string ListGestureManagerParams(string filter = "", int limit = 200)
+filter: case-insensitive substring match on param name, applied before paging.
+Ordinal name order; offset is zero-based, limit defaults to 50 (1..200; 0 is invalid).
+The final Page JSON reports total matching items, returned, remaining, hasMore, and nextOffset.
+Pass nextOffset as offset with the same filter/limit to continue. Reads are live, not snapshots.")]
+        public static string ListGestureManagerParams(string filter = "", int limit = GestureManagerPaging.DefaultLimit,
+            int offset = 0)
         {
+            string pagingError = GestureManagerPaging.Validate(offset, limit);
+            if (pagingError != null) return pagingError;
 #if !GESTURE_MANAGER
             return "Error: Gesture Manager package not installed.";
 #else
@@ -309,19 +367,17 @@ filter: case-insensitive substring match on param name. limit caps output (defau
             var vrc3 = gm.Module as BlackStartX.GestureManager.Editor.Modules.Vrc3.ModuleVrc3;
             if (vrc3 == null) return $"Error: Current module is {gm.Module.GetType().Name}, not ModuleVrc3.";
 
-            string filterLower = string.IsNullOrEmpty(filter) ? null : filter.ToLowerInvariant();
+            var matching = vrc3.Params.Where(kv => string.IsNullOrEmpty(filter)
+                || kv.Key.IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                .OrderBy(kv => kv.Key, System.StringComparer.Ordinal).ToList();
             var sb = new StringBuilder();
             sb.AppendLine($"GestureManager params on '{vrc3.Name}' ({vrc3.Params.Count} total)"
-                + (filterLower != null ? $" filter='{filter}'" : ""));
+                + (!string.IsNullOrEmpty(filter) ? $" filter='{filter}'" : ""));
             sb.AppendLine("---");
 
             int shown = 0;
-            int remaining = 0;
-            foreach (var kv in vrc3.Params)
+            foreach (var kv in matching.Skip(offset).Take(limit))
             {
-                if (filterLower != null && kv.Key.ToLowerInvariant().IndexOf(filterLower, System.StringComparison.Ordinal) < 0) continue;
-                if (shown >= limit) { remaining++; continue; }
-
                 var p = kv.Value;
                 string valueStr;
                 switch (p.Type)
@@ -341,8 +397,8 @@ filter: case-insensitive substring match on param name. limit caps output (defau
                 shown++;
             }
 
-            if (remaining > 0) sb.AppendLine($"  ... {remaining} more (raise 'limit' to see).");
-            if (shown == 0 && filterLower != null) sb.AppendLine($"  (no params matched '{filter}')");
+            if (matching.Count == 0 && !string.IsNullOrEmpty(filter)) sb.AppendLine($"  (no params matched '{filter}')");
+            sb.AppendLine("Page: " + GestureManagerPaging.Metadata(matching.Count, offset, limit, shown).ToJson());
             return sb.ToString().TrimEnd();
 #endif
         }
@@ -391,6 +447,8 @@ Requires an active preview (see GestureManagerEnterPreview). Returns old → new
                 case UnityEngine.AnimatorControllerParameterType.Float:
                     if (!float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var fv))
                         return $"Error: Param '{paramName}' is Float; expected number, got '{value}'.";
+                    if (float.IsNaN(fv) || float.IsInfinity(fv))
+                        return $"Error: Param '{paramName}' requires a finite number.";
                     param.Set(vrc3, fv);
                     newValue = fv;
                     break;
@@ -407,12 +465,21 @@ inside Gesture Manager's PlayableGraph (the layers that GetAnimatorCurrentStateI
 live in GM's private playable graph, not animator.runtimeAnimatorController).
 
 layerName: case-insensitive substring match across '<PlayableType>.<innerLayerName>' (e.g., 'FX.Squish_Drive_Breast_C').
-If empty, lists all layers across all playables and returns. Pass a specific name to get full state details.
+Filter is applied before paging; empty matches layers across all playables.
+includeDetails=false returns a compact layer/weight list; true (default) also includes full state details.
+Ordinal full-name order (then inner index); offset is zero-based, limit defaults to 50 (1..200).
+The final Page JSON contains nextOffset. Use the same filter/limit on subsequent calls.
+clipOffset/clipLimit page playing clips independently for each returned layer (default 16, 1..200).
+Each detailed layer includes clipsPage JSON. Runtime values are live, not snapshots.
 
 Returns playable type (FX/Gesture/etc), inner layer index, layer weight, current state hash/name (if resolvable),
 normalizedTime, isInTransition, and playing clip weights.")]
-        public static string GetGmAnimatorCurrentStateInfo(string layerName = "")
+        public static string GetGmAnimatorCurrentStateInfo(string layerName = "", bool includeDetails = true,
+            int offset = 0, int limit = GestureManagerPaging.DefaultLimit, int clipOffset = 0, int clipLimit = 16)
         {
+            string pagingError = GestureManagerPaging.Validate(offset, limit)
+                ?? GestureManagerPaging.Validate(clipOffset, clipLimit)?.Replace("offset", "clipOffset").Replace("limit", "clipLimit");
+            if (pagingError != null) return pagingError;
 #if !GESTURE_MANAGER
             return "Error: Gesture Manager package not installed.";
 #else
@@ -430,14 +497,15 @@ normalizedTime, isInTransition, and playing clip weights.")]
             var layersDict = layersField.GetValue(vrc3) as System.Collections.IDictionary;
             if (layersDict == null) return "Error: _layers is null or not an IDictionary.";
 
-            string filterLower = string.IsNullOrEmpty(layerName) ? null : layerName.ToLowerInvariant();
-            bool listMode = filterLower == null;
-
             var sb = new StringBuilder();
-            if (listMode) sb.AppendLine($"GestureManager PlayableGraph layers on '{vrc3.Name}':");
+            sb.AppendLine($"GestureManager PlayableGraph layers on '{vrc3.Name}':");
+            var matching = new System.Collections.Generic.List<(string fullName, string typeName, int index,
+                UnityEngine.Animations.AnimatorControllerPlayable playable)>();
+            var hashField = vrc3Type.GetField("AnimationHashSet", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var hashes = hashField?.GetValue(vrc3) as System.Collections.Generic.Dictionary<int, VRC.SDK3.Avatars.Components.VRCAvatarDescriptor.DebugHash>;
+            string StateName(int hash) => hashes != null && hashes.TryGetValue(hash, out var debugHash) ? debugHash.name : "[UNKNOWN]";
 
             System.Reflection.FieldInfo playableField = null;
-            System.Reflection.FieldInfo weightField = null;
 
             foreach (System.Collections.DictionaryEntry entry in layersDict)
             {
@@ -447,7 +515,6 @@ normalizedTime, isInTransition, and playing clip weights.")]
 
                 var layerDataType = layerDataValue.GetType();
                 if (playableField == null) playableField = layerDataType.GetField("Playable", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (weightField == null) weightField = layerDataType.GetField("Weight", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
                 if (playableField == null) return "Error: LayerData.Playable field not found via reflection.";
 
                 var playableObj = playableField.GetValue(layerDataValue);
@@ -462,48 +529,67 @@ normalizedTime, isInTransition, and playing clip weights.")]
                 {
                     string innerName = playable.GetLayerName(i);
                     string fullName = $"{playableTypeName}.{innerName}";
-                    if (listMode)
-                    {
-                        float w = playable.GetLayerWeight(i);
-                        sb.AppendLine($"  [{playableTypeName}#{i}] '{innerName}' weight={w.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                    if (!string.IsNullOrEmpty(layerName)
+                        && fullName.IndexOf(layerName, System.StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
-                    }
-
-                    if (fullName.ToLowerInvariant().IndexOf(filterLower, System.StringComparison.Ordinal) < 0
-                        && (innerName == null || innerName.ToLowerInvariant().IndexOf(filterLower, System.StringComparison.Ordinal) < 0))
-                        continue;
-
-                    // Found — dump detailed info.
-                    var cur = playable.GetCurrentAnimatorStateInfo(i);
-                    var clips = playable.GetCurrentAnimatorClipInfo(i);
-                    bool inTransition = playable.IsInTransition(i);
-                    float layerWeight = playable.GetLayerWeight(i);
-
-                    sb.AppendLine($"Match: {fullName}  (playableType={playableTypeName}, innerIndex={i})");
-                    sb.AppendLine($"  layerWeight: {layerWeight.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
-                    sb.AppendLine($"  currentState: <hash {cur.fullPathHash:X8}> (name not resolvable from playable — use InspectAnimatorController)");
-                    sb.AppendLine($"  normalizedTime: {cur.normalizedTime.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
-                    sb.AppendLine($"  length: {cur.length.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}s");
-                    sb.AppendLine($"  speed: {cur.speed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
-                    sb.AppendLine($"  loop: {cur.loop}");
-                    sb.AppendLine($"  isInTransition: {inTransition}");
-                    if (inTransition)
-                    {
-                        var next = playable.GetNextAnimatorStateInfo(i);
-                        var tr = playable.GetAnimatorTransitionInfo(i);
-                        sb.AppendLine($"  -> nextState: <hash {next.fullPathHash:X8}>");
-                        sb.AppendLine($"  -> transition.normalizedTime: {tr.normalizedTime.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
-                    }
-                    sb.AppendLine($"  playingClips ({clips.Length}):");
-                    if (clips.Length == 0) sb.AppendLine("    (none)");
-                    foreach (var ci in clips)
-                        sb.AppendLine($"    - '{(ci.clip != null ? ci.clip.name : "<null>")}' weight={ci.weight.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
-                    return sb.ToString().TrimEnd();
+                    matching.Add((fullName, playableTypeName, i, playable));
                 }
             }
 
-            if (listMode) return sb.ToString().TrimEnd();
-            return $"Error: No layer matches '{layerName}'. Use GetGmAnimatorCurrentStateInfo with empty layerName to list all.";
+            var ordered = matching.OrderBy(layer => layer.fullName, System.StringComparer.Ordinal)
+                .ThenBy(layer => layer.index).ToList();
+            int shown = 0;
+            foreach (var layer in ordered.Skip(offset).Take(limit))
+            {
+                string fullName = layer.fullName;
+                string playableTypeName = layer.typeName;
+                int i = layer.index;
+                var playable = layer.playable;
+                string innerName = playable.GetLayerName(i);
+                shown++;
+                if (!includeDetails)
+                {
+                    float w = playable.GetLayerWeight(i);
+                    sb.AppendLine($"  [{playableTypeName}#{i}] '{innerName}' weight={w.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                    continue;
+                }
+
+                // Found — dump detailed info.
+                var cur = playable.GetCurrentAnimatorStateInfo(i);
+                var clips = playable.GetCurrentAnimatorClipInfo(i);
+                bool inTransition = playable.IsInTransition(i);
+                float layerWeight = playable.GetLayerWeight(i);
+
+                sb.AppendLine($"Match: {fullName}  (playableType={playableTypeName}, innerIndex={i})");
+                sb.AppendLine($"  layerWeight: {layerWeight.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                sb.AppendLine($"  currentState: '{StateName(cur.fullPathHash)}' <hash {cur.fullPathHash:X8}>");
+                sb.AppendLine($"  normalizedTime: {cur.normalizedTime.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                sb.AppendLine($"  length: {cur.length.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}s");
+                sb.AppendLine($"  speed: {cur.speed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                sb.AppendLine($"  loop: {cur.loop}");
+                sb.AppendLine($"  isInTransition: {inTransition}");
+                if (inTransition)
+                {
+                    var next = playable.GetNextAnimatorStateInfo(i);
+                    var tr = playable.GetAnimatorTransitionInfo(i);
+                    sb.AppendLine($"  -> nextState: '{StateName(next.fullPathHash)}' <hash {next.fullPathHash:X8}>");
+                    sb.AppendLine($"  -> transition.normalizedTime: {tr.normalizedTime.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+                sb.AppendLine($"  playingClips ({clips.Length}):");
+                if (clips.Length == 0) sb.AppendLine("    (none)");
+                int clipCount = clipOffset < clips.Length ? System.Math.Min(clipLimit, clips.Length - clipOffset) : 0;
+                for (int c = 0; c < clipCount; c++)
+                {
+                    int clipIndex = clipOffset + c;
+                    var ci = clips[clipIndex];
+                    sb.AppendLine($"    - [{clipIndex}] '{(ci.clip != null ? ci.clip.name : "<null>")}' weight={ci.weight.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+                sb.AppendLine("  clipsPage: " + GestureManagerPaging.Metadata(clips.Length, clipOffset, clipLimit, clipCount).ToJson());
+            }
+
+            if (ordered.Count == 0) sb.AppendLine($"  (no layers matched '{layerName}')");
+            sb.AppendLine("Page: " + GestureManagerPaging.Metadata(ordered.Count, offset, limit, shown).ToJson());
+            return sb.ToString().TrimEnd();
 #endif
         }
 

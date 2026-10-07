@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="UnityStubs.cs" />
+    <Compile Include="../../SDK/AgentToolAttribute.cs" Link="AgentToolAttribute.cs" />
+    <Compile Include="../../Editor/Tools/GestureManagerTools.cs" Link="GestureManagerTools.cs" />
+    <Compile Include="../../Editor/Tools/GestureManagerPaging.cs" Link="GestureManagerPaging.cs" />
+    <Compile Include="../../Editor/Tools/GestureManagerGestureTools.cs" Link="GestureManagerGestureTools.cs" />
+    <Compile Include="../../Editor/Tools/GestureManagerMenuTools.cs" Link="GestureManagerMenuTools.cs" />
+    <Compile Include="../../Editor/Tools/GestureManagerOscTools.cs" Link="GestureManagerOscTools.cs" />
+    <Compile Include="../../Editor/Tools/GestureManagerRadialTools.cs" Link="GestureManagerRadialTools.cs" />
+    <Compile Include="../../Editor/Tools/GestureManagerUtilityTools.cs" Link="GestureManagerUtilityTools.cs" />
+    <Compile Include="../../Editor/MCP/SimpleJson.cs" Link="SimpleJson.cs" />
+  </ItemGroup>
+</Project>

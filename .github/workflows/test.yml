@@ -36,6 +36,11 @@ jobs:
       - run: dotnet run --project Tests~/Core/Core.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/MCPClient/MCPClient.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/MCPBridge/MCPBridge.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/GestureManagerGestures/GestureManagerGestures.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/GestureManagerMenu/GestureManagerMenu.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/GestureManagerMenu/GestureManagerMenu.Tests.csproj --configuration Release -p:GmEnabled=false
+      - run: dotnet run --project Tests~/GestureManagerUtilities/GestureManagerUtilities.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/GestureManagerUtilities/GestureManagerUtilities.Tests.csproj --configuration Release -p:GmEnabled=false
 
   browser-extension:
     runs-on: ubuntu-latest
