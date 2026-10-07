@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `GetVRChatBuildTestResult` に `waitSeconds` を 60 秒以上指定すると、MCP クライアントが 60 秒で呼び出しを打ち切り、結果が届かない問題。待つ時間の上限を 110 秒から 50 秒に下げた
+
 ## [0.17.0] - 2026-10-05
 
 ### Added

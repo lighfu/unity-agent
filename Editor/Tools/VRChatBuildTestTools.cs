@@ -38,6 +38,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         const int MaxRetainedJobs = 16;
 
         /// <summary>
+        /// Upper bound for GetVRChatBuildTestResult's waitSeconds. MCP clients commonly stop waiting
+        /// for a call after 60 s (Claude Code does, exactly at 60.0 s), and the bridge then discards
+        /// the late reply as an orphan. EditorStateTools.MaxToolSeconds (110 s) only beats the
+        /// transport's own 120 s limit, so waits of 60 or 90 s were cut off every time.
+        /// </summary>
+        const int MaxWaitSeconds = 50;
+
+        /// <summary>
         /// Editor ticks between StartVRChatBuildTest returning and the SDK being called. The invoker
         /// hands a tool's reply to the transport one tick after the tool yields it, while the SDK
         /// starts its export (which holds the main thread for minutes) from a Task.Delay(100)
@@ -251,10 +259,10 @@ needed), plus the sinceIndex to read those entries with GetConsoleLogs.
 
 This is answered off the main thread, so it works while the SDK build holds the main thread.
 
-waitSeconds: wait up to this long for the build to finish before answering (default 0 = answer now,
-  capped at 110 s so the reply beats the transport's 120 s limit). Use 50: MCP clients may give up
-  on a call well before 120 s (a 100 s wait timed out on the client side in testing, 55 s did not).
-  A build usually takes minutes, so call again until the state is succeeded or failed.
+waitSeconds: wait up to this long for the build to finish before answering (default 0 = answer now).
+  Capped at 50 s: MCP clients commonly give up on a call after 60 s, and a reply that arrives later
+  is thrown away. A build usually takes minutes, so call again with waitSeconds:50 until the state
+  is succeeded or failed.
 jobId: omit for the most recent build.
 
 After a domain reload the in-memory job is gone. The answer then comes from the editor-session
@@ -269,7 +277,7 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
                 yield break;
             }
 
-            if (waitSeconds > EditorStateTools.MaxToolSeconds) waitSeconds = EditorStateTools.MaxToolSeconds;
+            if (waitSeconds > MaxWaitSeconds) waitSeconds = MaxWaitSeconds;
             double deadline = EditorApplication.timeSinceStartup + Math.Max(0, waitSeconds);
             while (true)
             {
@@ -295,7 +303,7 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
             if (job == null)
                 return () => DescribeFromSession(jobId);
 
-            int limitMs = Math.Min(Math.Max(0, waitSeconds), EditorStateTools.MaxToolSeconds) * 1000;
+            int limitMs = Math.Min(Math.Max(0, waitSeconds), MaxWaitSeconds) * 1000;
             return () =>
             {
                 var waited = Stopwatch.StartNew();
