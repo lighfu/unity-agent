@@ -200,14 +200,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (roots.Length > 0)
             {
                 sb.AppendLine($"  Root GameObjects:");
-                foreach (var root in roots.Take(20))
+                foreach (var root in roots)
                 {
                     int childCount = root.transform.childCount;
                     bool active = root.activeSelf;
                     sb.AppendLine($"    - {root.name} (children={childCount}, active={active})");
                 }
-                if (roots.Length > 20)
-                    sb.AppendLine($"    ... +{roots.Length - 20} more");
             }
 
             return sb.ToString().TrimEnd();

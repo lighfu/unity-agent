@@ -6,6 +6,7 @@ using System.Reflection;
 using UnityEngine;
 using UnityEditor;
 using AjisaiFlow.UnityAgent.Editor.Tools;
+using AjisaiFlow.UnityAgent.Editor.MCP;
 using AjisaiFlow.UnityAgent.SDK;
 using static AjisaiFlow.UnityAgent.Editor.L10n;
 
@@ -52,6 +53,8 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         // ─── Execution ───
         private string _lastResult = "";
+        private JNode _resultPage;
+        private readonly Stack<int> _previousResultOffsets = new Stack<int>();
         private bool _isExecuting;
         private IEnumerator _runningCoroutine;
 
@@ -137,6 +140,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                         _runningCoroutine = null;
                         _isExecuting = false;
                         RecordConsoleStats(true);
+                        PageConsoleResult();
                         Repaint();
                     }
                     else if (_runningCoroutine.Current is string str)
@@ -151,6 +155,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                     _runningCoroutine = null;
                     _isExecuting = false;
                     RecordConsoleStats(false);
+                    PageConsoleResult();
                     Repaint();
                 }
             }
@@ -434,6 +439,8 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             _selectedIndex = index;
             _lastResult = "";
+            _resultPage = null;
+            _previousResultOffsets.Clear();
 
             if (index >= 0 && index < _filteredTools.Count)
             {
@@ -561,6 +568,20 @@ namespace AjisaiFlow.UnityAgent.Editor
             // ── Result ──
             EditorGUILayout.Space(4);
             EditorGUILayout.LabelField(M("結果"), EditorStyles.boldLabel);
+            if (_resultPage != null)
+            {
+                var page = _resultPage["page"];
+                EditorGUILayout.BeginHorizontal();
+                GUI.enabled = !_isExecuting && _previousResultOffsets.Count > 0;
+                if (GUILayout.Button(M("前のページ"), EditorStyles.miniButton, GUILayout.Width(100)))
+                    LoadResultPage(_previousResultOffsets.Peek(), true);
+                GUI.enabled = !_isExecuting && page["hasMore"].AsBool;
+                if (GUILayout.Button(M("次のページ"), EditorStyles.miniButton, GUILayout.Width(100)))
+                    LoadResultPage(page["nextOffset"].AsInt, false);
+                GUI.enabled = true;
+                EditorGUILayout.LabelField($"{page["offset"].AsInt} + {page["returned"].AsInt} / {page["total"].AsInt}", EditorStyles.miniLabel);
+                EditorGUILayout.EndHorizontal();
+            }
             _resultScrollPos = EditorGUILayout.BeginScrollView(_resultScrollPos, GUILayout.MinHeight(100));
             EditorGUILayout.TextArea(_lastResult, _resultStyle, GUILayout.ExpandHeight(true));
             EditorGUILayout.EndScrollView();
@@ -572,6 +593,8 @@ namespace AjisaiFlow.UnityAgent.Editor
 
         private void ExecuteTool(ToolEntry tool)
         {
+            _resultPage = null;
+            _previousResultOffsets.Clear();
             var ps = tool.parameters;
             object[] args = new object[ps.Length];
 
@@ -592,6 +615,8 @@ namespace AjisaiFlow.UnityAgent.Editor
                 catch (Exception ex)
                 {
                     _lastResult = string.Format(M("パラメータ '{0}' の変換エラー: {1}"), ps[i].name, ex.Message);
+                    ApplyResultPage(ToolResultPager.CreateFirstPage(tool.name, _lastResult));
+                    Repaint();
                     return;
                 }
             }
@@ -633,7 +658,44 @@ namespace AjisaiFlow.UnityAgent.Editor
                 RecordConsoleStats(false);
             }
 
+            if (!_isExecuting) PageConsoleResult();
             Repaint();
+        }
+
+        private void PageConsoleResult()
+        {
+            string response = _statsToolName == "ReadUnityToolResultPage" ? _lastResult
+                : ToolResultPager.CreateFirstPage(_statsToolName, _lastResult);
+            ApplyResultPage(response);
+        }
+
+        private void ApplyResultPage(string response)
+        {
+            if (ToolResultPager.IsSavedPage(response))
+            {
+                var node = JNode.Parse(response);
+                _resultPage = node;
+                _lastResult = node["text"].AsString ?? "";
+            }
+            else
+            {
+                _resultPage = null;
+                _previousResultOffsets.Clear();
+                _lastResult = response;
+            }
+            _resultScrollPos = Vector2.zero;
+        }
+
+        private void LoadResultPage(int offset, bool previous)
+        {
+            if (_resultPage == null) return;
+            int current = _resultPage["page"]["offset"].AsInt;
+            string response = ToolResultPager.ReadPage(_resultPage["resultId"].AsString, offset,
+                _resultPage["page"]["limit"].AsInt, _resultPage["page"]["maxChars"].AsInt);
+            ApplyResultPage(response);
+            if (_resultPage == null) return;
+            if (previous) _previousResultOffsets.Pop();
+            else _previousResultOffsets.Push(current);
         }
 
         /// <summary>

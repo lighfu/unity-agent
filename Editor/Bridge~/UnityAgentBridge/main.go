@@ -949,8 +949,9 @@ func (b *Bridge) handleToolsList() map[string]any {
 				"inputSchema": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"query": map[string]any{"type": "string"},
-						"limit": map[string]any{"type": "integer", "default": 20},
+						"query":  map[string]any{"type": "string"},
+						"limit":  map[string]any{"type": "integer", "default": 20, "minimum": 1, "maximum": 200},
+						"offset": map[string]any{"type": "integer", "default": 0, "minimum": 0},
 					},
 					"required": []any{"query"},
 				},
@@ -968,12 +969,15 @@ func (b *Bridge) handleToolsList() map[string]any {
 			},
 			map[string]any{
 				"name":        "ExecuteUnityTool",
-				"description": "Execute a Unity Editor tool by name.",
+				"description": "Execute a Unity Editor tool by name. Long results return a text snapshot page; continue with ReadUnityToolResultPage(resultId, offset=page.nextOffset). resultOffset/resultLimit/resultMaxChars apply to completed result text, outside arguments.",
 				"inputSchema": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"name":      map[string]any{"type": "string"},
-						"arguments": map[string]any{"type": "object", "additionalProperties": true},
+						"name":           map[string]any{"type": "string"},
+						"arguments":      map[string]any{"type": "object", "additionalProperties": true},
+						"resultOffset":   map[string]any{"type": "integer", "default": 0, "minimum": 0},
+						"resultLimit":    map[string]any{"type": "integer", "default": 50, "minimum": 1, "maximum": 200},
+						"resultMaxChars": map[string]any{"type": "integer", "default": 8192, "minimum": 1024, "maximum": 32768},
 					},
 					"required": []any{"name", "arguments"},
 				},

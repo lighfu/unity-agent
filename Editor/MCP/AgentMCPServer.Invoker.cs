@@ -25,6 +25,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 return;
             }
 
+            string pagingError = call.ConfigureResultPaging();
+            if (pagingError != null)
+            {
+                call.SetError(pagingError, null, -32602);
+                return;
+            }
+
             // ── Meta-tools (SearchUnityTool / DescribeUnityTool / ExecuteUnityTool) ──
             if (TryInvokeMetaTool(call)) return;
 
@@ -479,11 +486,19 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             if (call.ToolName == "SearchUnityTool")
             {
                 string query = call.Arguments["query"].AsString ?? "";
-                int limit = 20;
-                var limNode = call.Arguments["limit"];
-                if (limNode != null && limNode.Type == JNode.JType.Number) limit = limNode.AsInt;
+                if (!ToolResultRequest.ReadInteger(call.Arguments, "limit", 20, out int limit, out string searchError)
+                    || !ToolResultRequest.ReadInteger(call.Arguments, "offset", 0, out int offset, out searchError))
+                {
+                    call.SetError(searchError, null, -32602);
+                    return true;
+                }
+                if (offset < 0 || limit < 1 || limit > ToolResultPager.MaximumLimit)
+                {
+                    call.SetError("Error: SearchUnityTool offset must be non-negative and limit must be between 1 and 200.", null, -32602);
+                    return true;
+                }
                 var sw = Stopwatch.StartNew();
-                string res = Handlers.ImplSearchTool(query, limit);
+                string res = Handlers.ImplSearchTool(query, limit, offset);
                 sw.Stop();
                 AgentLogger.Debug(LogTag.MCP, $"meta SearchUnityTool query=\"{Truncate(query, 80)}\" limit={limit} textBytes={res.Length} elapsed={sw.ElapsedMilliseconds}ms");
                 call.SetResult(res);

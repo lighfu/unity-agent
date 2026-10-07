@@ -218,10 +218,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                    "uploadBlocking=true|false — NDMF blocks the avatar upload for Error and InternalError only. " +
                    "severity: 'all' (default) | 'internalError' | 'error' | 'nonFatal' | 'information'. " +
                    "maxEntries: cap on listed entries (default 50, max 500). " +
+                   "offset: zero-based index in the severity-filtered entries (default 0). sourcePage.nextOffset continues source entries. " +
+                   "Keep severity unchanged and restart offset 0 if the report changes. ReadUnityToolResultPage continues only " +
+                   "the captured text of one source window. " +
                    "Each entry carries the source plugin, the pass name, the avatar, the message, and the hierarchy " +
                    "path of every scene object the error points at. Degrades gracefully when NDMF is missing.")]
-        public static string InspectNDMFErrorReport(int maxEntries = 50, string severity = "all")
+        public static string InspectNDMFErrorReport(int maxEntries = 50, string severity = "all", int offset = 0)
         {
+            if (offset < 0) return "Error: offset must be a non-negative integer.";
             if (maxEntries <= 0) maxEntries = 50;
             if (maxEntries > 500) maxEntries = 500;
 
@@ -241,6 +245,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (entries.Count == 0)
             {
                 sb.AppendLine("  (no entries — bake has not produced any reports, or the report has been cleared)");
+                sb.AppendLine(new ToolSourcePaging.Window(0, offset, maxEntries, false).Describe());
                 return sb.ToString().TrimEnd();
             }
 
@@ -254,10 +259,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (shown.Count == 0)
             {
                 sb.AppendLine("  (no entries at this severity)");
+                sb.AppendLine(new ToolSourcePaging.Window(0, offset, maxEntries, false).Describe());
                 return sb.ToString().TrimEnd();
             }
 
-            foreach (var e in shown.Take(maxEntries))
+            var window = new ToolSourcePaging.Window(shown.Count, offset, maxEntries, false);
+            foreach (var e in shown.Skip(window.Start).Take(window.Count))
             {
                 var head = new StringBuilder($"  [{e.severity}]");
                 head.Append(string.IsNullOrEmpty(e.plugin) ? " (no plugin context)" : " " + e.plugin);
@@ -267,8 +274,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 sb.AppendLine("      " + e.message);
                 foreach (var path in e.objectPaths) sb.AppendLine("      → " + path);
             }
-            if (shown.Count > maxEntries)
-                sb.AppendLine($"  … +{shown.Count - maxEntries} more entries not listed (raise maxEntries to see them)");
+            sb.AppendLine(window.Describe());
 
             return sb.ToString().TrimEnd();
         }

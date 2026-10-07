@@ -155,12 +155,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (overrides.Count > 0)
             {
                 sb.AppendLine("  Override Details:");
-                int shown = 0;
                 foreach (var ov in overrides)
                 {
-                    if (shown >= 20) { sb.AppendLine("    ... (truncated)"); break; }
                     sb.AppendLine($"    - {ov.instanceObject.GetType().Name} on '{(ov.instanceObject as Component)?.gameObject.name ?? ov.instanceObject.name}'");
-                    shown++;
                 }
             }
 

@@ -8,6 +8,9 @@ and C# 9 syntax, matching the language level supported by Unity 2022.3.
 dotnet run --project Tests~/Core/Core.Tests.csproj --configuration Release
 dotnet run --project Tests~/MCPClient/MCPClient.Tests.csproj --configuration Release
 dotnet run --project Tests~/MCPBridge/MCPBridge.Tests.csproj --configuration Release
+dotnet run --project Tests~/ToolResultPaging/ToolResultPaging.Tests.csproj --configuration Release
+dotnet run --project Tests~/ToolResultPagingIntegration/ToolResultPagingIntegration.Tests.csproj --configuration Release
+dotnet run --project Tests~/ToolSourcePaging/ToolSourcePaging.Tests.csproj --configuration Release
 dotnet run --project Tests~/GestureManagerGestures/GestureManagerGestures.Tests.csproj --configuration Release
 dotnet run --project Tests~/GestureManagerMenu/GestureManagerMenu.Tests.csproj --configuration Release
 dotnet run --project Tests~/GestureManagerMenu/GestureManagerMenu.Tests.csproj --configuration Release -p:GmEnabled=false
@@ -45,6 +48,15 @@ actual Gesture Manager/VRChat SDK or testing previews in the Unity Editor.
 The utility harness covers temporary-background ownership, restoring profiler
 settings, camera/contact configuration, and tracking/weight changes. Its README
 also documents an optional reflection-contract check against actual GM assemblies.
+
+The result paging harness verifies exact reconstruction of cached tool text,
+line/Unicode boundaries, segment and character budgets, continuation offsets,
+expiry, capacity eviction, and concurrent reads. The integration harness links
+the production MCP dispatcher, pending calls, listener routes, schemas and
+continuation tool to check that reading a page never invokes a modifying tool
+again. The source paging harness verifies native console/error-report windows
+and file reads beyond former fixed output limits. Go transport tests cover the
+same ExecuteUnityTool paging envelope and unchanged continuation JSON.
 
 GitHub Actions runs the C# harnesses on Windows and Linux, and runs the Go tests
 with the race detector on Linux. Locally, `go test -race ./...` also needs a

@@ -142,7 +142,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ========== 2. InspectVRCFuryComponent ==========
 
-        [AgentTool("Inspect a VRCFury component by index. Use ListVRCFuryComponents first to find the index.")]
+        [AgentTool("Inspect a VRCFury component by index. Use ListVRCFuryComponents first to find the index. Serialized arrays include every element; nested properties beyond depth 6 are omitted.")]
         public static string InspectVRCFuryComponent(string avatarRootName, int componentIndex)
         {
             var avatarRoot = FindAvatarRoot(avatarRootName);
@@ -235,14 +235,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                         if (iter.isArray)
                         {
                             sb.AppendLine($"{currentIndent}{iter.name}: (array [{iter.arraySize}])");
-                            for (int i = 0; i < Mathf.Min(iter.arraySize, 20); i++)
+                            for (int i = 0; i < iter.arraySize; i++)
                             {
                                 var elem = iter.GetArrayElementAtIndex(i);
                                 sb.AppendLine($"{currentIndent}  [{i}]:");
                                 DumpSerializedProperty(sb, elem, indent, depth + 2);
                             }
-                            if (iter.arraySize > 20)
-                                sb.AppendLine($"{currentIndent}  ... ({iter.arraySize - 20} more)");
                         }
                         else if (iter.hasVisibleChildren)
                         {

@@ -587,13 +587,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"No preset matched '{keyword}'. Categorized shape hits ({hits.Count}):");
-            foreach (var hit in hits.Take(20))
+            foreach (var hit in hits)
             {
                 string tagsStr = hit.tags != null && hit.tags.Count > 0
                     ? $" tags={string.Join(",", hit.tags)}" : "";
                 sb.AppendLine($"  [{hit.category}] {hit.name}  (smr={ShortSmrName(hit.smrPath)}){tagsStr}");
             }
-            if (hits.Count > 20) sb.AppendLine($"  ... and {hits.Count - 20} more");
             sb.AppendLine();
             sb.AppendLine("  Build manually: SetExpressionPreviewMulti('<avatar>', 'shape1=80;shape2=100')");
             return sb.ToString().TrimEnd();

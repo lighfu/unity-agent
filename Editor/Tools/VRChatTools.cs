@@ -721,9 +721,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Inspect VRC Expressions Menu structure recursively (controls, submenus).")]
-        public static string InspectVRCExpressionsMenu(string avatarRootName)
+        [AgentTool("Inspect VRC Expressions Menu structure (controls, submenus). maxDepth defaults to the existing depth of 3; " +
+                   "raise it to inspect deeper source menus. Shared/cyclic assets are listed once with reference markers. " +
+                   "sourceTruncated and depthTruncatedBranches explicitly report branches hidden by maxDepth. " +
+                   "ReadUnityToolResultPage continues only the captured output at this source depth.")]
+        public static string InspectVRCExpressionsMenu(string avatarRootName, int maxDepth = 3)
         {
+            if (maxDepth < 0) return "Error: maxDepth must be a non-negative integer.";
             var descriptorType = FindVrcType(VrcDescriptorTypeName);
             if (descriptorType == null) return "Error: VRChat SDK not found. Ensure VRChat Avatar SDK is installed.";
 
@@ -740,24 +744,48 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"Expressions Menu for '{avatarRootName}':");
-            BuildMenuTree(sb, menuProp.objectReferenceValue, 0, 3);
+            int omitted = BuildMenuTree(sb, menuProp.objectReferenceValue, maxDepth);
+            sb.AppendLine($"sourceTruncated={(omitted > 0 ? "true" : "false")}, depthTruncatedBranches={omitted}, maxDepth={maxDepth}");
+            if (omitted > 0) sb.AppendLine("Raise maxDepth on InspectVRCExpressionsMenu to inspect hidden source branches.");
 
             return sb.ToString().TrimEnd();
         }
 
-        private static void BuildMenuTree(StringBuilder sb, UnityEngine.Object menuObj, int depth, int maxDepth)
+        private static int BuildMenuTree(StringBuilder sb, UnityEngine.Object menuObj, int maxDepth)
         {
-            if (menuObj == null || depth > maxDepth) return;
-
-            string indent = new string(' ', depth * 2 + 2);
-            var menuSo = new SerializedObject(menuObj);
-            var controls = menuSo.FindProperty("controls");
-
-            if (controls == null || !controls.isArray) return;
-
-            for (int i = 0; i < controls.arraySize; i++)
+            int omitted = 0;
+            var visited = new HashSet<int>();
+            var pending = new Stack<(UnityEngine.Object Menu, SerializedProperty Control, int Depth)>();
+            pending.Push((menuObj, null, 0));
+            while (pending.Count > 0)
             {
-                var control = controls.GetArrayElementAtIndex(i);
+                var entry = pending.Pop();
+                string indent = new string(' ', entry.Depth * 2 + 2);
+                if (entry.Control == null)
+                {
+                    if (entry.Menu == null) continue;
+                    int menuId = entry.Menu.GetInstanceID();
+                    if (visited.Contains(menuId))
+                    {
+                        sb.AppendLine($"{indent}[Menu reference already listed] {entry.Menu.name} @ {AssetDatabase.GetAssetPath(entry.Menu)}");
+                        continue;
+                    }
+                    if (entry.Depth > maxDepth)
+                    {
+                        omitted++;
+                        sb.AppendLine($"{indent}... menu '{entry.Menu.name}' hidden by maxDepth={maxDepth}");
+                        continue;
+                    }
+                    visited.Add(menuId);
+                    var menuSo = new SerializedObject(entry.Menu);
+                    var controls = menuSo.FindProperty("controls");
+                    if (controls == null || !controls.isArray) continue;
+                    // Push in reverse so the displayed depth-first control order stays unchanged.
+                    for (int i = controls.arraySize - 1; i >= 0; i--)
+                        pending.Push((null, controls.GetArrayElementAtIndex(i), entry.Depth));
+                    continue;
+                }
+                var control = entry.Control;
                 var controlName = control.FindPropertyRelative("name");
                 var controlType = control.FindPropertyRelative("type");
                 var parameterName = control.FindPropertyRelative("parameter");
@@ -794,10 +822,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     var subMenu = control.FindPropertyRelative("subMenu");
                     if (subMenu != null && subMenu.objectReferenceValue != null)
                     {
-                        BuildMenuTree(sb, subMenu.objectReferenceValue, depth + 1, maxDepth);
+                        pending.Push((subMenu.objectReferenceValue, null, entry.Depth + 1));
                     }
                 }
             }
+            return omitted;
         }
 
         // Performance stats moved to VRChatPerformanceTools.cs

@@ -544,7 +544,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         }
         private static IEnumerable<string> EventDescriptions(Component c)
         {
-            foreach (MemberInfo member in EventMembers(c).Take(40))
+            foreach (MemberInfo member in EventMembers(c))
             {
                 string description;
                 try

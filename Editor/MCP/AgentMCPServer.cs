@@ -101,6 +101,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             _port = port;
             _token = token;
+            ListenerThreadTools.RefreshReaderGateOnMainThread();
 
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://localhost:{port}/");
@@ -590,10 +591,24 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         // GUI ログには載せない。対象の一覧は ListenerThreadTools が持つ (Bridge と共通)。
                         // このリクエストは既に ThreadPool 上なので、待つ処理 (GetVRChatBuildTestResult
                         // の waitSeconds) をここで実行しても他のリクエストは止まらない。
-                        var fastWork = ListenerThreadTools.Match(toolName, args);
+                        var fastWork = ListenerThreadTools.Match(toolName, args, out string pagingError, out int pagingErrorCode, out var resultOptions);
+                        if (pagingError != null)
+                        {
+                            WriteJsonRpcError(resp, idNode, pagingErrorCode, pagingError, null);
+                            return;
+                        }
                         if (fastWork != null)
                         {
-                            string fastText = fastWork();
+                            string fastText;
+                            try { fastText = fastWork(); }
+                            catch (Exception ex)
+                            {
+                                string targetName = toolName == "ExecuteUnityTool" ? args["name"].AsString ?? toolName : toolName;
+                                string detail = DeveloperMode.IsDevBuild ? ex.ToString() : ex.Message;
+                                WriteJsonRpcError(resp, idNode, -32603, "Internal error",
+                                    ToolResultRequest.FormatError(targetName + ".errorData", detail, resultOptions));
+                                return;
+                            }
                             TraceLog($"  tools/call fast-path tool={toolName} (off main thread)");
                             WriteJsonRpcResult(resp, idNode, JNode.Obj(
                                 ("content", JNode.Arr(JNode.Obj(
@@ -756,6 +771,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         void PumpMainThread()
         {
+            ListenerThreadTools.RefreshReaderGateOnMainThread();
             // update が回っている = メインスレッドは生きている。キューが空でも必ず記録する。
             // GetEditorState はリスナースレッドで応答するため、Unity 側の状態もここで写し取る
             // (EditorApplication.* はメインスレッド専用で、詰まっている時ほど読めなくなる)。
@@ -939,6 +955,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void WriteJsonRpcError(HttpListenerResponse resp, JNode id, int code, string message, string data)
         {
+            message = ToolResultRequest.FormatError("MCP.error", message ?? "Error", ToolResultRequest.Options.Default);
+            data = ToolResultRequest.FormatError("MCP.errorData", data ?? "", ToolResultRequest.Options.Default);
             var errObj = JNode.Obj(
                 ("code", JNode.Num(code)),
                 ("message", JNode.Str(message ?? "Error")),
@@ -1111,181 +1129,4 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         }
     }
 
-    /// <summary>
-    /// HTTP スレッドとメインスレッド間で受け渡されるツール呼び出しのコンテキスト。
-    /// InProc モード (HTTP listener) と Bridge モード (TCP client) の両方から共用する。
-    /// </summary>
-    internal sealed class PendingCall
-    {
-        public string ToolName { get; private set; }
-        public JNode Arguments { get; private set; }
-
-        /// <summary>
-        /// ExecuteUnityTool が target ツールに再ディスパッチするために name/args を差し替える。
-        ///
-        /// 統計の argChars は意図的に更新しない。ここで数え直すと、RunEditorScript のように
-        /// 本文を引数で渡すツールで数百 KB の JSON を 1 呼び出しにつきもう一度シリアライズする
-        /// ことになる。argChars は受信した引数 JSON の文字数 (= 実際に運んだ量) という定義なので、
-        /// ExecuteUnityTool 経由では外側のラッパ ({"name":...,"arguments":{...}}) を含んだ値になる。
-        /// </summary>
-        public void Rewrite(string newName, JNode newArgs)
-        {
-            ToolName = newName ?? "";
-            Arguments = newArgs ?? JNode.Obj();
-        }
-        public string ResultText { get; private set; }
-
-        /// <summary>
-        /// Optional image payload attached to the tool result. Populated by
-        /// <see cref="Invoker"/> when a tool sets <see cref="Tools.SceneViewTools.PendingImageBytes"/>
-        /// (scene / expression / multi-angle captures). When non-null, the HTTP / bridge
-        /// transports wrap this in an MCP <c>image</c> content block so the calling LLM
-        /// actually sees the picture instead of just the tool's summary string.
-        /// </summary>
-        public byte[] ImageBytes { get; private set; }
-        public string ImageMimeType { get; private set; }
-
-        public string Error { get; private set; }
-        public string ErrorData { get; private set; }
-        public int ErrorCode { get; private set; } = -32000;
-        public bool Cancelled { get; private set; }
-
-        /// <summary>
-        /// Bridge モードで使う識別子。bridge 内部の pending id を持ち回り、結果送信時に
-        /// レスポンスメッセージへタグ付けするために <see cref="AgentMCPBridgeClient"/> が参照する。
-        /// InProc モードでは null。
-        /// </summary>
-        public string BridgePendingId;
-
-        /// <summary>
-        /// 完了通知コールバック (Bridge モード専用)。InProc モードは <see cref="Wait"/> でブロックするが、
-        /// Bridge モードは push 方式で結果を bridge に書き戻す。
-        /// </summary>
-        public Action<PendingCall> OnComplete;
-
-        readonly ManualResetEventSlim _done = new ManualResetEventSlim(false);
-
-        // ── ツール呼び出し統計 ──
-        // SetResult / SetError は HTTP リスナースレッドからも呼ばれ得るため、記録側では
-        // Unity API / UI Toolkit に触れない。タイムアウト Cancel() と遅延完了 SetResult() が
-        // 競合して 2 回発火し得るので Interlocked で単発を保証する。
-
-        /// <summary>
-        /// 実行時間の計測。生成時点では止まっており、メインスレッドの pump が
-        /// <see cref="MarkExecutionStart"/> を呼んだ時点から動き出す。
-        /// </summary>
-        readonly System.Diagnostics.Stopwatch _statsSw = new System.Diagnostics.Stopwatch();
-        int _statsRecorded;
-
-        /// <summary>
-        /// 受信した引数 JSON の文字数。呼び出し元が既に持っている文字列の長さを渡す想定で、
-        /// 負値なら「未知」を意味し、記録時に 1 度だけ数える。
-        /// </summary>
-        int _statsArgChars;
-
-        /// <param name="argChars">
-        /// 呼び出し元が既にシリアライズ済みの引数 JSON の文字数。省略すると記録時に
-        /// もう一度シリアライズして数えることになるので、分かるなら必ず渡すこと。
-        /// </param>
-        public PendingCall(string toolName, JNode arguments, int argChars = -1)
-        {
-            ToolName = toolName ?? "";
-            Arguments = arguments ?? JNode.Obj();
-            _statsArgChars = argChars;
-        }
-
-        /// <summary>
-        /// 実行時間の計測を開始する。メインスレッドの pump が <c>Invoker.Invoke</c> に渡す
-        /// 直前に呼ぶ。統計の durationMs は「実行に要した時間」であり、キュー待ちは含めない。
-        ///
-        /// 以前は InProc がリスナースレッドの enqueue 時点、Bridge がメインスレッドの dispatch
-        /// 時点から計っており、同じ <see cref="ToolCallRoute.Mcp"/> なのに意味が違っていた。
-        /// キュー待ちを含めた値が要るなら、この計測に混ぜずに別フィールドを足すこと。
-        ///
-        /// 一度も dispatch されないまま終わった呼び出し (キューで待っている間にタイムアウト、
-        /// キャンセル済みで pump にスキップされた等) は実行時間 0 として記録される。
-        /// </summary>
-        public void MarkExecutionStart()
-        {
-            _statsSw.Start();
-        }
-
-        /// <summary>
-        /// スキーマにない引数が渡されていた場合の警告文 (<see cref="Invoker"/> が設定)。
-        /// <see cref="SetResult"/> / <see cref="SetError"/> が本文の先頭に差し込む。
-        ///
-        /// 結果を確定させる経路が同期・非同期コルーチン・ユーザー選択待ちの 3 つあり、
-        /// どこを通っても必ず付くようにここで一元化している。エラー側にも付けるのは、
-        /// 無視された引数が原因でエラーになるケース (別ランチャーを見に行って
-        /// 「Mode not found」) こそ、この情報が要るため。
-        /// </summary>
-        public string ArgumentWarning { get; set; }
-
-        /// <summary>警告があれば本文の先頭に差し込む。</summary>
-        string WithArgumentWarning(string body)
-        {
-            if (string.IsNullOrEmpty(ArgumentWarning)) return body ?? "";
-            return ArgumentWarning + "\n\n" + (body ?? "");
-        }
-
-        public void SetResult(string text)
-        {
-            string body = WithArgumentWarning(text);
-            RecordStats(body.Length, false);
-            ResultText = body;
-            AgentMCPServer.RaiseCallFinish(ToolName, ResultText, false);
-            _done.Set();
-            try { OnComplete?.Invoke(this); } catch { }
-        }
-
-        /// <summary>
-        /// Attach an image payload to the result. Must be called from the main thread
-        /// *before* <see cref="SetResult"/> for the transport layer to pick it up.
-        /// </summary>
-        public void SetImage(byte[] bytes, string mimeType)
-        {
-            if (bytes == null || bytes.Length == 0) return;
-            ImageBytes = bytes;
-            ImageMimeType = string.IsNullOrEmpty(mimeType) ? "image/png" : mimeType;
-        }
-
-        public void SetError(string message, string data = null, int code = -32000)
-        {
-            RecordStats(0, true);
-            Error = WithArgumentWarning(message ?? "Unknown error");
-            ErrorData = data ?? "";
-            ErrorCode = code;
-            AgentMCPServer.RaiseCallFinish(ToolName, Error, true);
-            _done.Set();
-            try { OnComplete?.Invoke(this); } catch { }
-        }
-
-        public bool Wait(int timeoutMs) => _done.Wait(timeoutMs);
-
-        public void Cancel()
-        {
-            Cancelled = true;
-            if (!_done.IsSet)
-                SetError("Cancelled");
-        }
-
-        /// <summary>
-        /// ツール呼び出し統計へ 1 回だけ記録する。SetResult / SetError の双方から呼ばれ、
-        /// タイムアウト Cancel() 後の遅延完了と競合しても二重記録しない。
-        /// ワーカースレッドから呼ばれ得るので Unity API には触れない。
-        /// 所要時間の定義は <see cref="MarkExecutionStart"/> を参照。
-        /// </summary>
-        void RecordStats(int resultChars, bool isError)
-        {
-            if (System.Threading.Interlocked.Exchange(ref _statsRecorded, 1) != 0) return;
-            _statsSw.Stop();
-
-            int argChars = _statsArgChars;
-            // 呼び出し元が長さを渡さなかった場合の保険。通常は通らない経路。
-            if (argChars < 0) argChars = Arguments?.ToJson()?.Length ?? 0;
-
-            ToolCallStats.Record(ToolName, ToolCallRoute.Mcp, !isError,
-                _statsSw.Elapsed.TotalMilliseconds, argChars, resultChars);
-        }
-    }
 }

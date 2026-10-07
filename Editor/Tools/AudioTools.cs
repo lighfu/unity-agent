@@ -126,7 +126,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 {
                     sb.AppendLine($"  {path} ({clip.length:F1}s, {clip.channels}ch, {clip.frequency}Hz)");
                     count++;
-                    if (count >= 50) { sb.AppendLine("  ... (limit 50 reached)"); break; }
                 }
             }
 

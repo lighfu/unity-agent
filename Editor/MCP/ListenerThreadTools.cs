@@ -17,16 +17,70 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     /// </summary>
     internal static class ListenerThreadTools
     {
+        // Fail closed until a main-thread startup/pump or settings setter publishes a gate.
+        // Listener threads must never touch AgentSettings' mutable sets or lazy SettingsStore.
+        static volatile string _readerGateError = "Tool 'ReadUnityToolResultPage' access settings have not been initialized.";
+
+        internal static void RefreshReaderGateOnMainThread()
+        {
+            string error = "Tool 'ReadUnityToolResultPage' is not available.";
+            try
+            {
+                foreach (var info in ToolRegistry.GetAllTools())
+                {
+                    if (info.method == null || !ToolResultRequest.IsReader(info.method.Name)) continue;
+                    if (!AgentSettings.IsToolEnabled(info.method.Name, info.isExternal))
+                        error = $"Tool '{info.method.Name}' is disabled in UnityAgent settings.";
+                    else if ((int)info.resolvedRisk > (int)AgentSettings.MCPServerExposeRisk)
+                        error = $"Tool '{info.method.Name}' risk level ({info.resolvedRisk}) exceeds MCP expose limit ({AgentSettings.MCPServerExposeRisk}).";
+                    else error = null;
+                    break;
+                }
+            }
+            catch
+            {
+                error = "Tool 'ReadUnityToolResultPage' access settings are unavailable.";
+            }
+            _readerGateError = error;
+        }
+
         /// <summary>
         /// The work that answers this call off the main thread, or null when the call belongs on
         /// the main thread. The work may block — GetVRChatBuildTestResult waits up to its
         /// waitSeconds — so run it on a thread that is allowed to wait, never on the bridge's
         /// single reader thread.
         /// </summary>
-        public static Func<string> Match(string toolName, JNode args) => Match(toolName, args, depth: 0);
-
-        static Func<string> Match(string toolName, JNode args, int depth)
+        public static Func<string> Match(string toolName, JNode args)
         {
+            var work = Match(toolName, args, out string error);
+            return error == null ? work : () => error;
+        }
+
+        public static Func<string> Match(string toolName, JNode args, out string error)
+            => Match(toolName, args, out error, out _, out _);
+
+        public static Func<string> Match(string toolName, JNode args, out string error, out int errorCode, out ToolResultRequest.Options options)
+        {
+            errorCode = -32602;
+            if (!ToolResultRequest.TryGetOptions(toolName, args, out options, out error)) return null;
+            string targetName = toolName == "ExecuteUnityTool" ? args?["name"].AsString ?? "" : toolName;
+            if (ToolResultRequest.IsReader(targetName))
+            {
+                error = _readerGateError;
+                if (error != null) { errorCode = -32000; return null; }
+            }
+            var work = MatchCore(toolName, args, depth: 0);
+            var resultOptions = options;
+            return work == null ? null : () => ToolResultRequest.Format(targetName, work(), resultOptions);
+        }
+
+        static Func<string> MatchCore(string toolName, JNode args, int depth)
+        {
+            if (ToolResultRequest.IsReader(toolName))
+            {
+                ToolResultRequest.TryReadReaderArguments(args, out string resultId, out int offset, out int limit, out int maxChars, out _);
+                return () => ToolResultPager.ReadPage(resultId, offset, limit, maxChars);
+            }
             switch (toolName)
             {
                 // MCP clients on the 4-tool surface never call a Unity tool by name — they call
@@ -38,7 +92,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 // refused by the Invoker anyway.
                 case "ExecuteUnityTool":
                     if (depth > 0 || args == null) return null;
-                    return Match(args["name"].AsString ?? "", args["arguments"], depth + 1);
+                    return MatchCore(args["name"].AsString ?? "", args["arguments"], depth + 1);
 
                 case "GetEditorState":
                     return Tools.EditorStateTools.GetEditorState;

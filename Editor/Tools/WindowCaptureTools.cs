@@ -426,15 +426,11 @@ coordinates. Windows Editor only.",
                     return hint.ToString();
                 }
 
-                // Cap the output rather than returning thousands of lines with includeInvisible=true, and
-                // say how many were dropped so the list is never mistaken for the whole desktop.
-                const int maxRows = 200;
-                var rows = filtered.Take(maxRows).ToList();
+                // Capture every matching row; shared result paging bounds the displayed output.
+                var rows = filtered;
 
                 var sb = new StringBuilder();
                 sb.AppendLine($"Top-level windows: {rows.Count} shown of {filtered.Count} matching ({all.Count} enumerated), front-to-back in z-order");
-                if (filtered.Count > rows.Count)
-                    sb.AppendLine($"NOTE: {filtered.Count - rows.Count} further matches were omitted — narrow titleContains/processName.");
                 sb.AppendLine("Pass hwnd straight to CaptureWindow, e.g. CaptureWindow(hwnd='0x00120A3C').");
                 sb.AppendLine("---");
                 for (int i = 0; i < rows.Count; i++)

@@ -423,14 +423,10 @@ paths: semicolon-separated 'transformPath=true/false'. Example: 'Armature/Hips/S
             }
 
             sb.AppendLine($"  Transforms ({mask.transformCount}):");
-            int shown = 0;
-            for (int i = 0; i < mask.transformCount && shown < 100; i++)
+            for (int i = 0; i < mask.transformCount; i++)
             {
                 sb.AppendLine($"    [{(mask.GetTransformActive(i) ? "ON" : "  ")}] {mask.GetTransformPath(i)}");
-                shown++;
             }
-            if (mask.transformCount > 100)
-                sb.AppendLine($"    ... ({mask.transformCount - 100} more)");
 
             return sb.ToString().TrimEnd();
         }
@@ -976,7 +972,9 @@ Errors out in Edit mode. Use InspectAnimatorController for default values.")]
         [AgentTool(@"Dump ALL current runtime values of an Animator's parameters in one call (Play mode only).
 Much cheaper than calling GetAnimatorRuntimeParameterValue repeatedly for avatars with many parameters.
 Works even when runtimeAnimatorController is null (e.g., GestureManager preview via PlayableGraph).
-Optional filter: substring match against parameter name (case-insensitive). Optional limit (default 200).")]
+Optional filter: substring match against parameter name (case-insensitive). Optional source limit (default 200).
+This source limit is separate from shared result paging: ReadUnityToolResultPage reads only the captured
+output. Raise limit or narrow filter to include source parameters excluded by this limit.")]
         public static string ListAnimatorRuntimeParameters(string gameObjectName, string filter = "", int limit = 200)
         {
             if (!EditorApplication.isPlaying)

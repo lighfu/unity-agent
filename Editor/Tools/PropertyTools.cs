@@ -35,11 +35,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 enterChildren = false;
                 sb.AppendLine($"  {prop.propertyPath} ({prop.propertyType}): {GetPropertyValueString(prop)}");
                 count++;
-                if (count >= 50)
-                {
-                    sb.AppendLine("  ... (truncated at 50 properties)");
-                    break;
-                }
             }
 
             if (count == 0) sb.AppendLine("  (no visible properties)");
@@ -139,16 +134,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var sb = new StringBuilder();
             sb.AppendLine($"Blend shapes on '{goName}' ({count}):");
 
-            int limit = Math.Min(count, 50);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < count; i++)
             {
                 string shapeName = mesh.GetBlendShapeName(i);
                 float weight = smr.GetBlendShapeWeight(i);
                 sb.AppendLine($"  {i}: {shapeName} = {weight:F1}");
             }
 
-            if (count > 50)
-                sb.AppendLine($"  ... and {count - 50} more.");
 
             return sb.ToString().TrimEnd();
         }

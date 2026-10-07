@@ -86,20 +86,20 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         private static void BuildTree(StringBuilder sb, Transform t, int depth, int maxDepth)
         {
-            string indent = new string(' ', depth * 2);
-            string activeMarker = t.gameObject.activeSelf ? "" : " [Inactive]";
-            sb.AppendLine($"{indent}{t.name}{activeMarker}");
-
-            if (depth >= maxDepth)
+            var pending = new System.Collections.Generic.Stack<(Transform Node, int Depth)>();
+            pending.Push((t, depth));
+            while (pending.Count > 0)
             {
-                if (t.childCount > 0)
-                    sb.AppendLine($"{indent}  ... ({t.childCount} children hidden)");
-                return;
-            }
-
-            for (int i = 0; i < t.childCount; i++)
-            {
-                BuildTree(sb, t.GetChild(i), depth + 1, maxDepth);
+                var entry = pending.Pop();
+                string indent = new string(' ', entry.Depth * 2);
+                string activeMarker = entry.Node.gameObject.activeSelf ? "" : " [Inactive]";
+                sb.AppendLine($"{indent}{entry.Node.name}{activeMarker}");
+                if (entry.Depth >= maxDepth)
+                {
+                    if (entry.Node.childCount > 0) sb.AppendLine($"{indent}  ... ({entry.Node.childCount} children hidden)");
+                    continue;
+                }
+                for (int i = entry.Node.childCount - 1; i >= 0; i--) pending.Push((entry.Node.GetChild(i), entry.Depth + 1));
             }
         }
 
@@ -128,12 +128,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"Found {results.Count} object(s) with '{componentTypeName}':");
-            int limit = System.Math.Min(results.Count, 50);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < results.Count; i++)
                 sb.AppendLine(results[i]);
-
-            if (results.Count > 50)
-                sb.AppendLine($"... and {results.Count - 50} more.");
 
             return sb.ToString().TrimEnd();
         }
@@ -198,7 +194,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return $"Path: {GetFullPath(go.transform)}";
         }
 
-        [AgentTool("Find GameObjects by partial name match (case-insensitive). Searches entire scene including inactive objects. Limited to 50 results.")]
+        [AgentTool("Find GameObjects by partial name match (case-insensitive). Searches entire scene including inactive objects. Large tool results use shared result paging.")]
         public static string FindObjectsByName(string namePattern)
         {
             var scene = SceneManager.GetActiveScene();
@@ -223,17 +219,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"Found {results.Count} object(s) matching '{namePattern}':");
-            int limit = System.Math.Min(results.Count, 50);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < results.Count; i++)
                 sb.AppendLine(results[i]);
-
-            if (results.Count > 50)
-                sb.AppendLine($"... and {results.Count - 50} more.");
 
             return sb.ToString().TrimEnd();
         }
 
-        [AgentTool("Find all GameObjects with a specific tag (includes inactive objects). Useful for finding EditorOnly objects. Limited to 50 results.")]
+        [AgentTool("Find all GameObjects with a specific tag (includes inactive objects). Useful for finding EditorOnly objects. Large tool results use shared result paging.")]
         public static string FindObjectsByTag(string tag)
         {
             var scene = SceneManager.GetActiveScene();
@@ -265,12 +257,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"Found {results.Count} object(s) with tag '{tag}':");
-            int limit = System.Math.Min(results.Count, 50);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < results.Count; i++)
                 sb.AppendLine(results[i]);
-
-            if (results.Count > 50)
-                sb.AppendLine($"... and {results.Count - 50} more.");
 
             return sb.ToString().TrimEnd();
         }

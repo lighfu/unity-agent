@@ -36,6 +36,9 @@ jobs:
       - run: dotnet run --project Tests~/Core/Core.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/MCPClient/MCPClient.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/MCPBridge/MCPBridge.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/ToolResultPaging/ToolResultPaging.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/ToolResultPagingIntegration/ToolResultPagingIntegration.Tests.csproj --configuration Release
+      - run: dotnet run --project Tests~/ToolSourcePaging/ToolSourcePaging.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/GestureManagerGestures/GestureManagerGestures.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/GestureManagerMenu/GestureManagerMenu.Tests.csproj --configuration Release
       - run: dotnet run --project Tests~/GestureManagerMenu/GestureManagerMenu.Tests.csproj --configuration Release -p:GmEnabled=false

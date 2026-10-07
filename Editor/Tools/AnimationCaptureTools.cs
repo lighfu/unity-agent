@@ -770,11 +770,6 @@ or an inactive subject — never a clean success.",
             {
                 if (i > 0) sb.Append(", ");
                 sb.Append('\'').Append(clips[i].name).Append('\'');
-                if (i >= 19 && clips.Count > 20)
-                {
-                    sb.Append($", ... (+{clips.Count - 20} more)");
-                    break;
-                }
             }
             return sb.ToString();
         }

@@ -40,6 +40,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Read recent Unity Console entries (Debug.Log, warnings, errors, compile errors, asset-import diagnostics). " +
                    "severity: 'all' (default) | 'error' | 'warning' | 'info'. " +
                    "maxEntries: cap on returned rows (default 50, max 500). " +
+                   "offset: skip this many newest matching entries (default 0); sourcePage.nextOffset continues toward older entries. " +
+                   "Keep severity/keyword/regex/sinceIndex unchanged while reading older windows. Restart offset 0 if logs change. " +
+                   "ReadUnityToolResultPage continues the captured text of ONE source window, without reading the Console again. " +
                    "keyword: case-insensitive substring filter on the message (optional). " +
                    "includeStackTrace: include the callstack attached to each entry (default false). " +
                    "sinceIndex: return only entries NEWER than this console index (default -1 = all). " +
@@ -57,8 +60,10 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             string keyword = "",
             bool includeStackTrace = false,
             int sinceIndex = -1,
-            string regex = "")
+            string regex = "",
+            int offset = 0)
         {
+            if (offset < 0) return "Error: offset must be a non-negative integer.";
             if (maxEntries <= 0) maxEntries = 50;
             if (maxEntries > 500) maxEntries = 500;
 
@@ -78,7 +83,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             try
             {
                 int total = (int)refl.GetCount.Invoke(null, null);
-                if (total == 0) return "Console is empty. nextSinceIndex=-1";
+                if (total == 0) return "Console is empty.\n" + new ToolSourcePaging.Window(0, offset, maxEntries, true).Describe() + "\nnextSinceIndex=-1";
 
                 // Indices restart whenever the console is cleared — which "Clear on Recompile"
                 // does on every script compile, exactly when a caller is polling with sinceIndex
@@ -138,9 +143,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     });
                 }
 
-                // Newest entries last → slice the tail up to maxEntries.
-                int start = Math.Max(0, rows.Count - maxEntries);
-                int kept = rows.Count - start;
+                // Preserve the recent-entry default. Offset moves this source window backward;
+                // shared result paging independently reads the captured text of this window.
+                var window = new ToolSourcePaging.Window(rows.Count, offset, maxEntries, true);
+                int start = window.Start;
+                int kept = window.Count;
 
                 var sb = new StringBuilder();
                 if (indexReset)
@@ -149,13 +156,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 sb.Append($"=== Console ({total} total | errors={errorCount}, warnings={warnCount}, info={infoCount}");
                 if (sinceIndex >= 0) sb.Append($" | since #{sinceIndex}");
                 if (rows.Count != total) sb.Append($" | filtered {rows.Count}");
-                if (kept != rows.Count) sb.Append($" | showing last {kept}");
+                if (kept != rows.Count) sb.Append($" | showing {kept}, newest offset={offset}");
                 sb.AppendLine(") ===");
 
                 if (sinceIndex >= 0 && rows.Count == 0)
                     sb.AppendLine($"(no new entries since #{sinceIndex})");
 
-                for (int i = start; i < rows.Count; i++)
+                for (int i = start; i < window.End; i++)
                 {
                     var r = rows[i];
                     string prefix = r.severity == "error" ? "E"
@@ -180,6 +187,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     }
                 }
 
+                sb.AppendLine(window.Describe());
                 sb.Append($"nextSinceIndex={total - 1}");
                 return sb.ToString();
             }

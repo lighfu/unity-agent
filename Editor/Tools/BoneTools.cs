@@ -14,7 +14,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     {
         private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
 
-        [AgentTool("List bones (Transform hierarchy) under an avatar root. Use filter for case-insensitive name search. Shows tree with depth indentation. Limited to 100 results.")]
+        [AgentTool("List bones (Transform hierarchy) under an avatar root. Use filter for case-insensitive name search. Shows tree with depth indentation. Large tool results use shared result paging.")]
         public static string ListBones(string avatarRootName, string filter = "")
         {
             var root = FindGO(avatarRootName);
@@ -40,25 +40,23 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     ? $"No bones matching '{filter}' found under '{avatarRootName}'."
                     : $"No child transforms found under '{avatarRootName}'.";
 
-            if (count >= 100)
-                sb.AppendLine("... (limit of 100 reached, use filter to narrow down)");
 
             return sb.ToString().TrimEnd();
         }
 
         private static void CollectAllBones(Transform t, int depth, StringBuilder sb, ref int count)
         {
-            if (count >= 100) return;
-
-            string indent = new string(' ', depth * 2);
-            string pos = $"({t.localPosition.x:F3}, {t.localPosition.y:F3}, {t.localPosition.z:F3})";
-            sb.AppendLine($"{indent}{t.name} pos={pos} children={t.childCount}");
-            count++;
-
-            for (int i = 0; i < t.childCount; i++)
+            var pending = new Stack<(Transform Bone, int Depth)>();
+            pending.Push((t, depth));
+            while (pending.Count > 0)
             {
-                if (count >= 100) return;
-                CollectAllBones(t.GetChild(i), depth + 1, sb, ref count);
+                var entry = pending.Pop();
+                var bone = entry.Bone;
+                string indent = new string(' ', entry.Depth * 2);
+                string pos = $"({bone.localPosition.x:F3}, {bone.localPosition.y:F3}, {bone.localPosition.z:F3})";
+                sb.AppendLine($"{indent}{bone.name} pos={pos} children={bone.childCount}");
+                count++;
+                for (int i = bone.childCount - 1; i >= 0; i--) pending.Push((bone.GetChild(i), entry.Depth + 1));
             }
         }
 
@@ -67,7 +65,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             var allTransforms = root.GetComponentsInChildren<Transform>(true);
             foreach (var t in allTransforms)
             {
-                if (count >= 100) return;
                 if (t.name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     string path = GetBonePath(t, root);

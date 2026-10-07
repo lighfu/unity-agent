@@ -1527,11 +1527,10 @@ query', never as 'this is all of them'.",
                 sb.AppendLine($"  IsSupported: {shader.isSupported}");
                 sb.AppendLine($"  RenderQueue: {shader.renderQueue}");
                 sb.AppendLine($"  Properties ({shader.GetPropertyCount()}):");
-                for (int i = 0; i < shader.GetPropertyCount() && i < 50; i++)
+                for (int i = 0; i < shader.GetPropertyCount(); i++)
                 {
                     sb.AppendLine($"    {shader.GetPropertyName(i)} ({shader.GetPropertyType(i)}) - {shader.GetPropertyDescription(i)}");
                 }
-                if (shader.GetPropertyCount() > 50) sb.AppendLine($"    ... ({shader.GetPropertyCount() - 50} more)");
                 return sb.ToString().TrimEnd();
             }
 

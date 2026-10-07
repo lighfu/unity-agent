@@ -33,10 +33,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var sb = new StringBuilder();
             sb.AppendLine($"Menu items matching '{keyword}' ({matches.Count}):");
-            foreach (string path in matches.Take(50))
+            foreach (string path in matches)
                 sb.AppendLine($"  {path}");
-            if (matches.Count > 50)
-                sb.AppendLine($"  ... and {matches.Count - 50} more. Narrow your search keyword.");
 
             return sb.ToString().TrimEnd();
         }

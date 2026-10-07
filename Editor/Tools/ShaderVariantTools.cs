@@ -155,7 +155,9 @@ pass: pass name or 0-based index (default '0').
 matchPattern: .NET regex. Only matching lines (plus contextLines around each) are returned.
   Empty = return the first maxLines lines plus the total line count.
 contextLines: lines of context around each match (default 3).
-maxLines: cap on returned lines (default 200) — preprocessed uber-shaders are enormous.",
+maxLines: source cap on returned lines (default 200) — preprocessed uber-shaders are enormous.
+This source cap is separate from shared result paging: ReadUnityToolResultPage reads only the
+captured output. Raise maxLines or narrow matchPattern to retrieve source lines excluded by this cap.",
             Category = "ShaderVariant", Risk = ToolRisk.Safe)]
         public static string PreprocessShaderVariant(
             string shaderPath,

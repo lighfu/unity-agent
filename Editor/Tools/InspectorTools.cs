@@ -79,7 +79,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
             var prop = so.GetIterator();
             bool enterChildren = true;
-            int count = 0;
 
             while (prop.NextVisible(enterChildren))
             {
@@ -95,12 +94,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 string valueStr = GetDetailedPropertyValue(prop);
                 sb.AppendLine($"{indent}{prop.propertyPath} [{prop.propertyType}] = {valueStr}");
 
-                count++;
-                if (count >= 200)
-                {
-                    sb.AppendLine("  ... (truncated at 200 properties)");
-                    break;
-                }
             }
 
             return sb.ToString().TrimEnd();

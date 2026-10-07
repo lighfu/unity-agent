@@ -95,6 +95,7 @@ namespace UnityEngine
 
 namespace AjisaiFlow.UnityAgent.Editor
 {
+    internal static class DeveloperMode { public static bool IsDevBuild => false; }
     public enum MCPServerMode { InProc, Bridge }
     internal static class AgentSettings
     {
@@ -166,7 +167,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     }
     internal static class ListenerThreadTools
     {
+        public static void RefreshReaderGateOnMainThread() { UnityEditor.EditorApplication.AssertMainThread(); }
         public static Func<string> Match(string tool, JNode args) => null;
+        public static Func<string> Match(string tool, JNode args, out string error) { error = null; return null; }
+        public static Func<string> Match(string tool, JNode args, out string error, out int errorCode, out ToolResultRequest.Options options)
+        { error = null; errorCode = -32602; options = ToolResultRequest.Options.Default; return null; }
+    }
+    internal static class ToolResultRequest
+    {
+        internal readonly struct Options { internal static Options Default => new Options(); }
+        internal static string FormatError(string tool, string text, Options options) => text;
     }
     internal static class AgentMCPServer
     {

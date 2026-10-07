@@ -418,7 +418,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 sb.AppendLine();
                 sb.AppendLine($"  Other curves ({otherBindings.Count}):");
-                foreach (var b in otherBindings.Take(20))
+                foreach (var b in otherBindings)
                     sb.AppendLine($"    {b.path}/{b.propertyName}");
             }
 

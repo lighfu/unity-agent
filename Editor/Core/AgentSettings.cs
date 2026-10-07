@@ -392,7 +392,11 @@ namespace AjisaiFlow.UnityAgent.Editor
         public static ToolRisk MCPServerExposeRisk
         {
             get => (ToolRisk)SettingsStore.GetInt(MCPServerExposeRiskKey, (int)ToolRisk.Caution);
-            set => SettingsStore.SetInt(MCPServerExposeRiskKey, (int)value);
+            set
+            {
+                SettingsStore.SetInt(MCPServerExposeRiskKey, (int)value);
+                MCP.ListenerThreadTools.RefreshReaderGateOnMainThread();
+            }
         }
 
         /// <summary>
@@ -613,6 +617,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         {
             _disabledToolsCache = new HashSet<string>(tools);
             SettingsStore.SetString(DisabledToolsKey, string.Join(",", tools));
+            MCP.ListenerThreadTools.RefreshReaderGateOnMainThread();
         }
 
         public static HashSet<string> GetEnabledExternalTools()

@@ -60,7 +60,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             ("description", JNode.Str(
                 "Search for Unity Editor tools by keyword. Returns matching tool names with short descriptions. " +
                 "Use this first to discover which tool to call, then use DescribeUnityTool for parameter details, " +
-                "then ExecuteUnityTool to run it.")),
+                "then ExecuteUnityTool to run it. Use offset to continue the matching tool list.")),
             ("inputSchema", JNode.Obj(
                 ("type", JNode.Str("object")),
                 ("properties", JNode.Obj(
@@ -70,7 +70,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     ("limit", JNode.Obj(
                         ("type", JNode.Str("integer")),
                         ("description", JNode.Str("Maximum number of results to return. Default 20.")),
-                        ("default", JNode.Num(20))))
+                        ("minimum", JNode.Num(1)),
+                        ("maximum", JNode.Num(200)),
+                        ("default", JNode.Num(20)))),
+                    ("offset", JNode.Obj(("type", JNode.Str("integer")), ("minimum", JNode.Num(0)), ("default", JNode.Num(0))))
                 )),
                 ("required", JNode.Arr(JNode.Str("query")))
             ))
@@ -96,7 +99,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             ("name", JNode.Str("ExecuteUnityTool")),
             ("description", JNode.Str(
                 "Execute a Unity Editor tool by name. Arguments are passed as a JSON object keyed by parameter name. " +
-                "Use DescribeUnityTool to find the exact argument names and types.")),
+                "Use DescribeUnityTool to find the exact argument names and types. Long results return a " +
+                "text snapshot page; continue with ReadUnityToolResultPage(resultId, offset=page.nextOffset). " +
+                "resultOffset/resultLimit/resultMaxChars apply to completed result text, outside arguments.")),
             ("inputSchema", JNode.Obj(
                 ("type", JNode.Str("object")),
                 ("properties", JNode.Obj(
@@ -106,7 +111,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     ("arguments", JNode.Obj(
                         ("type", JNode.Str("object")),
                         ("description", JNode.Str("Parameters as a JSON object. Keys must match the tool's parameter names. Example: {\"gameObjectName\":\"MyObject\"}.")),
-                        ("additionalProperties", JNode.Bool(true))))
+                        ("additionalProperties", JNode.Bool(true)))),
+                    ("resultOffset", JNode.Obj(("type", JNode.Str("integer")), ("minimum", JNode.Num(0)), ("default", JNode.Num(0)))),
+                    ("resultLimit", JNode.Obj(("type", JNode.Str("integer")), ("minimum", JNode.Num(1)), ("maximum", JNode.Num(200)), ("default", JNode.Num(50)))),
+                    ("resultMaxChars", JNode.Obj(("type", JNode.Str("integer")), ("minimum", JNode.Num(1024)), ("maximum", JNode.Num(32768)), ("default", JNode.Num(8192))))
                 )),
                 ("required", JNode.Arr(JNode.Str("name"), JNode.Str("arguments")))
             ))
@@ -137,8 +145,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         // ─── Meta-tool implementations (called from Invoker) ───
 
         /// <summary>SearchUnityTool の実装。マッチしたツール名と概要を改行区切りで返す。</summary>
-        public static string ImplSearchTool(string query, int limit)
+        public static string ImplSearchTool(string query, int limit, int offset = 0)
         {
+            if (offset < 0 || limit < 1 || limit > ToolResultPager.MaximumLimit)
+                return "Error: SearchUnityTool offset must be non-negative and limit must be between 1 and 200.";
             if (string.IsNullOrEmpty(query))
                 return "Error: 'query' is required.";
 
@@ -164,18 +174,18 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     matches.Add((score, name, desc, category, info.resolvedRisk));
             }
 
-            if (matches.Count == 0)
-                return $"No tools found matching '{query}'.";
-
-            matches.Sort((a, b) => b.score.CompareTo(a.score));
-            if (limit <= 0) limit = 20;
-            int take = System.Math.Min(limit, matches.Count);
+            matches.Sort((a, b) =>
+            {
+                int score = b.score.CompareTo(a.score);
+                return score != 0 ? score : System.StringComparer.Ordinal.Compare(a.name, b.name);
+            });
+            int take = offset < matches.Count ? System.Math.Min(limit, matches.Count - offset) : 0;
 
             var sb = new System.Text.StringBuilder();
             sb.Append($"Found {matches.Count} tools (showing {take}):\n\n");
             for (int i = 0; i < take; i++)
             {
-                var m = matches[i];
+                var m = matches[offset + i];
                 sb.Append($"• {m.name}");
                 if (!string.IsNullOrEmpty(m.category)) sb.Append($" [{m.category}]");
                 sb.Append($" (Risk: {m.risk})\n");
@@ -185,8 +195,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     sb.Append("    ").Append(shortDesc.Replace("\r", " ").Replace("\n", " ")).Append('\n');
                 }
             }
-            if (matches.Count > take)
-                sb.Append($"\n... and {matches.Count - take} more. Use a more specific query or increase limit.");
+            int remaining = offset < matches.Count ? matches.Count - offset - take : 0;
+            sb.Append("\nPage: ").Append(JNode.Obj(("total", JNode.Num(matches.Count)), ("offset", JNode.Num(offset)),
+                ("limit", JNode.Num(limit)), ("returned", JNode.Num(take)), ("remaining", JNode.Num(remaining)),
+                ("hasMore", JNode.Bool(remaining > 0)), ("nextOffset", remaining > 0 ? JNode.Num(offset + take) : JNode.NullNode)).ToJson());
             return sb.ToString();
         }
 
@@ -254,6 +266,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     }
                 }
                 sb.Append("\n**Usage:** ExecuteUnityTool(name=\"").Append(method.Name).Append("\", arguments={...})");
+                sb.Append("\n**Result paging:** ExecuteUnityTool envelope resultOffset=0, resultLimit=50 (1..200), resultMaxChars=8192 (1024..32768). " +
+                    "These do not replace the tool's arguments.offset/limit. Long results include resultId, text and page.nextOffset; " +
+                    "read further pages with ExecuteUnityTool(name=\"ReadUnityToolResultPage\", arguments={\"resultId\":\"...\",\"offset\":...}). " +
+                    "Continuation reads the completed snapshot and never executes the original action again.");
                 return sb.ToString();
             }
             return $"Error: Tool '{name}' not found.";

@@ -83,6 +83,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
             _port = port;
             _token = token;
+            ListenerThreadTools.RefreshReaderGateOnMainThread();
             _running = true;
 
             try
@@ -292,7 +293,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     // fast-path と同じ一覧 (ListenerThreadTools)。モーダルで止まっている最中に
                     // 状態を読み、ボタンを押すためのツールなので、下の stall 判定より先に見ないと
                     // 「止まっている」と拒否されて肝心の場面で使えない。
-                    var fastWork = ListenerThreadTools.Match(call.Tool, call.Args);
+                    var fastWork = ListenerThreadTools.Match(call.Tool, call.Args, out string pagingError, out int pagingErrorCode, out var resultOptions);
+                    if (pagingError != null)
+                    {
+                        SendErrorFrame(call.ID, call.Tool, pagingError, null, pagingErrorCode);
+                        continue;
+                    }
                     if (fastWork != null)
                     {
                         AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] fast-path id={call.ID} tool={call.Tool} (off main thread)");
@@ -305,7 +311,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         {
                             string fastText;
                             try { fastText = fastWork(); }
-                            catch (Exception ex) { fastText = $"Error: {fastTool} failed off the main thread: {ex.GetType().Name}: {ex.Message}"; }
+                            catch (Exception ex)
+                            {
+                                string targetName = fastTool == "ExecuteUnityTool" ? call.Args["name"].AsString ?? fastTool : fastTool;
+                                string message = ToolResultRequest.FormatError(targetName,
+                                    $"Error: {targetName} failed off the main thread: {ex.GetType().Name}: {ex.Message}", resultOptions);
+                                string detail = DeveloperMode.IsDevBuild ? ex.ToString() : "";
+                                SendErrorFrame(fastId, fastTool, message,
+                                    ToolResultRequest.FormatError(targetName + ".errorData", detail, resultOptions), -32000);
+                                return;
+                            }
                             SendResultFrame(fastId, fastTool, fastText);
                         });
                         continue;
@@ -372,6 +387,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         void PumpMainThread()
         {
+            ListenerThreadTools.RefreshReaderGateOnMainThread();
             // NotePump だけでは compiling / importing / autoRefresh が初期値のまま固定され、
             // GetEditorState が「snapshotAge 0.00s / compiling False」と新鮮な計測値のように
             // 嘘をつく。InProc 側と同じ集約入口を通す。
@@ -428,6 +444,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// </summary>
         void SendErrorFrame(string id, string tool, string message, string data, int code)
         {
+            message = ToolResultRequest.FormatError(tool, message ?? "Error", ToolResultRequest.Options.Default);
+            data = ToolResultRequest.FormatError(tool + ".errorData", data ?? "", ToolResultRequest.Options.Default);
             if (!_connected || _writer == null)
             {
                 AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] error frame dropped (disconnected) id={id} tool={tool}");

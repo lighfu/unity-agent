@@ -51,7 +51,7 @@ namespace AjisaiFlow.UnityAgent.Editor
         private static readonly HashSet<string> CoreToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             // Discovery / Meta
-            "SearchTools", "ListTools", "AskUser", "SearchSkills", "ReadSkill",
+            "SearchTools", "ListTools", "AskUser", "SearchSkills", "ReadSkill", "ReadUnityToolResultPage",
             // Inspection
             "InspectGameObject", "DeepInspectComponent", "ListRenderers",
             "ListChildren", "GetHierarchyTree", "ListRootObjects", "FindGameObject",
@@ -710,6 +710,7 @@ namespace AjisaiFlow.UnityAgent.Editor
                         toolResults[i] = UserChoiceState.CustomText != null
                             ? $"User responded: \"{selected}\""
                             : $"User selected: \"{selected}\"";
+                        toolResults[i] = ToolResultPager.CreateFirstPage("AskUser", toolResults[i]);
                         UserChoiceState.Clear();
                         onDebugLog?.Invoke($"[UnityAgentCore] User selected: {selected}");
                     }
@@ -1537,6 +1538,14 @@ namespace AjisaiFlow.UnityAgent.Editor
                         statsSw.Elapsed.TotalMilliseconds,
                         match.ParamsDisplay().Length, statsLast?.Length ?? 0);
                 }
+                // All local, external MCP, synchronous, asynchronous and error outputs share
+                // the same context budget. The continuation reader already returns a page.
+                for (int i = statsResultsBefore; i < results.Count; i++)
+                {
+                    if (string.Equals(match.Name, "ReadUnityToolResultPage", StringComparison.OrdinalIgnoreCase)
+                        || results[i] == "__WAITING_USER_CHOICE__") continue;
+                    results[i] = ToolResultPager.CreateFirstPage(match.Name, results[i]);
+                }
             }
         }
 
@@ -1878,7 +1887,7 @@ namespace AjisaiFlow.UnityAgent.Editor
             {
                 string cat;
                 if (m.Name == "SearchTools" || m.Name == "ListTools" || m.Name == "AskUser"
-                    || m.Name == "SearchSkills" || m.Name == "ReadSkill")
+                    || m.Name == "SearchSkills" || m.Name == "ReadSkill" || m.Name == "ReadUnityToolResultPage")
                     cat = "Discovery";
                 else if (m.Name == "InspectGameObject" || m.Name == "DeepInspectComponent"
                     || m.Name == "ListRenderers" || m.Name == "ListChildren"
@@ -1909,6 +1918,10 @@ namespace AjisaiFlow.UnityAgent.Editor
             sb.AppendLine("  <arg name=\"paramName\">value</arg>");
             sb.AppendLine("  </tool>");
             sb.AppendLine("  (one <arg> per parameter; values are raw — no escaping; omit optional params you don't need.)");
+            sb.AppendLine("Long tool outputs are paged snapshots: resultId, text, and page.nextOffset describe a text fragment.");
+            sb.AppendLine("Read more with ReadUnityToolResultPage(resultId, offset=page.nextOffset). Never repeat the original tool to read its continuation.");
+            sb.AppendLine("Offsets count textSegments; join page text unchanged before parsing a complete original JSON result. Read only the pages needed for the task.");
+            sb.AppendLine("Original filters, depth and source-row windows still determine which data was collected; their continuation is separate from reading a saved result.");
 
             sb.AppendLine("\nCore Tools (always available — use directly):");
             foreach (var cat in coreCategoryOrder)

@@ -46,7 +46,8 @@ searchInFolder: restrict the scan to this folder (e.g. 'Assets/900_Avatars'). Em
   Narrowing this is the single biggest speedup on a large project.
 extensions: ';' separated file extensions to scan. Empty = the standard text-serialized set
   (.unity .prefab .mat .controller .overrideController .anim .asset .playable .mask .preset .meta ...).
-limit: maximum referencing assets to report per target (default 200).
+limit: maximum referencing assets to report per target (default 200). This source limit remains
+separate from shared result paging: ReadUnityToolResultPage reads only the already reported results.
 timeoutSeconds: give up after this long and return PARTIAL results, clearly marked (default 60,
   clamped to 110 — the scan blocks the editor's main thread and the MCP transport quits at 120 s).
 includePackages: also scan Packages/ (default false — package assets rarely reference project assets).
@@ -349,7 +350,7 @@ presented as complete — if it timed out or skipped files, deleting on that bas
                 : normalized;
         }
 
-        [AgentTool("Search for assets by name keyword (first arg) with optional type filter (second arg, e.g. Material, Texture2D, Prefab, Mesh, AnimationClip). Usage: SearchAssets(\"ring\") or SearchAssets(\"ring\", \"Prefab\"). Returns up to 20 results. Use ListTopFolders() first to browse the project structure if you don't know what to search for.")]
+        [AgentTool("Search for assets by name keyword (first arg) with optional type filter (second arg, e.g. Material, Texture2D, Prefab, Mesh, AnimationClip). Usage: SearchAssets(\"ring\") or SearchAssets(\"ring\", \"Prefab\"). Captures all matches for shared result paging. Use ListTopFolders() first to browse the project structure if you don't know what to search for.")]
         public static string SearchAssets(string query, string typeFilter = "")
         {
             string filter = query;
@@ -367,15 +368,12 @@ presented as complete — if it timed out or skipped files, deleting on that bas
                 {
                     var sb2 = new StringBuilder();
                     sb2.AppendLine($"No '{typeFilter}' assets found matching '{query}', but found {broaderGuids.Length} other asset(s):");
-                    int limit2 = Math.Min(broaderGuids.Length, 10);
-                    for (int i = 0; i < limit2; i++)
+                    for (int i = 0; i < broaderGuids.Length; i++)
                     {
                         string p = AssetDatabase.GUIDToAssetPath(broaderGuids[i]);
-                        var a = AssetDatabase.LoadMainAssetAtPath(p);
-                        string tn = a != null ? a.GetType().Name : "Unknown";
+                        string tn = AssetDatabase.GetMainAssetTypeAtPath(p)?.Name ?? "Unknown";
                         sb2.AppendLine($"  {i + 1}. [{tn}] {p}");
                     }
-                    if (broaderGuids.Length > 10) sb2.AppendLine($"  ... and {broaderGuids.Length - 10} more.");
                     sb2.AppendLine("Tip: Try without typeFilter, or use ListTopFolders() / ListAssetsInFolder() to browse.");
                     return sb2.ToString().TrimEnd();
                 }
@@ -386,17 +384,13 @@ presented as complete — if it timed out or skipped files, deleting on that bas
             var sb = new StringBuilder();
             sb.AppendLine($"Found {guids.Length} asset(s) matching '{query}'" + (string.IsNullOrEmpty(typeFilter) ? "" : $" (type: {typeFilter})") + ":");
 
-            int limit = Math.Min(guids.Length, 20);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < guids.Length; i++)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guids[i]);
-                var asset = AssetDatabase.LoadMainAssetAtPath(path);
-                string typeName = asset != null ? asset.GetType().Name : "Unknown";
+                string typeName = AssetDatabase.GetMainAssetTypeAtPath(path)?.Name ?? "Unknown";
                 sb.AppendLine($"  {i + 1}. [{typeName}] {path}");
             }
 
-            if (guids.Length > 20)
-                sb.AppendLine($"  ... and {guids.Length - 20} more. Refine your search for more specific results.");
 
             return sb.ToString().TrimEnd();
         }
@@ -430,8 +424,7 @@ presented as complete — if it timed out or skipped files, deleting on that bas
             var sb = new StringBuilder();
             sb.AppendLine($"Assets in '{folderPath}' ({guids.Length}):");
 
-            int limit = Math.Min(guids.Length, 20);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < guids.Length; i++)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guids[i]);
                 bool isFolder = AssetDatabase.IsValidFolder(path);
@@ -441,14 +434,11 @@ presented as complete — if it timed out or skipped files, deleting on that bas
                 }
                 else
                 {
-                    var asset = AssetDatabase.LoadMainAssetAtPath(path);
-                    string typeName = asset != null ? asset.GetType().Name : "Unknown";
+                    string typeName = AssetDatabase.GetMainAssetTypeAtPath(path)?.Name ?? "Unknown";
                     sb.AppendLine($"  {i + 1}. [{typeName}] {path}");
                 }
             }
 
-            if (guids.Length > 20)
-                sb.AppendLine($"  ... and {guids.Length - 20} more.");
 
             return sb.ToString().TrimEnd();
         }
@@ -478,11 +468,8 @@ presented as complete — if it timed out or skipped files, deleting on that bas
             {
                 var filteredDeps = deps.Where(d => d != assetPath).ToArray();
                 sb.AppendLine($"  Dependencies ({filteredDeps.Length}):");
-                int limit = Math.Min(filteredDeps.Length, 10);
-                for (int i = 0; i < limit; i++)
+                for (int i = 0; i < filteredDeps.Length; i++)
                     sb.AppendLine($"    - {filteredDeps[i]}");
-                if (filteredDeps.Length > 10)
-                    sb.AppendLine($"    ... and {filteredDeps.Length - 10} more.");
             }
 
             // Type-specific info
@@ -536,15 +523,12 @@ presented as complete — if it timed out or skipped files, deleting on that bas
             var sb = new StringBuilder();
             sb.AppendLine($"Sub-assets in '{assetPath}' ({subAssets.Length}):");
 
-            int limit = Math.Min(subAssets.Length, 20);
-            for (int i = 0; i < limit; i++)
+            for (int i = 0; i < subAssets.Length; i++)
             {
                 var sub = subAssets[i];
                 sb.AppendLine($"  {i + 1}. [{sub.GetType().Name}] {sub.name}");
             }
 
-            if (subAssets.Length > 20)
-                sb.AppendLine($"  ... and {subAssets.Length - 20} more.");
 
             return sb.ToString().TrimEnd();
         }

@@ -25,8 +25,6 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             ".ttf", ".otf",
         };
 
-        private const int MaxReadLines = 500;
-
         private static string ValidateAssetPath(string assetPath)
         {
             if (string.IsNullOrEmpty(assetPath))
@@ -47,7 +45,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             return BinaryExtensions.Contains(ext);
         }
 
-        [AgentTool("Read a text file inside Assets/. Returns the full content (truncated at 500 lines). Usage: ReadFile(\"Assets/Scripts/MyScript.cs\")")]
+        [AgentTool("Read a text file inside Assets/. Returns the full text, including its original line endings. Large tool results use shared result paging. Usage: ReadFile(\"Assets/Scripts/MyScript.cs\")")]
         public static string ReadFile(string assetPath)
         {
             string error = ValidateAssetPath(assetPath);
@@ -60,19 +58,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (!File.Exists(fullPath))
                 return $"Error: File not found: '{assetPath}'.";
 
-            string[] lines = File.ReadAllLines(fullPath);
-            if (lines.Length <= MaxReadLines)
-            {
-                return string.Join("\n", lines);
-            }
-
-            var sb = new StringBuilder();
-            for (int i = 0; i < MaxReadLines; i++)
-            {
-                sb.AppendLine(lines[i]);
-            }
-            sb.AppendLine($"\n... [Truncated: showing {MaxReadLines} of {lines.Length} lines. Use InsertIntoFile with specific line numbers to edit the rest.]");
-            return sb.ToString().TrimEnd();
+            return File.ReadAllText(fullPath);
         }
 
         [AgentTool("Write text content to a file inside Assets/. Creates intermediate directories automatically. Overwrites existing files. Usage: WriteFile(\"Assets/Scripts/Hello.cs\", \"using UnityEngine;...\")")]
