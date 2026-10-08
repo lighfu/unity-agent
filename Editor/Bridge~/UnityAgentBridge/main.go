@@ -59,6 +59,7 @@ const (
 	defaultIdleQuitGrace                    = 5 * time.Minute   // Quit after the editor owner and both connections are gone.
 	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 	maintenanceInterval                     = 30 * time.Second  // How often the watchdog prunes and checks for idleness.
+	ownerCheckInterval                      = time.Second       // Detect Unity exit independently of MCP activity or idle quit.
 	defaultHelloTimeout                     = 10 * time.Second  // How long a new connection has to authenticate before it is dropped.
 )
 
@@ -68,6 +69,7 @@ var (
 	authToken     = flag.String("token", "", "Shared secret for both MCP Bearer auth and Unity hello (REQUIRED)")
 	logFile       = flag.String("log", "", "Optional log file path. Empty = stderr only.")
 	verbose       = flag.Bool("verbose", false, "Verbose logging")
+	unityPID      = flag.Int("unity-pid", 0, "Owning Unity editor process ID. Exit when this process exits; also learned from an authenticated hello.")
 	idleQuitGrace = flag.Duration("idle-quit", defaultIdleQuitGrace,
 		"Exit after this long with no living Unity owner, Unity connection, or MCP client activity (e.g. 5m, 30s). Zero or negative disables the idle quit entirely.")
 )
@@ -125,6 +127,7 @@ type Bridge struct {
 	mcpClientCount int                     // MCP HTTP requests currently being served (idle-quit guard)
 	lastActivity   time.Time               // last Unity message OR MCP HTTP request; drives the idle quit
 	ownerUnityPID  int                     // authenticated editor process; survives its TCP disconnect during reload
+	exitUnityPID   int                     // last owning editor; still monitored after MCP is disabled
 
 	// Atomic counters for diagnostics
 	callsServed atomic.Uint64
@@ -150,7 +153,8 @@ func newBridge(token string) *Bridge {
 //	{"type":"hello","version":"1","token":"...","unityPid":1234}
 //
 // unityPid is optional for compatibility with older editors. When present, the bridge keeps
-// its HTTP endpoint alive while that editor process is running, including long reloads.
+// its HTTP endpoint alive while that editor process is running, including long reloads,
+// and exits when that process exits, regardless of MCP activity or --idle-quit.
 //
 // Unity → Bridge (response to a call):
 //
@@ -160,6 +164,10 @@ func newBridge(token string) *Bridge {
 // Unity → Bridge (reload notice; sent in beforeAssemblyReload):
 //
 //	{"type":"shutdown","reason":"domain_reload"}
+//
+// Unity → Bridge (editor quit notice; owner retained until the process exits):
+//
+//	{"type":"shutdown","reason":"editor_quit"}
 //
 // Bridge → Unity (call dispatch):
 //
@@ -219,12 +227,13 @@ func (b *Bridge) swapUnityConn(newConn net.Conn, unityPID int) {
 	// Unity can spend much longer than idleQuitGrace reloading or wait for focus to reconnect.
 	// A legacy hello without a PID keeps the original connection-based idle behavior.
 	b.ownerUnityPID = unityPID
+	b.exitUnityPID = unityPID
 	b.lastActivity = time.Now()
 }
 
-// releaseUnityOwner forgets the owning editor when it leaves for a reason other than a
-// domain reload (MCP disabled, switched to InProc). Nothing will reconnect, so the bridge
-// falls back to the ordinary idle quit instead of lingering until the editor exits.
+// releaseUnityOwner allows the idle fallback when MCP is disabled or switched to InProc.
+// Nothing will reconnect. Keep exitUnityPID so Unity exit still stops the bridge if MCP
+// traffic prevents the idle fallback from firing first.
 // Only the current connection may release: a retired one must not clear its replacement.
 func (b *Bridge) releaseUnityOwner(conn net.Conn) {
 	b.mu.Lock()
@@ -336,7 +345,7 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 			// Connection will close shortly — the deferred cleanup fails the in-flight
 			// calls and uses this reason to tell a planned reload from a lost connection.
 			shutdownReason = msg.Reason
-			if msg.Reason != "domain_reload" {
+			if msg.Reason != "domain_reload" && msg.Reason != "editor_quit" {
 				b.releaseUnityOwner(conn)
 			}
 		default:
@@ -603,6 +612,21 @@ func (b *Bridge) endMCPRequest() {
 	}
 	b.lastActivity = time.Now()
 	b.mu.Unlock()
+}
+
+// shouldQuitWhenOwnerExited stops the bridge as soon as its editor exits, even if MCP
+// clients keep polling or waiting for queued calls. A TCP disconnect alone may be a reload.
+func (b *Bridge) shouldQuitWhenOwnerExited(isAlive func(int) bool) bool {
+	b.mu.Lock()
+	ownerPID := b.exitUnityPID
+	b.mu.Unlock()
+	if ownerPID <= 0 || isAlive(ownerPID) {
+		return false
+	}
+	// The owner may have been replaced while the OS query ran.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.exitUnityPID == ownerPID
 }
 
 // shouldQuitWhenIdle preserves the HTTP endpoint while its owning editor is still running,
@@ -1156,6 +1180,8 @@ func main() {
 	log.Printf("[bridge] UnityAgentBridge starting (public=%d internal=%d)", *publicPort, *internalPort)
 
 	b := newBridge(*authToken)
+	b.ownerUnityPID = *unityPID
+	b.exitUnityPID = *unityPID
 
 	if err := b.startUnityTCPServer(fmt.Sprintf("127.0.0.1:%d", *internalPort)); err != nil {
 		log.Fatalf("[bridge] unity TCP server failed: %v", err)
@@ -1171,9 +1197,21 @@ func main() {
 		log.Printf("[bridge] idle quit disabled (--idle-quit=%s)", grace)
 	}
 
-	// Maintenance loop: expire queued calls nobody waits for any more, and — unless the idle quit
-	// is disabled — shut down once the owning Unity process is gone AND no connection or MCP
-	// activity remains for the whole grace period. A TCP disconnect alone may be a long reload.
+	// Owner exit is independent of the idle grace and MCP traffic. Unity can exit before
+	// its first hello, so auto-spawn also supplies the owner PID on the command line.
+	go func() {
+		ticker := time.NewTicker(ownerCheckInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			if b.shouldQuitWhenOwnerExited(processAlive) {
+				log.Printf("[bridge] owning Unity process exited — exiting")
+				os.Exit(0)
+			}
+		}
+	}()
+
+	// Maintenance loop: expire abandoned queued calls and apply the idle fallback for
+	// legacy clients without a PID or editors that disabled MCP/released ownership.
 	go func() {
 		ticker := time.NewTicker(maintenanceInterval)
 		defer ticker.Stop()

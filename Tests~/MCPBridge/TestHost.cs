@@ -60,6 +60,8 @@ namespace UnityEditor
             return true;
         }
 
+        public static void Quit() { AssertMainThread(); _quitting?.Invoke(); }
+
         public static void AssertMainThread()
         {
             if (Thread.CurrentThread.ManagedThreadId != MainThreadId)

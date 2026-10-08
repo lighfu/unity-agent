@@ -123,12 +123,13 @@ func TestAuthenticatedHelloKeepsEndpointAliveDuringLongReload(t *testing.T) {
 	}
 }
 
-func TestShutdownOtherThanReloadReleasesUnityOwner(t *testing.T) {
+func TestShutdownKeepsUnityOwnerUntilReloadOrEditorExit(t *testing.T) {
 	for _, test := range []struct {
 		reason    string
 		wantOwner int
 	}{
 		{"domain_reload", os.Getpid()},
+		{"editor_quit", os.Getpid()},
 		{"user_disabled", 0},
 		{"mode_change", 0},
 	} {
@@ -146,7 +147,7 @@ func TestShutdownOtherThanReloadReleasesUnityOwner(t *testing.T) {
 			bridge.mu.Lock()
 			bridge.lastActivity = time.Now().Add(-30 * time.Minute)
 			bridge.mu.Unlock()
-			// The owner (this test process) is alive: only a reload should keep the endpoint.
+			// Reload and editor quit keep the endpoint until the owner actually exits.
 			wantQuit := test.wantOwner == 0
 			if quit := bridge.shouldQuitWhenIdle(time.Now(), defaultIdleQuitGrace, processAlive); quit != wantQuit {
 				t.Fatalf("quit=%v after shutdown reason %q, want %v", quit, test.reason, wantQuit)
