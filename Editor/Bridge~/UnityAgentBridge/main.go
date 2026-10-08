@@ -39,6 +39,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,6 +62,10 @@ const (
 	maintenanceInterval                     = 30 * time.Second  // How often the watchdog prunes and checks for idleness.
 	ownerCheckInterval                      = time.Second       // Detect Unity exit independently of MCP activity or idle quit.
 	defaultHelloTimeout                     = 10 * time.Second  // How long a new connection has to authenticate before it is dropped.
+
+	// Auto-spawn passes the editor PID here rather than as --unity-pid: a stale binary built
+	// before that flag existed ignores an unknown variable, but exits on an unknown flag.
+	unityPIDEnv = "UNITY_AGENT_UNITY_PID"
 )
 
 var (
@@ -69,7 +74,7 @@ var (
 	authToken     = flag.String("token", "", "Shared secret for both MCP Bearer auth and Unity hello (REQUIRED)")
 	logFile       = flag.String("log", "", "Optional log file path. Empty = stderr only.")
 	verbose       = flag.Bool("verbose", false, "Verbose logging")
-	unityPID      = flag.Int("unity-pid", 0, "Owning Unity editor process ID. Exit when this process exits; also learned from an authenticated hello.")
+	unityPID      = flag.Int("unity-pid", 0, "Owning Unity editor process ID. Exit when this process exits; also learned from an authenticated hello. Defaults to $"+unityPIDEnv+".")
 	idleQuitGrace = flag.Duration("idle-quit", defaultIdleQuitGrace,
 		"Exit after this long with no living Unity owner, Unity connection, or MCP client activity (e.g. 5m, 30s). Zero or negative disables the idle quit entirely.")
 )
@@ -1159,6 +1164,19 @@ func generateID() string {
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────
 
+// startupUnityPID prefers an explicit --unity-pid and otherwise reads the auto-spawn
+// environment variable. A malformed value is ignored; the hello still supplies the PID.
+func startupUnityPID(flagPID int, envPID string) int {
+	if flagPID > 0 {
+		return flagPID
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(envPID))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
 func main() {
 	flag.Parse()
 
@@ -1180,8 +1198,12 @@ func main() {
 	log.Printf("[bridge] UnityAgentBridge starting (public=%d internal=%d)", *publicPort, *internalPort)
 
 	b := newBridge(*authToken)
-	b.ownerUnityPID = *unityPID
-	b.exitUnityPID = *unityPID
+	ownerPID := startupUnityPID(*unityPID, os.Getenv(unityPIDEnv))
+	b.ownerUnityPID = ownerPID
+	b.exitUnityPID = ownerPID
+	if ownerPID > 0 {
+		log.Printf("[bridge] watching Unity process pid=%d", ownerPID)
+	}
 
 	if err := b.startUnityTCPServer(fmt.Sprintf("127.0.0.1:%d", *internalPort)); err != nil {
 		log.Fatalf("[bridge] unity TCP server failed: %v", err)

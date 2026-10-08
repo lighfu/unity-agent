@@ -120,6 +120,29 @@ func TestShutdownKeepsLifetimeOwnerUntilProcessExit(t *testing.T) {
 	}
 }
 
+func TestStartupUnityPIDPrefersFlagThenEnvironment(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		flagPID int
+		envPID  string
+		want    int
+	}{
+		{"flag only", 42, "", 42},
+		{"flag wins over environment", 42, "43", 42},
+		{"environment from auto-spawn", 0, "43", 43},
+		{"environment with whitespace", 0, " 43 ", 43},
+		{"neither", 0, "", 0},
+		{"malformed environment", 0, "unity", 0},
+		{"non-positive environment", 0, "-1", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := startupUnityPID(test.flagPID, test.envPID); got != test.want {
+				t.Fatalf("startupUnityPID(%d, %q)=%d, want %d", test.flagPID, test.envPID, got, test.want)
+			}
+		})
+	}
+}
+
 func TestBridgeExitsAfterStartupOwnerDiesWithActiveMCP(t *testing.T) {
 	owner := exec.Command(os.Args[0], "-test.run=^TestOwnerExitProcessHelper$")
 	owner.Env = append(os.Environ(), "UNITY_AGENT_OWNER_TEST=owner")
@@ -151,10 +174,12 @@ func TestBridgeExitsAfterStartupOwnerDiesWithActiveMCP(t *testing.T) {
 	defer internal.Close()
 	publicAddr := public.Addr().String()
 	bridge := exec.Command(os.Args[0], "-test.run=^TestOwnerExitProcessHelper$", "--",
-		"--token=secret", "--idle-quit=0", fmt.Sprintf("--unity-pid=%d", owner.Process.Pid),
+		"--token=secret", "--idle-quit=0",
 		fmt.Sprintf("--public-port=%d", public.Addr().(*net.TCPAddr).Port),
 		fmt.Sprintf("--internal-port=%d", internal.Addr().(*net.TCPAddr).Port))
-	bridge.Env = append(os.Environ(), "UNITY_AGENT_OWNER_TEST=bridge")
+	// Same channel as Unity's auto-spawn, which avoids a flag that stale binaries reject.
+	bridge.Env = append(os.Environ(), "UNITY_AGENT_OWNER_TEST=bridge",
+		fmt.Sprintf("%s=%d", unityPIDEnv, owner.Process.Pid))
 	stderr, err := bridge.StderrPipe()
 	if err != nil {
 		t.Fatal(err)

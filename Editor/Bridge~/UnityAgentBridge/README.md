@@ -69,7 +69,7 @@ Unity will then connect over TCP and HTTP MCP clients can hit `http://127.0.0.1:
 | `--token` | *(required)* | Shared secret for both the MCP Bearer auth and the Unity hello |
 | `--public-port` | `17800` | HTTP port for MCP clients |
 | `--internal-port` | `17801` | TCP port where Unity connects |
-| `--unity-pid` | `0` | Owning Unity editor process ID, supplied by auto-spawn and also learned from an authenticated hello. The bridge exits when this process exits |
+| `--unity-pid` | `$UNITY_AGENT_UNITY_PID` | Owning Unity editor process ID, also learned from an authenticated hello. The bridge exits when this process exits. Auto-spawn sets the environment variable instead of this flag |
 | `--idle-quit` | `5m` | Exit after this long with no living Unity owner, no Unity connection, **and** no MCP client activity. `0` (or any negative value) disables this idle fallback; Unity process exit still stops the bridge |
 | `--log` | *(none)* | Log file path. Empty = stderr only |
 | `--verbose` | `false` | Verbose logging |
@@ -121,8 +121,11 @@ Each direction is line-delimited JSON. One object per line.
 ## Lifecycle
 
 - **Bridge spawn**: Unity's `AgentMCPServerBootstrap` checks for an existing `Library/UnityAgent/Bridge.lock`
-  pid; if missing or stale, spawns a new process detached from Unity with `--unity-pid` identifying
-  the editor. Lockfile holds the bridge pid. The editor is tracked even before its first TCP hello.
+  pid; if missing or stale, spawns a new process detached from Unity with `UNITY_AGENT_UNITY_PID`
+  identifying the editor. Lockfile holds the bridge pid. The editor is tracked even before its first
+  TCP hello. The PID travels in the environment rather than as `--unity-pid` because a binary that
+  was not rebuilt after this flag was added would reject it and exit immediately; it ignores an
+  unknown variable and only loses exit monitoring.
 - **Domain reload**: Unity sends `shutdown`, closes TCP, restarts itself. Bridge keeps running.
   Calls that were **already sent to Unity** fail immediately with JSON-RPC error `-32003`
   (`Unity reloaded the app domain while this call was running`), because the Unity that

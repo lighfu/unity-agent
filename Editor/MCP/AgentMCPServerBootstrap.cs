@@ -27,6 +27,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     [InitializeOnLoad]
     internal static class AgentMCPServerBootstrap
     {
+        // bridge 側 main.go の unityPIDEnv と同じ名前にする。
+        const string BridgeUnityPidEnv = "UNITY_AGENT_UNITY_PID";
+
         static AgentMCPServerBootstrap()
         {
             // delayCall waits for inspector updates, which can be deferred while unfocused.
@@ -398,8 +401,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             AgentLogger.Debug(LogTag.MCP, $"[Bootstrap] Resolved bridge binary: {binaryPath}");
 
             string logPath = GetBridgeLogPath();
-            using var unityProcess = Process.GetCurrentProcess();
-            string args = $"--internal-port {internalPort} --public-port {publicPort} --token {token} --unity-pid {unityProcess.Id} --log \"{logPath}\"";
+            string args = $"--internal-port {internalPort} --public-port {publicPort} --token {token} --log \"{logPath}\"";
 
             var psi = new ProcessStartInfo
             {
@@ -410,6 +412,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 RedirectStandardOutput = false,
                 RedirectStandardError = false,
             };
+            // PID は --unity-pid ではなく環境変数で渡す。ビルドし直していない古い bridge は
+            // 未知のフラグで即終了するが、未知の環境変数なら無視して従来どおり動く。
+            using (var unityProcess = Process.GetCurrentProcess())
+                psi.EnvironmentVariables[BridgeUnityPidEnv] = unityProcess.Id.ToString();
             var proc = Process.Start(psi);
             if (proc == null)
                 throw new InvalidOperationException("Process.Start returned null.");
