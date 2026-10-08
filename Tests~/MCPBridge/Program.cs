@@ -35,6 +35,7 @@ internal static class Program
             Run("old readers cannot disconnect rapid replacement connections", () => RapidReconnect(peer), ref failed);
             Run("disabling stops the background wakeup timer", Disable, ref failed);
             Run("assembly reload disconnects and stops the wakeup timer", () => Reload(peer), ref failed);
+            Run("editor quit sends a distinct shutdown and stops the wakeup timer", () => Quit(peer), ref failed);
         }
         finally
         {
@@ -50,6 +51,8 @@ internal static class Program
         RuntimeHelpers.RunClassConstructor(typeof(AgentMCPServerBootstrap).TypeHandle);
         Assert(EditorApplication.UpdateCount == 0, "startup ran an update directly");
         WaitFor(() => AgentMCPBridgeClient.Shared.IsConnected && peer.Current != null, "initial connection");
+        using var process = Process.GetCurrentProcess();
+        Assert(peer.Current.UnityPid == process.Id, "hello did not identify the owning editor process");
         Assert(ModalAutoAnswer.InitializeCount == 0, "test accidentally invoked delayCall");
         WaitFor(() => EditorApplication.WorkerSignalCount > 0, "timer worker tick");
     }
@@ -131,8 +134,27 @@ internal static class Program
         WaitFor(() => AgentMCPBridgeClient.Shared.IsConnected, "connection before reload");
         int signals = EditorApplication.SignalCount;
         WaitFor(() => EditorApplication.SignalCount > signals, "restarted timer");
+        var connection = peer.Current;
         AssemblyReloadEvents.Reload();
         Assert(!AgentMCPBridgeClient.Shared.IsConnected, "reload kept Unity TCP connection alive");
+        WaitFor(() => connection.Shutdowns.Count > 0, "domain reload shutdown frame");
+        Assert(connection.Shutdowns.TryDequeue(out var shutdown) && shutdown["reason"].AsString == "domain_reload",
+            "reload announced an editor exit");
+        WaitForTimerStop();
+    }
+
+    static void Quit(BridgePeer peer)
+    {
+        var previous = peer.Current;
+        AgentSettings.MCPServerEnabled = true;
+        AgentMCPServerBootstrap.StartIfEnabled();
+        WaitFor(() => AgentMCPBridgeClient.Shared.IsConnected && peer.Current != previous, "connection before quit");
+        var connection = peer.Current;
+        EditorApplication.Quit();
+        Assert(!AgentMCPBridgeClient.Shared.IsConnected, "quit kept Unity TCP connection alive");
+        WaitFor(() => connection.Shutdowns.Count > 0, "editor quit shutdown frame");
+        Assert(connection.Shutdowns.TryDequeue(out var shutdown) && shutdown["reason"].AsString == "editor_quit",
+            "quit was misidentified as a domain reload");
         WaitForTimerStop();
     }
 
@@ -227,6 +249,8 @@ internal sealed class BridgeConnection : IDisposable
     readonly StreamReader _reader;
     readonly StreamWriter _writer;
     public readonly ConcurrentQueue<JNode> Results = new ConcurrentQueue<JNode>();
+    public readonly ConcurrentQueue<JNode> Shutdowns = new ConcurrentQueue<JNode>();
+    public int UnityPid { get; private set; }
 
     public BridgeConnection(TcpClient socket)
     {
@@ -241,6 +265,7 @@ internal sealed class BridgeConnection : IDisposable
         var hello = JNode.Parse(line);
         if (hello["type"].AsString != "hello" || hello["token"].AsString != "test-token")
             throw new IOException("invalid test handshake");
+        UnityPid = hello["unityPid"].AsInt;
         _writer.WriteLine("{\"type\":\"hello_ack\",\"ok\":true}");
         return true;
     }
@@ -254,6 +279,7 @@ internal sealed class BridgeConnection : IDisposable
         {
             var result = JNode.Parse(line);
             if (result["type"].AsString == "result" || result["type"].AsString == "error") Results.Enqueue(result);
+            else if (result["type"].AsString == "shutdown") Shutdowns.Enqueue(result);
         }
     }
     public void Dispose() => _socket.Dispose();

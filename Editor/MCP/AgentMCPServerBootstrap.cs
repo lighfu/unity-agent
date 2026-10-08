@@ -15,8 +15,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     /// - <see cref="MCPServerMode.Bridge"/>: 別プロセスの bridge binary を spawn し、<see cref="AgentMCPBridgeClient.Connect"/> で TCP 接続
     ///
     /// Editor ドメインがロードされた時点で起動し、<c>beforeAssemblyReload</c> / <c>quitting</c>
-    /// で停止する。Bridge モードの場合、bridge プロセス自体は生存し続けるので
-    /// 次の reload 後に Connect が再呼出しされて即時復帰する。
+    /// で停止する。Bridge モードの場合、domain reload 中は bridge プロセスを保ち、
+    /// 次の reload 後に Connect が再呼出しされて即時復帰する。Editor 終了時は
+    /// bridge が Unity のプロセス終了を検出して終了する。
     ///
     /// Bridge モードでは接続後も監視 tick (<see cref="SupervisorTick"/>) を張り続け、
     /// bridge プロセスが落ちた場合はバックオフしながら再 spawn / 再接続を繰り返す。
@@ -26,6 +27,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     [InitializeOnLoad]
     internal static class AgentMCPServerBootstrap
     {
+        // bridge 側 main.go の unityPIDEnv と同じ名前にする。
+        const string BridgeUnityPidEnv = "UNITY_AGENT_UNITY_PID";
+
         static AgentMCPServerBootstrap()
         {
             // delayCall waits for inspector updates, which can be deferred while unfocused.
@@ -34,7 +38,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             MCPMainThreadWakeup.Start();
 
             AssemblyReloadEvents.beforeAssemblyReload += StopBeforeReload;
-            EditorApplication.quitting += StopBeforeReload;
+            EditorApplication.quitting += StopOnQuit;
 
             // モーダル自動応答のルールはファイルに持つので、リロードのたびに読み直して
             // ポーラーを張り直す。MCP の有効/無効とは独立 (チャット UI からも使うため)。
@@ -77,14 +81,24 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         static void StopBeforeReload()
         {
+            Stop("domain_reload");
+        }
+
+        static void StopOnQuit()
+        {
+            Stop("editor_quit");
+        }
+
+        static void Stop(string reason)
+        {
             EditorApplication.update -= StartOnFirstUpdate;
             StopSupervisor();
             var mode = AgentSettings.MCPServerMode;
-            AgentLogger.Info(LogTag.MCP, $"[Bootstrap] StopBeforeReload mode={mode}");
+            AgentLogger.Info(LogTag.MCP, $"[Bootstrap] Stop mode={mode} reason={reason}");
             switch (mode)
             {
                 case MCPServerMode.Bridge:
-                    AgentMCPBridgeClient.Shared.Disconnect("domain_reload");
+                    AgentMCPBridgeClient.Shared.Disconnect(reason);
                     break;
                 case MCPServerMode.InProc:
                 default:
@@ -398,6 +412,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 RedirectStandardOutput = false,
                 RedirectStandardError = false,
             };
+            // PID は --unity-pid ではなく環境変数で渡す。ビルドし直していない古い bridge は
+            // 未知のフラグで即終了するが、未知の環境変数なら無視して従来どおり動く。
+            using (var unityProcess = Process.GetCurrentProcess())
+                psi.EnvironmentVariables[BridgeUnityPidEnv] = unityProcess.Id.ToString();
             var proc = Process.Start(psi);
             if (proc == null)
                 throw new InvalidOperationException("Process.Start returned null.");

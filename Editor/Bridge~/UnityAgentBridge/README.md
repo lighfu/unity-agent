@@ -69,7 +69,8 @@ Unity will then connect over TCP and HTTP MCP clients can hit `http://127.0.0.1:
 | `--token` | *(required)* | Shared secret for both the MCP Bearer auth and the Unity hello |
 | `--public-port` | `17800` | HTTP port for MCP clients |
 | `--internal-port` | `17801` | TCP port where Unity connects |
-| `--idle-quit` | `5m` | Exit after this long with no living Unity owner, no Unity connection, **and** no MCP client activity. `0` (or any negative value) disables the idle quit, so the bridge runs until killed |
+| `--unity-pid` | `$UNITY_AGENT_UNITY_PID` | Owning Unity editor process ID, also learned from an authenticated hello. The bridge exits when this process exits. Auto-spawn sets the environment variable instead of this flag |
+| `--idle-quit` | `5m` | Exit after this long with no living Unity owner, no Unity connection, **and** no MCP client activity. `0` (or any negative value) disables this idle fallback; Unity process exit still stops the bridge |
 | `--log` | *(none)* | Log file path. Empty = stderr only |
 | `--verbose` | `false` | Verbose logging |
 
@@ -101,6 +102,9 @@ Each direction is line-delimited JSON. One object per line.
 
 // reload notice (sent in beforeAssemblyReload, then connection closes)
 {"type":"shutdown","reason":"domain_reload"}
+
+// editor quit notice (owner PID remains tracked until the process exits)
+{"type":"shutdown","reason":"editor_quit"}
 ```
 
 ### Bridge → Unity
@@ -117,7 +121,11 @@ Each direction is line-delimited JSON. One object per line.
 ## Lifecycle
 
 - **Bridge spawn**: Unity's `AgentMCPServerBootstrap` checks for an existing `Library/UnityAgent/Bridge.lock`
-  pid; if missing or stale, spawns a new process detached from Unity. Lockfile holds the bridge pid.
+  pid; if missing or stale, spawns a new process detached from Unity with `UNITY_AGENT_UNITY_PID`
+  identifying the editor. Lockfile holds the bridge pid. The editor is tracked even before its first
+  TCP hello. The PID travels in the environment rather than as `--unity-pid` because a binary that
+  was not rebuilt after this flag was added would reject it and exit immediately; it ignores an
+  unknown variable and only loses exit monitoring.
 - **Domain reload**: Unity sends `shutdown`, closes TCP, restarts itself. Bridge keeps running.
   Calls that were **already sent to Unity** fail immediately with JSON-RPC error `-32003`
   (`Unity reloaded the app domain while this call was running`), because the Unity that
@@ -146,11 +154,22 @@ Each direction is line-delimited JSON. One object per line.
   retries from 1 s with exponential backoff capped at 30 s, re-checking the lockfile and respawning
   the binary before each attempt. It never gives up permanently; recovery no longer needs a domain
   reload or a manual settings toggle.
-- **Idle quit**: Bridge exits after `--idle-quit` (default 5 m) with no Unity connection AND no MCP
+- **Unity exit**: Bridge checks the owning Unity process every second and exits when it is gone,
+  including crashes and forced termination. MCP polling, in-flight requests, and `--idle-quit 0`
+  do not delay this exit. A normal quit sends `shutdown` with `editor_quit`; the owner PID remains
+  tracked until the editor process actually exits. Calls running when that notice arrives fail
+  with `-32003` (`Unity editor quit while this call was running`). Before exiting, the bridge
+  answers every call still waiting with `-32003` and gives MCP handlers up to 2 s to write those
+  answers, so clients see a JSON-RPC error rather than a connection reset. On Windows the bridge
+  keeps a handle to the owner process, which stops the OS from reusing its PID for another
+  process. Domain reload keeps the same live process
+  and therefore does not stop the bridge. Exit monitoring also continues after MCP is disabled
+  or switched to InProc, until the idle fallback stops the bridge first.
+- **Idle quit**: As a fallback, Bridge exits after `--idle-quit` (default 5 m) with no Unity connection AND no MCP
   client activity, provided its owning Unity process is also gone. An authenticated `hello` with
   `unityPid` identifies that owner: a long reload or deferred background reconnect cannot kill
   the HTTP endpoint while Unity is still alive. A `shutdown` with any reason other than
-  `domain_reload` (MCP disabled, switched to InProc) releases that owner, since nothing will
+  `domain_reload` or `editor_quit` (MCP disabled, switched to InProc) releases that owner, since nothing will
   reconnect. Older clients omitting `unityPid` keep the legacy idle behavior. Every authenticated `/mcp` request refreshes the timer, and a request still in
   flight blocks the quit outright. Pass `--idle-quit 0` to disable it.
 

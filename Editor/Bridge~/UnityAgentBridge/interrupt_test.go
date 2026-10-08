@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"strings"
@@ -216,6 +217,98 @@ func TestDispatchedCallFailsAtOnceOnConnectionLoss(t *testing.T) {
 		t.Fatalf("an unannounced disconnect must not be reported as a reload: %q", res.Error)
 	}
 	assertNotPending(t, bridge, call.ID)
+}
+
+func TestDispatchedCallNamesEditorQuitInsteadOfCrash(t *testing.T) {
+	bridge := newBridge("secret")
+	unity, reader := startFakeUnity(t, bridge)
+	call := dispatchTestCall(t, bridge, reader, "SaveScene")
+
+	if _, err := unity.Write([]byte(`{"type":"shutdown","reason":"editor_quit"}` + "\n")); err != nil {
+		t.Fatalf("write shutdown: %v", err)
+	}
+	_ = unity.Close()
+
+	res := awaitResult(t, call)
+	if res.OK || res.ErrCode != errCodeInterrupted {
+		t.Fatalf("expected code %d error, got ok=%v code=%d", errCodeInterrupted, res.OK, res.ErrCode)
+	}
+	if res.Error != "Unity editor quit while this call was running" {
+		t.Fatalf("expected an editor-quit message, got %q", res.Error)
+	}
+	// The announced quit must not be described as an unannounced crash.
+	for _, unwanted := range []string{"without a shutdown notice", "crashed"} {
+		if strings.Contains(res.Data, unwanted) {
+			t.Fatalf("error data contradicts the announced quit with %q: %q", unwanted, res.Data)
+		}
+	}
+	for _, want := range []string{"SaveScene", "NOT re-sent"} {
+		if !strings.Contains(res.Data, want) {
+			t.Fatalf("error data should mention %q, got %q", want, res.Data)
+		}
+	}
+	assertNotPending(t, bridge, call.ID)
+}
+
+func TestOwnerExitAnswersQueuedAndDispatchedCallsAndRefusesNewOnes(t *testing.T) {
+	bridge := newBridge("secret")
+	unity, reader := startFakeUnity(t, bridge)
+	t.Cleanup(func() { _ = unity.Close() })
+	dispatched := dispatchTestCall(t, bridge, reader, "BuildPlayer")
+	queued := &pendingCall{
+		ID:       "call-queued",
+		Tool:     "GetConsoleLogs",
+		Args:     json.RawMessage(`{}`),
+		Response: make(chan callResult, 1),
+		Created:  time.Now(),
+	}
+	bridge.mu.Lock()
+	bridge.pending[queued.ID] = queued
+	bridge.queueWhenDown = append(bridge.queueWhenDown, queued)
+	bridge.mu.Unlock()
+
+	if failed := bridge.failCallsForOwnerExit(); failed != 2 {
+		t.Fatalf("answered %d calls, want 2", failed)
+	}
+	for _, test := range []struct {
+		call      *pendingCall
+		wantError string
+	}{
+		{dispatched, "Unity exited while this call was running"},
+		{queued, "Unity exited before this call could run"},
+	} {
+		res := awaitResult(t, test.call)
+		if res.OK || res.ErrCode != errCodeInterrupted || res.Error != test.wantError {
+			t.Fatalf("%s: got ok=%v code=%d error=%q, want %q", test.call.Tool, res.OK, res.ErrCode, res.Error, test.wantError)
+		}
+		if !strings.Contains(res.Data, test.call.Tool) {
+			t.Fatalf("%s: error data should name the tool, got %q", test.call.Tool, res.Data)
+		}
+		assertNotPending(t, bridge, test.call.ID)
+	}
+	bridge.mu.Lock()
+	queueLength := len(bridge.queueWhenDown)
+	bridge.mu.Unlock()
+	if queueLength != 0 {
+		t.Fatalf("%d call(s) left in the reconnect queue", queueLength)
+	}
+
+	// A call that slips in while the bridge drains must be refused, not queued for an
+	// editor that will never reconnect.
+	late := &pendingCall{
+		ID:       "call-late",
+		Tool:     "GetEditorState",
+		Args:     json.RawMessage(`{}`),
+		Response: make(chan callResult, 1),
+		Created:  time.Now(),
+	}
+	bridge.mu.Lock()
+	bridge.pending[late.ID] = late
+	bridge.mu.Unlock()
+	if err := bridge.dispatchToUnity(late); !errors.Is(err, errOwnerExited) {
+		t.Fatalf("dispatch after owner exit returned %v, want errOwnerExited", err)
+	}
+	assertNotPending(t, bridge, late.ID)
 }
 
 func TestQueuedCallSurvivesUnityDisconnect(t *testing.T) {
