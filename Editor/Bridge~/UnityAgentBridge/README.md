@@ -157,7 +157,12 @@ Each direction is line-delimited JSON. One object per line.
 - **Unity exit**: Bridge checks the owning Unity process every second and exits when it is gone,
   including crashes and forced termination. MCP polling, in-flight requests, and `--idle-quit 0`
   do not delay this exit. A normal quit sends `shutdown` with `editor_quit`; the owner PID remains
-  tracked until the editor process actually exits. Domain reload keeps the same live process
+  tracked until the editor process actually exits. Calls running when that notice arrives fail
+  with `-32003` (`Unity editor quit while this call was running`). Before exiting, the bridge
+  answers every call still waiting with `-32003` and gives MCP handlers up to 2 s to write those
+  answers, so clients see a JSON-RPC error rather than a connection reset. On Windows the bridge
+  keeps a handle to the owner process, which stops the OS from reusing its PID for another
+  process. Domain reload keeps the same live process
   and therefore does not stop the bridge. Exit monitoring also continues after MCP is disabled
   or switched to InProc, until the idle fallback stops the bridge first.
 - **Idle quit**: As a fallback, Bridge exits after `--idle-quit` (default 5 m) with no Unity connection AND no MCP

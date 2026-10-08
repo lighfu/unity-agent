@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -161,70 +162,10 @@ func TestBridgeExitsAfterStartupOwnerDiesWithActiveMCP(t *testing.T) {
 		}
 	})
 
-	// Reserve distinct ephemeral ports until both have been chosen.
-	public, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer public.Close()
-	internal, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer internal.Close()
-	publicAddr := public.Addr().String()
-	bridge := exec.Command(os.Args[0], "-test.run=^TestOwnerExitProcessHelper$", "--",
-		"--token=secret", "--idle-quit=0",
-		fmt.Sprintf("--public-port=%d", public.Addr().(*net.TCPAddr).Port),
-		fmt.Sprintf("--internal-port=%d", internal.Addr().(*net.TCPAddr).Port))
-	// Same channel as Unity's auto-spawn, which avoids a flag that stale binaries reject.
-	bridge.Env = append(os.Environ(), "UNITY_AGENT_OWNER_TEST=bridge",
-		fmt.Sprintf("%s=%d", unityPIDEnv, owner.Process.Pid))
-	stderr, err := bridge.StderrPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = public.Close()
-	_ = internal.Close()
-	if err := bridge.Start(); err != nil {
-		t.Fatalf("start bridge: %v", err)
-	}
-	exited := make(chan struct{})
-	var exitErr error
-	go func() { exitErr = bridge.Wait(); close(exited) }()
-	t.Cleanup(func() { _ = bridge.Process.Kill(); <-exited })
-	queued := make(chan struct{})
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, "queueing call") {
-				close(queued)
-			}
-		}
-	}()
-	client := &http.Client{Timeout: 200 * time.Millisecond}
+	bridge := startBridgeProcess(t, owner.Process.Pid)
+	client := &http.Client{Timeout: 10 * time.Second}
 	defer client.CloseIdleConnections()
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		if response, err := client.Get("http://" + publicAddr + "/health"); err == nil {
-			response.Body.Close()
-			if response.StatusCode == http.StatusOK {
-				break
-			}
-		}
-		select {
-		case <-exited:
-			t.Fatalf("bridge exited before listening: %v", exitErr)
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("bridge did not start listening")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	client.Timeout = 10 * time.Second
-	request, err := http.NewRequest(http.MethodPost, "http://"+publicAddr+"/mcp",
+	request, err := http.NewRequest(http.MethodPost, "http://"+bridge.publicAddr+"/mcp",
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"PendingTool","arguments":{}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -232,17 +173,25 @@ func TestBridgeExitsAfterStartupOwnerDiesWithActiveMCP(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer secret")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("Content-Type", "application/json")
-	requestDone := make(chan struct{})
+	type reply struct {
+		body []byte
+		err  error
+	}
+	replied := make(chan reply, 1)
 	go func() {
-		if response, err := client.Do(request); err == nil {
-			response.Body.Close()
+		response, err := client.Do(request)
+		if err != nil {
+			replied <- reply{err: err}
+			return
 		}
-		close(requestDone)
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		replied <- reply{body, err}
 	}()
 	select {
-	case <-queued:
-	case <-requestDone:
-		t.Fatal("MCP request finished before being queued")
+	case <-bridge.queued:
+	case got := <-replied:
+		t.Fatalf("MCP request finished before being queued: %s %v", got.body, got.err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("MCP request was not queued")
 	}
@@ -251,12 +200,116 @@ func TestBridgeExitsAfterStartupOwnerDiesWithActiveMCP(t *testing.T) {
 		t.Fatalf("owner exit: %v", err)
 	}
 	select {
-	case <-exited:
-		if exitErr != nil {
-			t.Fatalf("bridge exit: %v", exitErr)
+	case got := <-replied:
+		if got.err != nil {
+			t.Fatalf("queued MCP request ended with a transport error instead of a JSON-RPC answer: %v", got.err)
+		}
+		var answer rpcResponse
+		if err := json.Unmarshal(got.body, &answer); err != nil {
+			t.Fatalf("decode answer %q: %v", got.body, err)
+		}
+		if answer.Error == nil || answer.Error.Code != errCodeInterrupted ||
+			answer.Error.Message != "Unity exited before this call could run" {
+			t.Fatalf("answer=%s, want interrupted error for a call that never ran", got.body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued MCP request was not answered after its owner exited")
+	}
+	select {
+	case <-bridge.exited:
+		if bridge.exitErr != nil {
+			t.Fatalf("bridge exit: %v", bridge.exitErr)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("bridge stayed alive after its owner exited with idle quit disabled and an active MCP request")
+	}
+}
+
+type bridgeProcess struct {
+	publicAddr string
+	exited     chan struct{}
+	exitErr    error         // valid once exited is closed
+	queued     chan struct{} // closed when the bridge logs that it queued a call
+}
+
+// startBridgeProcess runs main() in a child test process with idle quit disabled. Ports
+// are reserved by listening and then released for the child, so another process can take
+// one in between; a child that exits before serving is retried on fresh ports.
+func startBridgeProcess(t *testing.T, ownerPID int) *bridgeProcess {
+	t.Helper()
+	const attempts = 3
+	for attempt := 1; ; attempt++ {
+		bridge, err := tryStartBridgeProcess(t, ownerPID)
+		if err == nil {
+			return bridge
+		}
+		if attempt == attempts {
+			t.Fatalf("bridge did not start after %d attempts: %v", attempts, err)
+		}
+		t.Logf("bridge start attempt %d failed, retrying on new ports: %v", attempt, err)
+	}
+}
+
+func tryStartBridgeProcess(t *testing.T, ownerPID int) (*bridgeProcess, error) {
+	public, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	internal, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		_ = public.Close()
+		t.Fatal(err)
+	}
+	publicAddr := public.Addr().String()
+	command := exec.Command(os.Args[0], "-test.run=^TestOwnerExitProcessHelper$", "--",
+		"--token=secret", "--idle-quit=0",
+		fmt.Sprintf("--public-port=%d", public.Addr().(*net.TCPAddr).Port),
+		fmt.Sprintf("--internal-port=%d", internal.Addr().(*net.TCPAddr).Port))
+	_ = public.Close()
+	_ = internal.Close()
+	// Same channel as Unity's auto-spawn, which avoids a flag that stale binaries reject.
+	command.Env = append(os.Environ(), "UNITY_AGENT_OWNER_TEST=bridge",
+		fmt.Sprintf("%s=%d", unityPIDEnv, ownerPID))
+	stderr, err := command.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatalf("start bridge: %v", err)
+	}
+	bridge := &bridgeProcess{publicAddr: publicAddr, exited: make(chan struct{}), queued: make(chan struct{})}
+	go func() { bridge.exitErr = command.Wait(); close(bridge.exited) }()
+	t.Cleanup(func() { _ = command.Process.Kill(); <-bridge.exited })
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		queued := false
+		for scanner.Scan() {
+			if !queued && strings.Contains(scanner.Text(), "queueing call") {
+				queued = true
+				close(bridge.queued)
+			}
+		}
+	}()
+
+	client := &http.Client{Timeout: 200 * time.Millisecond}
+	defer client.CloseIdleConnections()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if response, err := client.Get("http://" + publicAddr + "/health"); err == nil {
+			response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return bridge, nil
+			}
+		}
+		select {
+		case <-bridge.exited:
+			return nil, fmt.Errorf("bridge exited before listening: %v", bridge.exitErr)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("bridge did not start listening")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
