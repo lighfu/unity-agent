@@ -16,7 +16,13 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/editor-v}" >> $GITHUB_OUTPUT
+        run: |
+          version="${GITHUB_REF#refs/tags/editor-v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "${version%%+*}" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Verify package.json version matches tag
         run: |
@@ -89,8 +95,26 @@ jobs:
       - name: Verify packaged package.json
         run: python3 .github/scripts/verify-package-json.py "com.ajisaiflow.unityagent-${{ steps.version.outputs.version }}.zip"
 
+      - name: Prepare prerelease notes
+        if: steps.version.outputs.prerelease == 'true'
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v heading="## [$PACKAGE_VERSION]" '
+            /^## / { if (found) exit; if ($0 == heading || index($0, heading " ") == 1) { found=1; next } }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"; then
+            printf '%s\n' 'Editor prerelease. See CHANGELOG.md for details.' > "$RUNNER_TEMP/release-notes.md"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: "com.ajisaiflow.unityagent-*.zip"
-          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.version.outputs.prerelease == 'true' && 'false' || '' }}
+          name: UnityAgent v${{ steps.version.outputs.version }}
+          body_path: ${{ steps.version.outputs.prerelease == 'true' && format('{0}/release-notes.md', runner.temp) || '' }}
+          generate_release_notes: ${{ steps.version.outputs.prerelease != 'true' }}

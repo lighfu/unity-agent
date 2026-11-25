@@ -6,7 +6,27 @@
 
 ## [Unreleased]
 
+## [0.18.0-alpha.1] - 2026-11-25
+
+### Added
+
+- Bridge 経由で同じ Unity Editor を使う一連の作業を予約できるようにした。予約者ラベル、用途、期限を照会でき、同じ Editor のドメインリロード後も予約を引き継ぐ。
+- `VerifyLoadedVersion` を追加。UPM パッケージの参照元、ロード済みアセンブリの MVID、アセットのインポート結果を照合する。CLI では期待値に一致した場合だけ後続の操作を実行できる。
+- `GetUnityConnectionStatus` を追加。Bridge の生存と、Unity の実行可否、コンパイル、再接続、ダイアログ待ちを個別に確認できる。
+- `CaptureSequenceFrame` を追加。対応するシーケンスの時刻とカメラを指定し、評価後の PNG、時刻、カメラ情報をまとめて返す。
+- Gesture Manager の Expression Menu、ジェスチャー、OSC、プレビュー操作を拡充。Expression Menu と Animator Controller の一覧に絞り込みを追加。
+- シーンの検査結果、依存アセットの容量、Renderer や三角形の件数を返すサンプルと、プロジェクト固有の MCP ツールを登録するガイドを追加。
+
+### Changed
+
+- 大きなツール結果をページごとに取得できるようにした。続きの取得は保存済みの結果を読み、元の操作を再実行しない。
+- UI 操作のイベント送信と、対応する値設定の読み戻しを区別する。UI 操作とスクリプトジョブの結果を同じ Editor セッション内で ID により再照会できる。
+- 変更系 MCP ツールの未知の引数を実行前に拒否する。主要なシーン編集、Prefab、アセット操作では対象が一意に決まることを確認し、成功時に実際の対象パスを返す。
+- MCP クライアントが接続先の Editor、プロジェクト、シーンを照合し、HTTP、JSON-RPC、ツール実行の失敗を区別できるようにした。
+
 ### Fixed
+
+- Editor の再接続時に、旧接続の終了や応答が新しい接続へ影響する競合を修正。中断された操作の自動再送を防ぎ、Bridge の応答に Unity が生成した画像を含める。
 - `GetVRChatBuildTestResult` に `waitSeconds` を 60 秒以上指定すると、MCP クライアントが 60 秒で呼び出しを打ち切り、結果が届かない問題。待つ時間の上限を 110 秒から 50 秒に下げた
 
 ## [0.17.0] - 2026-10-05
@@ -711,7 +731,8 @@
 - Claude CLI プロバイダーが出力をリアルタイムに流していなかった
 - 固定のタイムアウトを、無応答の時間で判定するタイムアウトに変えた。応答中なのにタイムアウトする誤判定を防ぐ
 
-[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.17.0...HEAD
+[Unreleased]: https://github.com/lighfu/unity-agent/compare/editor-v0.18.0-alpha.1...HEAD
+[0.18.0-alpha.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.17.0...editor-v0.18.0-alpha.1
 [0.17.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.1...editor-v0.17.0
 [0.16.1]: https://github.com/lighfu/unity-agent/compare/editor-v0.16.0...editor-v0.16.1
 [0.16.0]: https://github.com/lighfu/unity-agent/compare/editor-v0.15.0...editor-v0.16.0
