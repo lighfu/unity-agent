@@ -6,11 +6,12 @@ import (
 )
 
 type toolFailure struct {
-	Kind        string   `json:"kind"`
-	Tool        string   `json:"tool"`
-	Reason      string   `json:"reason"`
-	Suggestions []string `json:"suggestions"`
-	Detail      string   `json:"detail,omitempty"`
+	Kind        string            `json:"kind"`
+	Tool        string            `json:"tool"`
+	Reason      string            `json:"reason"`
+	Suggestions []string          `json:"suggestions"`
+	Detail      string            `json:"detail,omitempty"`
+	Reservation *unityLeaseStatus `json:"reservation,omitempty"`
 }
 
 func effectiveToolName(tool string, arguments json.RawMessage) string {
@@ -40,6 +41,8 @@ func protocolToolFailure(tool string, res callResult) toolFailure {
 		suggestion = "Inspect editor and dialog state with GetEditorState and AnswerModalDialog with dryRun=true."
 	case -32001, errCodeInterrupted:
 		suggestion = "Check GetUnityConnectionStatus and verify whether the original operation completed before retrying."
+	case errCodeLeaseConflict:
+		suggestion = "Check GetUnityLeaseStatus. Supply your current credential or wait for the reservation and outstanding calls to finish."
 	}
 	reason, _, _ = strings.Cut(reason, "\n")
 	suggestions := []string{suggestion}
@@ -48,5 +51,5 @@ func protocolToolFailure(tool string, res callResult) toolFailure {
 			suggestions = append(suggestions, strings.TrimSpace(name))
 		}
 	}
-	return toolFailure{Kind: "json_rpc", Tool: tool, Reason: strings.TrimSpace(reason), Suggestions: suggestions, Detail: res.Data}
+	return toolFailure{Kind: "json_rpc", Tool: tool, Reason: strings.TrimSpace(reason), Suggestions: suggestions, Detail: res.Data, Reservation: res.LeaseStatus}
 }

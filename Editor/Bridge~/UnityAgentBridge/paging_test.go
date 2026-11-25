@@ -87,7 +87,7 @@ func TestPagingSchemasKeepEditorToolSurfaceAndEnvelopeDefaults(t *testing.T) {
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
 		name := tool["name"].(string)
-		if name == unityConnectionStatusTool {
+		if name == unityConnectionStatusTool || isUnityLeaseTool(name) {
 			continue
 		}
 		if !editorTools[name] {

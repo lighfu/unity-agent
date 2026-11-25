@@ -60,6 +60,7 @@ const (
 	callTimeout                             = 120 * time.Second // Per-call timeout, matches AgentMCPServer.cs default.
 	maintenanceInterval                     = 30 * time.Second  // How often the watchdog prunes and checks for idleness.
 	defaultHelloTimeout                     = 10 * time.Second  // How long a new connection has to authenticate before it is dropped.
+	unityWriteTimeout                       = 5 * time.Second   // Bound dispatch while holding the routing lock.
 )
 
 var (
@@ -83,6 +84,7 @@ type pendingCall struct {
 	Response chan callResult // receives when Unity responds, disconnects, or times out
 	Created  time.Time
 	Context  context.Context // MCP request context; nil for internal/test calls
+	Lease    *unityLease     // nil for a call admitted without a reservation
 	// The Unity connection this call was written to, nil while it sits in queueWhenDown.
 	// Lets the connection's cleanup fail exactly the calls that died with it — not the ones
 	// still queued, and not ones already re-dispatched on a newer connection. Guarded by
@@ -100,6 +102,7 @@ type callResult struct {
 	Failure       *toolFailure
 	ImageBase64   string
 	ImageMimeType string
+	LeaseStatus   *unityLeaseStatus
 }
 
 // Error code for a call that was dispatched to Unity and then orphaned by the connection
@@ -125,10 +128,12 @@ type Bridge struct {
 	unityConn      net.Conn // current Unity TCP connection (nil if disconnected)
 	unityWriter    *bufio.Writer
 	pending        map[string]*pendingCall // bridge-id → call
+	abandonedCalls map[string]net.Conn     // sent calls whose HTTP request ended before a result
 	queueWhenDown  []*pendingCall          // calls received while Unity was disconnected
 	mcpClientCount int                     // MCP HTTP requests currently being served (idle-quit guard)
 	lastActivity   time.Time               // last Unity message OR MCP HTTP request; drives the idle quit
 	ownerUnityPID  int                     // authenticated editor process; survives its TCP disconnect during reload
+	lease          *unityLease
 
 	unityStatus           editorStatus // latest status published by the current connection
 	unityStatusAt         time.Time    // when the bridge received that status
@@ -140,10 +145,11 @@ type Bridge struct {
 
 func newBridge(token string) *Bridge {
 	return &Bridge{
-		token:        token,
-		helloTimeout: defaultHelloTimeout,
-		pending:      make(map[string]*pendingCall),
-		lastActivity: time.Now(),
+		token:          token,
+		helloTimeout:   defaultHelloTimeout,
+		pending:        make(map[string]*pendingCall),
+		abandonedCalls: make(map[string]net.Conn),
+		lastActivity:   time.Now(),
 	}
 }
 
@@ -225,6 +231,13 @@ func (b *Bridge) startUnityTCPServer(addr string) error {
 func (b *Bridge) swapUnityConn(newConn net.Conn, unityPID int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if lease := b.lease; lease != nil && unityPID > 0 {
+		if lease.editorPID > 0 && lease.editorPID != unityPID {
+			b.drainLeaseLocked(lease, "A different Unity Editor connected before this call was dispatched.")
+		} else {
+			lease.editorPID = unityPID
+		}
+	}
 	if b.unityConn != nil && b.unityConn != newConn {
 		log.Printf("[bridge] dropping previous Unity connection (new connection arrived)")
 		_ = b.unityConn.Close()
@@ -250,6 +263,9 @@ func (b *Bridge) releaseUnityOwner(conn net.Conn) {
 	defer b.mu.Unlock()
 	if b.unityConn == conn {
 		b.ownerUnityPID = 0
+		if lease := b.lease; lease != nil {
+			b.drainLeaseLocked(lease, "The reserved Unity Editor shut down its Bridge connection.")
+		}
 	}
 }
 
@@ -357,12 +373,12 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 				Status: msg.Status, MainThreadAgeMS: msg.MainThreadAgeMS, PlayMode: msg.PlayMode, Reason: msg.Reason,
 			})
 		case "result":
-			b.deliverResult(msg.ID, callResult{
+			b.deliverResult(conn, msg.ID, callResult{
 				OK: true, Text: msg.Text, Failure: msg.Failure,
 				ImageBase64: msg.ImageBase64, ImageMimeType: msg.ImageMimeType,
 			})
 		case "error":
-			b.deliverResult(msg.ID, callResult{OK: false, Error: msg.Message, Reason: msg.Reason, ErrCode: msg.Code, Data: msg.Data, Failure: msg.Failure})
+			b.deliverResult(conn, msg.ID, callResult{OK: false, Error: msg.Message, Reason: msg.Reason, ErrCode: msg.Code, Data: msg.Data, Failure: msg.Failure})
 		case "shutdown":
 			log.Printf("[bridge] unity announced shutdown (reason=%s)", msg.Reason)
 			// Connection will close shortly — the deferred cleanup fails the in-flight
@@ -440,7 +456,9 @@ func (b *Bridge) flushQueuedCalls() {
 				log.Printf("[bridge] skipping canceled queued call id=%s tool=%s", call.ID, call.Tool)
 				continue
 			}
-			b.deliverResult(call.ID, callResult{OK: false, Error: "dispatch after reconnect failed: " + err.Error(), ErrCode: -32603})
+			if b.cancelPendingCall(call) {
+				call.Response <- callResult{OK: false, Error: "dispatch after reconnect failed: " + err.Error(), ErrCode: -32603}
+			}
 		}
 	}
 }
@@ -450,6 +468,7 @@ func (b *Bridge) flushQueuedCalls() {
 func (b *Bridge) dispatchToUnity(call *pendingCall) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.expireLeaseLocked(time.Now())
 	if call.Context != nil {
 		select {
 		case <-call.Context.Done():
@@ -472,19 +491,31 @@ func (b *Bridge) dispatchToUnity(call *pendingCall) error {
 		return err
 	}
 	bytes = append(bytes, '\n')
+	conn := b.unityConn
+	if err := conn.SetWriteDeadline(time.Now().Add(unityWriteTimeout)); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer conn.SetWriteDeadline(time.Time{})
 	// Mark before writing: if the write itself fails the caller drops the call from pending
 	// anyway, and marking late would leave a window where the connection dies between the
 	// write and the mark and the call is never failed.
-	call.DispatchedOn = b.unityConn
+	call.DispatchedOn = conn
 	if _, err := b.unityWriter.Write(bytes); err != nil {
+		_ = conn.Close()
 		return err
 	}
-	return b.unityWriter.Flush()
+	if err := b.unityWriter.Flush(); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	return nil
 }
 
 // cancelPendingCall removes a call from the pending map and, when it has not
 // been sent yet, from the reconnect queue. A call already written to Unity
-// cannot be withdrawn from the wire, so its eventual result is simply dropped.
+// cannot be withdrawn from the wire. Keep its ID as a reservation fence until
+// that connection answers or goes away.
 func (b *Bridge) cancelPendingCall(call *pendingCall) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -495,6 +526,7 @@ func (b *Bridge) cancelPendingCall(call *pendingCall) bool {
 	}
 	delete(b.pending, call.ID)
 	if call.DispatchedOn != nil {
+		b.abandonedCalls[call.ID] = call.DispatchedOn
 		return true
 	}
 	for i, queued := range b.queueWhenDown {
@@ -506,6 +538,7 @@ func (b *Bridge) cancelPendingCall(call *pendingCall) bool {
 		b.queueWhenDown = b.queueWhenDown[:len(b.queueWhenDown)-1]
 		break
 	}
+	b.finishLeaseDrainLocked()
 	return true
 }
 
@@ -521,6 +554,12 @@ func (b *Bridge) failInterruptedCalls(conn net.Conn, reason string) {
 			delete(b.pending, id)
 		}
 	}
+	for id, connection := range b.abandonedCalls {
+		if connection == conn {
+			delete(b.abandonedCalls, id)
+		}
+	}
+	b.finishLeaseDrainLocked()
 	b.mu.Unlock()
 	if len(interrupted) == 0 {
 		return
@@ -570,11 +609,19 @@ func reasonSuffix(reason string) string {
 	return fmt.Sprintf(" (Unity announced shutdown with reason=%q.)", reason)
 }
 
-func (b *Bridge) deliverResult(id string, result callResult) {
+func (b *Bridge) deliverResult(conn net.Conn, id string, result callResult) {
 	b.mu.Lock()
+	if previous, abandoned := b.abandonedCalls[id]; abandoned && previous == conn {
+		delete(b.abandonedCalls, id)
+		b.finishLeaseDrainLocked()
+		b.mu.Unlock()
+		return
+	}
 	call, ok := b.pending[id]
+	ok = ok && call.DispatchedOn == conn
 	if ok {
 		delete(b.pending, id)
+		b.finishLeaseDrainLocked()
 	}
 	b.mu.Unlock()
 	if !ok {
@@ -645,7 +692,8 @@ func (b *Bridge) shouldQuitWhenIdle(now time.Time, grace time.Duration, isAlive 
 		return false
 	}
 	b.mu.Lock()
-	idle := b.unityConn == nil && b.mcpClientCount == 0 && now.Sub(b.lastActivity) > grace
+	b.expireLeaseLocked(now)
+	idle := b.unityConn == nil && b.lease == nil && b.mcpClientCount == 0 && now.Sub(b.lastActivity) > grace
 	ownerPID := b.ownerUnityPID
 	b.mu.Unlock()
 	if !idle || (ownerPID > 0 && isAlive(ownerPID)) {
@@ -655,7 +703,7 @@ func (b *Bridge) shouldQuitWhenIdle(now time.Time, grace time.Duration, isAlive 
 	// and idle state before deciding to exit rather than relying on the earlier snapshot.
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.ownerUnityPID == ownerPID && b.unityConn == nil && b.mcpClientCount == 0 && now.Sub(b.lastActivity) > grace
+	return b.ownerUnityPID == ownerPID && b.unityConn == nil && b.lease == nil && b.mcpClientCount == 0 && now.Sub(b.lastActivity) > grace
 }
 
 func (b *Bridge) startMCPHTTPServer(addr string) error {
@@ -697,7 +745,7 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	// CORS for local tools
 	applyCORSHeaders(w, r.Header.Get("Origin"))
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID, "+unityLeaseHeader)
 	w.Header().Set("Access-Control-Expose-Headers", "MCP-Protocol-Version, Mcp-Session-Id")
 
 	if r.Method == http.MethodOptions {
@@ -805,7 +853,7 @@ func (b *Bridge) handleMCP(w http.ResponseWriter, r *http.Request) {
 	case "resources/templates/list":
 		writeJSONRPCResult(w, req.ID, map[string]any{"resourceTemplates": []any{}})
 	case "tools/call":
-		b.handleToolsCallContext(w, req, r.Context())
+		b.handleToolsCallContext(w, req, r.Context(), r.Header.Get(unityLeaseHeader))
 	default:
 		writeJSONRPCError(w, req.ID, -32601, "Method not found", req.Method)
 	}
@@ -971,7 +1019,7 @@ func (b *Bridge) handleInitialize(protocolVersion string) map[string]any {
 // lists in sync so MCP clients can discover the tools; Unity calls can also be forwarded by name.
 func (b *Bridge) handleToolsList() map[string]any {
 	return map[string]any{
-		"tools": []any{
+		"tools": append([]any{
 			map[string]any{
 				"name":        "SearchUnityTool",
 				"description": "Search for Unity Editor tools by keyword.",
@@ -1007,6 +1055,7 @@ func (b *Bridge) handleToolsList() map[string]any {
 						"resultOffset":   map[string]any{"type": "integer", "default": 0, "minimum": 0},
 						"resultLimit":    map[string]any{"type": "integer", "default": 50, "minimum": 1, "maximum": 200},
 						"resultMaxChars": map[string]any{"type": "integer", "default": 8192, "minimum": 1024, "maximum": 32768},
+						"leaseToken":     map[string]any{"type": "string", "description": "Credential from AcquireUnityLease, if a Bridge reservation is active."},
 					},
 					"required": []any{"name", "arguments"},
 				},
@@ -1037,7 +1086,7 @@ func (b *Bridge) handleToolsList() map[string]any {
 					"with GetEditorState or AnswerModalDialog (dryRun=true) to inspect the dialog.",
 				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
-		},
+		}, unityLeaseTools()...),
 	}
 }
 
@@ -1063,10 +1112,11 @@ func validJSONRPCID(raw json.RawMessage) bool {
 	}
 }
 
-func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, ctx context.Context) {
+func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, ctx context.Context, headerToken string) {
 	var params struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
+		Name      string                     `json:"name"`
+		Arguments json.RawMessage            `json:"arguments"`
+		Meta      map[string]json.RawMessage `json:"_meta"`
 	}
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeJSONRPCError(w, req.ID, -32602, "Invalid params", err.Error())
@@ -1080,6 +1130,31 @@ func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, c
 		b.writeUnityConnectionStatus(w, req.ID)
 		return
 	}
+	var metaToken string
+	if value, ok := params.Meta[unityLeaseMetaKey]; ok {
+		if err := json.Unmarshal(value, &metaToken); err != nil || metaToken == "" {
+			writeJSONRPCError(w, req.ID, -32602, "Invalid Unity lease credentials", unityLeaseMetaKey+" must be a non-empty string.")
+			return
+		}
+	}
+	var envelopeToken string
+	if params.Name == "ExecuteUnityTool" {
+		var err error
+		params.Arguments, envelopeToken, err = takeExecuteLeaseToken(params.Arguments)
+		if err != nil {
+			writeJSONRPCError(w, req.ID, -32602, "Invalid Unity lease credentials", err.Error())
+			return
+		}
+	}
+	token, err := combineLeaseTokens(headerToken, metaToken, envelopeToken)
+	if err != nil {
+		writeJSONRPCError(w, req.ID, -32602, "Invalid Unity lease credentials", err.Error())
+		return
+	}
+	if isUnityLeaseTool(params.Name) {
+		b.handleUnityLeaseTool(w, req.ID, params.Name, params.Arguments, token)
+		return
+	}
 	target := effectiveToolName(params.Name, params.Arguments)
 
 	call := &pendingCall{
@@ -1090,19 +1165,25 @@ func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, c
 		Created:  time.Now(),
 		Context:  ctx,
 	}
-	b.mu.Lock()
-	b.pending[call.ID] = call
-	b.mu.Unlock()
+	if denial := b.admitUnityCall(call, token); denial != nil {
+		writeToolCallResult(w, req.ID, *denial, target)
+		return
+	}
 
 	if err := b.dispatchToUnity(call); err != nil {
-		if errors.Is(err, errCallCanceled) {
+		if ctx.Err() != nil {
 			b.cancelPendingCall(call)
 			return
 		}
-		b.mu.Lock()
-		delete(b.pending, call.ID)
-		b.mu.Unlock()
-		writeToolCallResult(w, req.ID, callResult{Error: "Dispatch failed", ErrCode: -32603, Data: err.Error()}, target)
+		if b.cancelPendingCall(call) {
+			writeToolCallResult(w, req.ID, callResult{Error: "Dispatch failed", ErrCode: -32603, Data: err.Error()}, target)
+		} else {
+			select {
+			case res := <-call.Response:
+				writeToolCallResult(w, req.ID, res, target)
+			case <-ctx.Done():
+			}
+		}
 		return
 	}
 

@@ -317,6 +317,21 @@ reads as a zero.",
         static string DescribeConnection()
         {
             bool bridge = AgentSettings.MCPServerMode == MCPServerMode.Bridge;
+            var report = DescribeEditorIdentity();
+            report.AsObject["mcp"] = JNode.Obj(
+                ("enabled", JNode.Bool(AgentSettings.MCPServerEnabled)),
+                ("mode", JNode.Str(AgentSettings.MCPServerMode.ToString())),
+                ("endpoint", JNode.Str(bridge ? $"http://127.0.0.1:{AgentSettings.MCPBridgePublicPort}/mcp"
+                    : AgentMCPServer.Shared.Endpoint)),
+                ("connected", JNode.Bool(bridge ? AgentMCPBridgeClient.Shared.IsConnected : AgentMCPServer.Shared.IsRunning)),
+                ("clientRegistration", JNode.Str(bridge ? "staticEndpoint" : "staticEndpointOrOAuth")),
+                ("authScheme", JNode.Str("Bearer")),
+                ("tokenConfigured", JNode.Bool(!string.IsNullOrEmpty(AgentSettings.MCPServerToken))));
+            return report.ToJson();
+        }
+
+        internal static JNode DescribeEditorIdentity()
+        {
             var scene = EditorSceneManager.GetActiveScene();
             using var editorProcess = System.Diagnostics.Process.GetCurrentProcess();
             return JNode.Obj(
@@ -326,16 +341,7 @@ reads as a zero.",
                 ("projectPath", JNode.Str(GetProjectRoot())),
                 ("sceneName", JNode.Str(scene.name)),
                 ("scenePath", JNode.Str(scene.path)),
-                ("sceneDirty", JNode.Bool(scene.isDirty)),
-                ("mcp", JNode.Obj(
-                    ("enabled", JNode.Bool(AgentSettings.MCPServerEnabled)),
-                    ("mode", JNode.Str(AgentSettings.MCPServerMode.ToString())),
-                    ("endpoint", JNode.Str(bridge ? $"http://127.0.0.1:{AgentSettings.MCPBridgePublicPort}/mcp"
-                        : AgentMCPServer.Shared.Endpoint)),
-                    ("connected", JNode.Bool(bridge ? AgentMCPBridgeClient.Shared.IsConnected : AgentMCPServer.Shared.IsRunning)),
-                    ("clientRegistration", JNode.Str(bridge ? "staticEndpoint" : "staticEndpointOrOAuth")),
-                    ("authScheme", JNode.Str("Bearer")),
-                    ("tokenConfigured", JNode.Bool(!string.IsNullOrEmpty(AgentSettings.MCPServerToken)))))).ToJson();
+                ("sceneDirty", JNode.Bool(scene.isDirty)));
         }
 
         private static string DescribeMcpOneLine()

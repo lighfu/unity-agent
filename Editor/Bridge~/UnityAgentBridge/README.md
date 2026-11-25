@@ -69,7 +69,7 @@ Unity will then connect over TCP and HTTP MCP clients can hit `http://127.0.0.1:
 | `--token` | *(required)* | Shared secret for both the MCP Bearer auth and the Unity hello |
 | `--public-port` | `17800` | HTTP port for MCP clients |
 | `--internal-port` | `17801` | TCP port where Unity connects |
-| `--idle-quit` | `5m` | Exit after this long with no living Unity owner, no Unity connection, **and** no MCP client activity. `0` (or any negative value) disables the idle quit, so the bridge runs until killed |
+| `--idle-quit` | `5m` | Exit after this long with no active reservation, no living Unity owner, no Unity connection, **and** no MCP client activity. `0` (or any negative value) disables the idle quit, so the bridge runs until killed |
 | `--log` | *(none)* | Log file path. Empty = stderr only |
 | `--verbose` | `false` | Verbose logging |
 
@@ -107,6 +107,49 @@ For `dialog_wait`, call `ExecuteUnityTool` with `name=GetEditorState` to inspect
 Use `ExecuteUnityTool` with `name=AnswerModalDialog` and `arguments={"dryRun":true}` to read the
 message and buttons of a supported native dialog. Choose a button explicitly to answer it.
 
+## Reserve the Editor for a workflow
+
+Use `AcquireUnityLease` before a sequence such as syncing code, compiling, measuring and restoring
+the project. Pass an `owner` label, a `purpose`, and optionally `ttlSeconds` (10 to 3600, default 300).
+The Bridge issues a `leaseToken` once on acquisition. Send it as the `X-UnityAgent-Lease` header on
+Unity calls, renewals and release requests. An MCP client that can edit request metadata can also
+pass it in `params._meta["unityagent/leaseToken"]` on `tools/call`. If the client only supports
+tool arguments, pass `leaseToken` in the outer `ExecuteUnityTool` arguments, alongside `name`
+and `arguments`. The renewal and release tools also accept `leaseToken` as an argument.
+
+Any authenticated client can use `GetUnityLeaseStatus` to see the owner label, purpose, expiration
+and whether the lease is held or waiting for dispatched calls to finish. `GetUnityConnectionStatus`
+and tool discovery also remain available. The Bridge reports unavailable reservations and
+non-holder Unity calls as JSON-RPC error `-32004`. Acquisition fails while earlier Unity calls are
+still queued or running. The owner label is supplied by the client. Possession of the lease token
+authorizes the holder.
+
+The lease survives domain reloads of the same Editor while the Bridge process is alive. Connecting
+a different known Editor PID ends the lease. Renew it before it expires with `RenewUnityLease`
+and call `ReleaseUnityLease` after restoration. Expiration or release
+allows another client to acquire after earlier dispatched calls return or their Unity connection
+closes. A transport interruption can leave a dispatched operation's outcome unknown. The reservation
+covers Unity calls through this Bridge endpoint. Keep the reservation until any accepted background
+jobs finish, and coordinate edits from the Unity UI and directly on disk with the same workflow.
+
+The Python example accepts the lease token from `UNITY_AGENT_MCP_LEASE_TOKEN`. The following
+PowerShell 7 example keeps it in the shell environment across separate CLI calls.
+
+```powershell
+$leaseReply = '{"owner":"validation-client","purpose":"sync, compile, measure and restore","ttlSeconds":600}' |
+    python Tests~/mcp_call.py AcquireUnityLease -
+if ($LASTEXITCODE -ne 0) { throw "Could not acquire the Editor lease." }
+$lease = ($leaseReply | ConvertFrom-Json).content[0].text | ConvertFrom-Json
+$env:UNITY_AGENT_MCP_LEASE_TOKEN = $lease.leaseToken
+try {
+    # Sync code, trigger compilation, verify the loaded version, measure and restore here.
+    python Tests~/mcp_call.py GetPlayModeState
+} finally {
+    python Tests~/mcp_call.py ReleaseUnityLease
+    Remove-Item Env:UNITY_AGENT_MCP_LEASE_TOKEN
+}
+```
+
 ## Verify the target and classify failures
 
 Set `UNITY_AGENT_MCP_TOKEN` to the token for the selected local MCP endpoint. Run the example
@@ -130,10 +173,48 @@ writes a JSON failure report to stderr and exits with a nonzero status.
 | `11` | JSON-RPC | An `error` envelope or malformed JSON-RPC response. Tool-specific failures include `error.data` with `tool`, `reason` and `suggestions` |
 | `12` | Tool execution | `result.isError` is `true`. `result.structuredContent` contains `tool`, `reason` and `suggestions` |
 | `13` | Target verification | The connected Editor identity is missing or differs from the expected project or scene |
+| `14` | Loaded-version verification | The report is missing or does not confirm the supplied expectations |
 
 For example, an unknown tool name or invalid argument is a JSON-RPC error. A tool that accepts
 the request and reports a missing scene target is an execution error. This distinction lets a
 client decide which input to correct and whether it needs to verify the previous operation.
+
+## Verify what the Editor loaded
+
+After compilation and any domain reload, call `VerifyLoadedVersion` through `ExecuteUnityTool`.
+It reports the registered package's source, version and resolved path, the MVID and location of an
+assembly loaded in the current Editor domain, and the import results for specified asset paths.
+The report includes the Editor PID, Unity version, project and active scene. For scripts, it can
+report the class and assembly Unity resolved. The check reads the current Editor state and leaves
+compilation and imports to the workflow that requested them.
+
+Pass `expectedPackagePath` or `expectedPackageVersion` to check the registered package,
+`expectedMvid` to check the identity of the loaded assembly against the intended binary, and
+`assetChecks` to check imported assets. Each asset entry is either a full Unity asset path or an
+object with a `path` and optional `guid`, `mainType` or `scriptClass`. A match applies to the
+expectations supplied by the caller. A report with `observed` provides evidence for comparison.
+
+```json
+{
+  "name": "VerifyLoadedVersion",
+  "arguments": {
+    "packageName": "com.example.tools",
+    "expectedPackagePath": "C:/Unity/ToolsCheckout",
+    "assemblyName": "Example.Tools.Editor",
+    "expectedMvid": "00000000-0000-0000-0000-000000000001",
+    "assetChecks": [
+      {
+        "path": "Packages/com.example.tools/Editor/ExampleTool.cs",
+        "scriptClass": "Example.Tools.Editor.ExampleTool"
+      }
+    ]
+  }
+}
+```
+
+Pass the same inner `arguments` object as JSON to `--require-loaded-version` in the Python example
+to require the `matches_expectations` verdict before invoking the next tool. Each CLI invocation
+can also use `--expect-project` and `--expect-scene` to verify the target project and scene.
 
 ## Wire protocol (Unity ↔ Bridge)
 

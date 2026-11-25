@@ -12,6 +12,7 @@ EXIT_HTTP = 10
 EXIT_JSON_RPC = 11
 EXIT_TOOL = 12
 EXIT_TARGET = 13
+EXIT_VERSION = 14
 
 
 class Failure(Exception):
@@ -27,7 +28,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 class UnityMCP:
-    def __init__(self, endpoint, token, timeout):
+    def __init__(self, endpoint, token, timeout, lease_token=None):
         self.endpoint = endpoint
         self.timeout = timeout
         self.opener = build_opener(NoRedirect())
@@ -36,6 +37,8 @@ class UnityMCP:
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
+        if lease_token:
+            self.headers["X-UnityAgent-Lease"] = lease_token
         self.next_id = 0
 
     def rpc(self, method, params=None, *, notification=False, tool=None):
@@ -122,12 +125,52 @@ def connection_info(client, expected_project, expected_scene):
     return identity
 
 
+def require_loaded_version(client, arguments):
+    tool = "VerifyLoadedVersion"
+    result = client.call("ExecuteUnityTool", {"name": tool, "arguments": arguments,
+                                            "resultLimit": 200, "resultMaxChars": 32768})
+    try:
+        report = json.loads(result["content"][0]["text"])
+        reader = "ReadUnityToolResultPage"
+        if report.get("nextTool") == reader:
+            result_id = report["resultId"]
+            offset = 0
+            fragments = [report["text"]]
+            for _ in range(64):
+                if not report["page"]["hasMore"]:
+                    report = json.loads("".join(fragments))
+                    break
+                next_offset = report["page"]["nextOffset"]
+                if type(next_offset) is not int or next_offset <= offset:
+                    raise ValueError("verification continuation did not advance")
+                page = client.call("ExecuteUnityTool", {"name": reader, "arguments": {
+                    "resultId": result_id, "offset": next_offset, "limit": 200, "maxChars": 32768}})
+                report = json.loads(page["content"][0]["text"])
+                if report["resultId"] != result_id or report["page"]["offset"] != next_offset:
+                    raise ValueError("verification continuation changed")
+                fragments.append(report["text"])
+                offset = next_offset
+            else:
+                raise ValueError("verification result exceeds the CLI's pagination limit")
+        verdict = report["verdict"]
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+        raise Failure(EXIT_VERSION, "version", tool, "Unity did not return a loaded-version verdict.",
+                      ["Check the UnityAgent version and VerifyLoadedVersion arguments."]) from error
+    if verdict != "matches_expectations":
+        raise Failure(EXIT_VERSION, "version", tool, f"Loaded-version verification returned {verdict}.",
+                      ["Compare the reported package, loaded assembly, and imports with the intended build."],
+                      verification=report)
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", default="http://127.0.0.1:17800/mcp")
     parser.add_argument("--timeout", type=float, default=125)
     parser.add_argument("--expect-project")
     parser.add_argument("--expect-scene")
+    parser.add_argument("--require-loaded-version", metavar="JSON",
+                        help="Require VerifyLoadedVersion to match these expectations before calling the tool.")
     parser.add_argument("tool", nargs="?", help="Top-level MCP tool. Omit to check connection identity.")
     parser.add_argument("arguments", nargs="?", default="{}", help="JSON object of tool arguments, or - to read JSON from stdin.")
     options = parser.parse_args()
@@ -138,15 +181,25 @@ def main():
         arguments = json.load(sys.stdin) if options.arguments == "-" else json.loads(options.arguments)
         if not isinstance(arguments, dict):
             raise ValueError("expected a JSON object")
+        version_args = json.loads(options.require_loaded_version) if options.require_loaded_version is not None else None
+        if options.require_loaded_version is not None and not isinstance(version_args, dict):
+            raise ValueError("--require-loaded-version expects a JSON object")
     except ValueError as error:
         parser.error(f"Invalid arguments: {error}")
 
-    client = UnityMCP(options.endpoint, token, options.timeout)
+    client = UnityMCP(options.endpoint, token, options.timeout, os.environ.get("UNITY_AGENT_MCP_LEASE_TOKEN"))
     try:
         client_info = client.initialize()
         if not options.tool or options.expect_project is not None or options.expect_scene is not None:
             identity = connection_info(client, options.expect_project, options.expect_scene)
-        output = client.call(options.tool, arguments) if options.tool else {"client": client_info, "unity": identity}
+        if version_args is not None:
+            verification = require_loaded_version(client, version_args)
+        if options.tool:
+            output = client.call(options.tool, arguments)
+        else:
+            output = {"client": client_info, "unity": identity}
+            if version_args is not None:
+                output["verification"] = verification
     except Failure as error:
         print(json.dumps(error.report, ensure_ascii=True), file=sys.stderr)
         return error.exit_code

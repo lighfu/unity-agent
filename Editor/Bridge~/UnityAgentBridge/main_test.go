@@ -364,7 +364,7 @@ func TestCanceledQueuedCallIsRemovedBeforeReconnect(t *testing.T) {
 	rec := httptest.NewRecorder()
 	done := make(chan struct{})
 	go func() {
-		bridge.handleToolsCallContext(rec, req, ctx)
+		bridge.handleToolsCallContext(rec, req, ctx, "")
 		close(done)
 	}()
 

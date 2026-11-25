@@ -29,7 +29,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     ///   RecordAssemblyBaseline / CompareAssemblyBaseline — DLL の mtime で「本当に建った」を証明する
     ///   BringUnityToForeground  — 実績のある最後の手段。ユーザーの作業を奪う
     /// </summary>
-    public static class ScriptCompilationTools
+    public static partial class ScriptCompilationTools
     {
         /// <summary>
         /// ベースラインの保存先。SessionState はドメインリロードを跨いで残り、
@@ -267,8 +267,8 @@ is still running (it will simply report that nothing has been rewritten yet — 
 the end of a compile, not during it).
 
 A rebuilt DLL means the compile produced output. It does NOT mean the new code is running: the
-domain still holds the old assemblies until the reload finishes. Check isCompiling in the output,
-and confirm the build was clean with GetConsoleLogs(severity:'error').
+domain still holds the old assemblies until the reload finishes. Use VerifyLoadedVersion after
+the editor is ready to check its loaded assembly MVID, package source and imported assets.
 
 Requires a baseline from this editor session — SessionState is cleared when Unity is closed.", Risk = ToolRisk.Safe)]
         public static string CompareAssemblyBaseline(string assemblyNames = "")
