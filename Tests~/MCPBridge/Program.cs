@@ -11,6 +11,7 @@ using System.Threading;
 using AjisaiFlow.UnityAgent.Editor;
 using AjisaiFlow.UnityAgent.Editor.MCP;
 using UnityEditor;
+using UnityEditor.Compilation;
 
 internal static class Program
 {
@@ -30,9 +31,11 @@ internal static class Program
         try
         {
             Run("starts after reload without delayCall or natural updates", () => Startup(peer), ref failed);
+            Run("reports compilation, transitions and a stalled main thread without editor updates", () => Readiness(peer), ref failed);
             Run("executes queued background calls on main thread across frame limit", () => QueuedCalls(peer), ref failed);
             Run("reconnects after real bridge EOF without natural updates", () => Reconnect(peer), ref failed);
             Run("old readers cannot disconnect rapid replacement connections", () => RapidReconnect(peer), ref failed);
+            Run("old tool completions cannot answer calls on a replacement connection", () => StaleCompletion(peer), ref failed);
             Run("disabling stops the background wakeup timer", Disable, ref failed);
             Run("assembly reload disconnects and stops the wakeup timer", () => Reload(peer), ref failed);
         }
@@ -50,8 +53,41 @@ internal static class Program
         RuntimeHelpers.RunClassConstructor(typeof(AgentMCPServerBootstrap).TypeHandle);
         Assert(EditorApplication.UpdateCount == 0, "startup ran an update directly");
         WaitFor(() => AgentMCPBridgeClient.Shared.IsConnected && peer.Current != null, "initial connection");
-        Assert(ModalAutoAnswer.InitializeCount == 0, "test accidentally invoked delayCall");
+        Assert(ModalAutoAnswer.InitializeCount == 1, "modal rules did not initialize without delayCall");
         WaitFor(() => EditorApplication.WorkerSignalCount > 0, "timer worker tick");
+    }
+
+    static void Readiness(BridgePeer peer)
+    {
+        var connection = peer.Current;
+        WaitFor(() => connection.Status?["status"].AsString == "ready", "initial ready state");
+        Assert(connection.Status["mainThreadAgeMs"].Type == JNode.JType.Number, "ready state omitted sample age");
+
+        CompilationPipeline.Start();
+        try
+        {
+            Assert(SpinWait.SpinUntil(() => connection.Status?["status"].AsString == "compiling", 2500),
+                "compilation did not publish without main-thread updates");
+        }
+        finally { CompilationPipeline.Finish(); }
+
+        EditorApplication.ChangePlayMode(PlayModeStateChange.ExitingEditMode);
+        try
+        {
+            Assert(SpinWait.SpinUntil(() => connection.Status?["status"].AsString == "play_mode_transition", 2500),
+                "Play Mode transition did not publish without main-thread updates");
+        }
+        finally { EditorApplication.ChangePlayMode(PlayModeStateChange.EnteredPlayMode); }
+
+        EditorApplication.Compiling = true;
+        try
+        {
+            WaitFor(() => connection.Status?["status"].AsString == "compiling", "sampled compilation state");
+            Assert(SpinWait.SpinUntil(() => connection.Status?["status"].AsString == "busy", 2500),
+                "stale main-thread snapshot still reported compiling");
+        }
+        finally { EditorApplication.Compiling = false; }
+        WaitFor(() => connection.Status?["status"].AsString == "ready", "ready state after updates resumed");
     }
 
     static void QueuedCalls(BridgePeer peer)
@@ -88,6 +124,23 @@ internal static class Program
     {
         AgentSettings.MCPServerEnabled = false;
         WaitForTimerStop();
+    }
+
+    static void StaleCompletion(BridgePeer peer)
+    {
+        var previous = peer.Current;
+        previous.SendCall("deferred-test", "old result");
+        WaitFor(() => Invoker.Deferred != null, "deferred call received");
+        previous.Dispose();
+        WaitFor(() => peer.Current != previous && AgentMCPBridgeClient.Shared.IsConnected, "replacement before completion");
+        var deferred = Invoker.Deferred;
+        Invoker.Deferred = null;
+        deferred.OnComplete(deferred);
+        var replacement = peer.Current;
+        replacement.SendCall("new-call", "new result");
+        WaitFor(() => !replacement.Results.IsEmpty, "call on replacement");
+        Assert(replacement.Results.TryDequeue(out var result) && result["id"].AsString == "new-call",
+            "retired call completion reached replacement bridge");
     }
 
     static void RapidReconnect(BridgePeer peer)
@@ -226,6 +279,8 @@ internal sealed class BridgeConnection : IDisposable
     readonly TcpClient _socket;
     readonly StreamReader _reader;
     readonly StreamWriter _writer;
+    JNode _status;
+    public JNode Status => Volatile.Read(ref _status);
     public readonly ConcurrentQueue<JNode> Results = new ConcurrentQueue<JNode>();
 
     public BridgeConnection(TcpClient socket)
@@ -241,7 +296,7 @@ internal sealed class BridgeConnection : IDisposable
         var hello = JNode.Parse(line);
         if (hello["type"].AsString != "hello" || hello["token"].AsString != "test-token")
             throw new IOException("invalid test handshake");
-        _writer.WriteLine("{\"type\":\"hello_ack\",\"ok\":true}");
+        _writer.WriteLine("{\"type\":\"hello_ack\",\"ok\":true,\"unityStatus\":true}");
         return true;
     }
     public void SendCall(string id, string value) => _writer.WriteLine(JNode.Obj(
@@ -253,7 +308,9 @@ internal sealed class BridgeConnection : IDisposable
         while ((line = _reader.ReadLine()) != null)
         {
             var result = JNode.Parse(line);
-            if (result["type"].AsString == "result" || result["type"].AsString == "error") Results.Enqueue(result);
+            string type = result["type"].AsString;
+            if (type == "result" || type == "error") Results.Enqueue(result);
+            else if (type == "unity_status") Volatile.Write(ref _status, result);
         }
     }
     public void Dispose() => _socket.Dispose();

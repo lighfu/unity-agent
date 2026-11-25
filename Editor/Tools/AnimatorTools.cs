@@ -12,91 +12,118 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class AnimatorTools
     {
-        [AgentTool("Inspect an AnimatorController asset. Shows layers, parameters, states, and transitions. controllerPath is the asset path (e.g. 'Assets/...controller').")]
-        public static string InspectAnimatorController(string controllerPath)
+        [AgentTool("Inspect an AnimatorController asset. controllerPath is the asset path (e.g. 'Assets/...controller'). " +
+            "nameContains filters parameters, layers, state machines and states by case-insensitive substring. " +
+            "maxDepth limits nested state machines (0 = layer roots, -1 = all depths). " +
+            "fields selects comma-separated parameters, layers, states, motion, transitions. Empty includes all fields.")]
+        public static string InspectAnimatorController(string controllerPath, string nameContains = "", int maxDepth = 0, string fields = "")
         {
+            if (maxDepth < -1) return "Error: maxDepth must be -1 (all depths) or non-negative.";
+            var knownFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "parameters", "layers", "states", "motion", "transitions" };
+            var selected = new HashSet<string>((fields ?? "").Split(',').Select(field => field.Trim()).Where(field => field.Length != 0),
+                StringComparer.OrdinalIgnoreCase);
+            if (!selected.IsSubsetOf(knownFields)) return $"Error: fields must be selected from {string.Join(", ", knownFields)}.";
+            if (selected.Count == 0) selected = knownFields;
             var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(controllerPath);
             if (controller == null) return $"Error: AnimatorController not found at '{controllerPath}'.";
 
             var sb = new StringBuilder();
             sb.AppendLine($"AnimatorController: {controller.name}");
+            bool Matches(string name) => string.IsNullOrEmpty(nameContains) ||
+                name.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0;
 
-            // Parameters
-            var parameters = controller.parameters;
-            sb.AppendLine($"\nParameters ({parameters.Length}):");
-            foreach (var p in parameters)
+            if (selected.Contains("parameters"))
             {
-                string defaultVal = p.type switch
+                var parameters = controller.parameters.Where(p => Matches(p.name)).ToArray();
+                sb.AppendLine($"\nParameters ({parameters.Length}):");
+                foreach (var p in parameters)
                 {
-                    AnimatorControllerParameterType.Bool => p.defaultBool.ToString(),
-                    AnimatorControllerParameterType.Int => p.defaultInt.ToString(),
-                    AnimatorControllerParameterType.Float => p.defaultFloat.ToString("F2"),
-                    AnimatorControllerParameterType.Trigger => "trigger",
-                    _ => ""
-                };
-                sb.AppendLine($"  {p.name} ({p.type}) = {defaultVal}");
+                    string defaultVal = p.type switch
+                    {
+                        AnimatorControllerParameterType.Bool => p.defaultBool.ToString(),
+                        AnimatorControllerParameterType.Int => p.defaultInt.ToString(),
+                        AnimatorControllerParameterType.Float => p.defaultFloat.ToString("F2"),
+                        AnimatorControllerParameterType.Trigger => "trigger",
+                        _ => ""
+                    };
+                    sb.AppendLine($"  {p.name} ({p.type}) = {defaultVal}");
+                }
             }
 
-            // Layers
+            if (!selected.Overlaps(new[] { "layers", "states", "motion", "transitions" })) return sb.ToString().TrimEnd();
             var layers = controller.layers;
-            sb.AppendLine($"\nLayers ({layers.Length}):");
+            var matchingLayers = new List<string>();
             for (int li = 0; li < layers.Length; li++)
             {
                 var layer = layers[li];
-                sb.AppendLine($"\n  Layer[{li}]: {layer.name} (weight={layer.defaultWeight:F2}, blending={layer.blendingMode})");
+                var content = new StringBuilder();
+                bool layerMatches = Matches(layer.name);
+                bool hasContent = AppendStateMachine(content, layer.stateMachine, Matches, layerMatches, selected, maxDepth, 0);
+                if (!layerMatches && !hasContent) continue;
+                string layerInfo = selected.Contains("layers") ? $" (weight={layer.defaultWeight:F2}, blending={layer.blendingMode})" : "";
+                matchingLayers.Add($"\n  Layer[{li}]: {layer.name}{layerInfo}\n{content}");
+            }
+            sb.AppendLine($"\nLayers ({matchingLayers.Count}):");
+            foreach (var layer in matchingLayers) sb.Append(layer);
 
-                var sm = layer.stateMachine;
-                if (sm == null) continue;
+            return sb.ToString().TrimEnd();
+        }
 
-                // Default state
-                string defaultState = sm.defaultState != null ? sm.defaultState.name : "none";
-                sb.AppendLine($"    Default State: {defaultState}");
+        private static bool AppendStateMachine(StringBuilder sb, AnimatorStateMachine machine, Func<string, bool> matches,
+            bool parentMatches, HashSet<string> fields, int maxDepth, int depth)
+        {
+            if (machine == null) return false;
+            var indent = new string(' ', 4 + depth * 2);
+            bool machineMatches = parentMatches || matches(machine.name);
+            var states = machine.states.Where(state => machineMatches || matches(state.state.name)).ToArray();
+            bool hasMatch = machineMatches || states.Length > 0;
+            var children = new StringBuilder();
+            if (maxDepth < 0 || depth < maxDepth)
+                foreach (var child in machine.stateMachines)
+                    hasMatch |= AppendStateMachine(children, child.stateMachine, matches, machineMatches, fields, maxDepth, depth + 1);
+            if (!hasMatch) return false;
+            if (depth > 0) sb.AppendLine($"{indent}State Machine: {machine.name}");
 
-                // States
-                var states = sm.states;
-                sb.AppendLine($"    States ({states.Length}):");
-                foreach (var s in states)
+            bool showStateNames = fields.Overlaps(new[] { "states", "motion", "transitions" });
+            if (showStateNames && (machineMatches || states.Length > 0))
+            {
+                if (fields.Contains("states"))
                 {
-                    string motionName = s.state.motion != null ? s.state.motion.name : "none";
-                    sb.AppendLine($"      - {s.state.name} (motion={motionName})");
-
-                    // Transitions from this state
-                    foreach (var t in s.state.transitions)
-                    {
-                        string destName = t.destinationState != null ? t.destinationState.name : "Exit";
-                        string conditions = FormatConditions(t.conditions);
-                        sb.AppendLine($"        -> {destName} [{conditions}] (hasExitTime={t.hasExitTime})");
-                    }
+                    sb.AppendLine($"{indent}Default State: {(machine.defaultState != null ? machine.defaultState.name : "none")}");
+                    sb.AppendLine($"{indent}States ({states.Length}):");
                 }
-
-                // Any state transitions
-                var anyTransitions = sm.anyStateTransitions;
-                if (anyTransitions.Length > 0)
+                foreach (var state in states.Select(child => child.state))
                 {
-                    sb.AppendLine($"    AnyState Transitions ({anyTransitions.Length}):");
-                    foreach (var t in anyTransitions)
+                    string motion = fields.Contains("motion") ? $" (motion={(state.motion != null ? state.motion.name : "none")})" : "";
+                    sb.AppendLine($"{indent}  - {state.name}{motion}");
+                    if (!fields.Contains("transitions")) continue;
+                    foreach (var transition in state.transitions)
                     {
-                        string destName = t.destinationState != null ? t.destinationState.name : "Exit";
-                        string conditions = FormatConditions(t.conditions);
-                        sb.AppendLine($"      Any -> {destName} [{conditions}]");
-                    }
-                }
-
-                // Entry transitions
-                var entryTransitions = sm.entryTransitions;
-                if (entryTransitions.Length > 0)
-                {
-                    sb.AppendLine($"    Entry Transitions ({entryTransitions.Length}):");
-                    foreach (var t in entryTransitions)
-                    {
-                        string destName = t.destinationState != null ? t.destinationState.name : "?";
-                        string conditions = FormatConditions(t.conditions);
-                        sb.AppendLine($"      Entry -> {destName} [{conditions}]");
+                        string destination = transition.destinationState != null ? transition.destinationState.name : "Exit";
+                        sb.AppendLine($"{indent}    -> {destination} [{FormatConditions(transition.conditions)}] (hasExitTime={transition.hasExitTime})");
                     }
                 }
             }
-
-            return sb.ToString().TrimEnd();
+            if (fields.Contains("transitions") && machineMatches)
+            {
+                if (machine.anyStateTransitions.Length > 0)
+                    sb.AppendLine($"{indent}AnyState Transitions ({machine.anyStateTransitions.Length}):");
+                foreach (var transition in machine.anyStateTransitions)
+                {
+                    string destination = transition.destinationState != null ? transition.destinationState.name : "Exit";
+                    sb.AppendLine($"{indent}  Any -> {destination} [{FormatConditions(transition.conditions)}]");
+                }
+                if (machine.entryTransitions.Length > 0)
+                    sb.AppendLine($"{indent}Entry Transitions ({machine.entryTransitions.Length}):");
+                foreach (var transition in machine.entryTransitions)
+                {
+                    string destination = transition.destinationState != null ? transition.destinationState.name : "?";
+                    sb.AppendLine($"{indent}  Entry -> {destination} [{FormatConditions(transition.conditions)}]");
+                }
+            }
+            sb.Append(children);
+            return true;
         }
 
         [AgentTool("Create a new empty AnimatorController at the specified path (e.g. 'Assets/Animations/MyController.controller').")]

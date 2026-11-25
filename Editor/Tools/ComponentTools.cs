@@ -11,41 +11,79 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class ComponentTools
     {
-        private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
         [AgentTool("Add a component by type name (e.g. 'Rigidbody', 'BoxCollider'). Returns info if component already exists.")]
         public static string AddComponent(string gameObjectName, string componentName)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!TryResolveComponentType(componentName, out Type type, out error)) return error;
 
-            Type type = FindComponentType(componentName);
-            if (type == null) return $"Error: Component type '{componentName}' not found.";
-
-            if (go.GetComponent(type) != null) return $"Info: '{componentName}' already exists on '{gameObjectName}'.";
+            if (go.GetComponent(type) != null) return $"Info: '{componentName}' already exists on {SceneTools.DescribeTarget(go)}.";
 
             Undo.AddComponent(go, type);
-            return $"Success: Added '{componentName}' to '{gameObjectName}'.";
+            return $"Success: Added '{componentName}' to {SceneTools.DescribeTarget(go)}.";
         }
 
         [AgentTool("Remove a component from a GameObject. Requires user confirmation when enabled.")]
         public static string RemoveComponent(string gameObjectName, string componentName)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
-
-            Type type = FindComponentType(componentName);
-            if (type == null) return $"Error: Component type '{componentName}' not found.";
-
-            var component = go.GetComponent(type);
-            if (component == null) return $"Error: '{componentName}' not found on '{gameObjectName}'.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!TryResolveComponent(go, componentName, out var component, out error)) return error;
+            string target = SceneTools.DescribeTarget(go);
 
             if (!AgentSettings.RequestConfirmation(
                 "コンポーネントを削除",
-                $"'{gameObjectName}' から '{componentName}' を削除します。"))
+                $"{target} から '{componentName}' を削除します。"))
                 return "Cancelled: User denied the removal.";
 
             Undo.DestroyObjectImmediate(component);
-            return $"Success: Removed '{componentName}' from '{gameObjectName}'.";
+            return $"Success: Removed '{componentName}' from {target}.";
+        }
+
+        internal static bool TryResolveComponentType(string name, out Type type, out string error)
+        {
+            type = Type.GetType(name ?? "");
+            error = null;
+            if (type != null && type.IsSubclassOf(typeof(Component)) && name.Contains(",")) return true;
+
+            var candidates = TypeCache.GetTypesDerivedFrom<Component>()
+                .Where(t => t.FullName == name || t.Name == name).ToArray();
+            if (candidates.Length == 1)
+            {
+                type = candidates[0];
+                return true;
+            }
+            type = null;
+            error = candidates.Length == 0
+                ? $"Error: Component type '{name}' was not found."
+                : $"Error: Component type '{name}' is ambiguous. Use one of: " +
+                  string.Join(", ", candidates.Select(t => t.AssemblyQualifiedName));
+            return false;
+        }
+
+        internal static bool TryResolveComponent(GameObject go, string name, out Component component, out string error)
+        {
+            component = null;
+            error = null;
+            if (name.StartsWith("instanceId:", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(name.Substring("instanceId:".Length), out int id))
+            {
+                component = EditorUtility.InstanceIDToObject(id) as Component;
+                if (component != null && component.gameObject == go) return true;
+                error = $"Error: '{name}' does not identify a component on {SceneTools.DescribeTarget(go)}.";
+                return false;
+            }
+            if (!TryResolveComponentType(name, out var type, out error)) return false;
+            var matches = go.GetComponents(type);
+            if (matches.Length == 1)
+            {
+                component = matches[0];
+                return true;
+            }
+            error = matches.Length == 0
+                ? $"Error: Component '{name}' was not found on {SceneTools.DescribeTarget(go)}."
+                : $"Error: Component '{name}' is ambiguous on {SceneTools.DescribeTarget(go)}. Use one of: " +
+                  string.Join(", ", matches.Select(c => $"instanceId:{c.GetInstanceID()}"));
+            return false;
         }
 
         public static Type FindComponentType(string name)

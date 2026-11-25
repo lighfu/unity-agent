@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using UnityEditor;
+using UnityEditor.Compilation;
 
 namespace AjisaiFlow.UnityAgent.Editor.MCP
 {
@@ -17,6 +19,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     /// The listener thread calls <see cref="TryDescribeStall"/> before enqueuing. It never touches
     /// Unity APIs (those are main-thread only) — only Win32 and plain fields.
     /// </summary>
+    [InitializeOnLoad]
     internal static class MainThreadWatchdog
     {
         /// <summary>
@@ -25,6 +28,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// enough that an ordinary slow frame (asset import, inspector rebuild) never trips it.
         /// </summary>
         public const int DefaultStallThresholdMs = 5_000;
+        public const int ReadyTickThresholdMs = 1_000;
 
         /// <summary>
         /// Environment.TickCount is a 32-bit ms counter, so it is safe to read/write as volatile
@@ -52,6 +56,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         static volatile bool _importing;
         static volatile bool _playing;
         static volatile bool _paused;
+        static volatile bool _compilationEventActive;
+        static volatile bool _playModeTransition;
 
         /// <summary>
         /// Sampled on the main thread and cached, rather than read on demand: EditorPrefs is a
@@ -60,6 +66,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// </summary>
         static volatile string _autoRefresh;
 
+#if UNITY_EDITOR_WIN
         static IntPtr _mainWindow = IntPtr.Zero;
 
         /// <summary>
@@ -69,6 +76,17 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// top-level window enumeration ~100 times a second for the life of the editor.
         /// </summary>
         static volatile bool _mainWindowResolved;
+#endif
+
+        static MainThreadWatchdog()
+        {
+            // A transition can start just before update stops running. Record the lifecycle
+            // event itself so the listener can still distinguish it from an unexplained stall.
+            CompilationPipeline.compilationStarted += _ => _compilationEventActive = true;
+            CompilationPipeline.compilationFinished += _ => _compilationEventActive = false;
+            EditorApplication.playModeStateChanged += state =>
+                _playModeTransition = state == PlayModeStateChange.ExitingEditMode || state == PlayModeStateChange.ExitingPlayMode;
+        }
 
         /// <summary>Called from the main thread at the top of every pump tick.</summary>
         public static void NotePump()
@@ -113,7 +131,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                                         out bool paused, out string inFlightTool, out bool everPumped,
                                         out string autoRefresh)
         {
-            compiling = _compiling;
+            compiling = _compilationEventActive || _compiling;
             importing = _importing;
             playing = _playing;
             paused = _paused;
@@ -142,13 +160,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// </summary>
         public static void NoteMainThreadTick()
         {
-            NotePump();
-
             NoteEditorState(
-                UnityEditor.EditorApplication.isCompiling,
-                UnityEditor.EditorApplication.isUpdating,
-                UnityEditor.EditorApplication.isPlaying,
-                UnityEditor.EditorApplication.isPaused);
+                EditorApplication.isCompiling,
+                EditorApplication.isUpdating,
+                EditorApplication.isPlaying,
+                EditorApplication.isPaused);
+            NotePump();
 
             // Auto Refresh は EditorPrefs (レジストリ読み) なので毎 tick は避け、1 秒に 1 回だけ。
             double now = UnityEditor.EditorApplication.timeSinceStartup;
@@ -166,6 +183,32 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public static bool TryGetModalWindow(out string description, out string title)
             => TryDescribeModalWindow(out description, out title);
 
+        /// <summary>Live modal observation and the last main-thread sample, safe on listener threads.</summary>
+        public static (string Status, string Reason, int? MainThreadAgeMs, string PlayMode, string ModalDescription) ReadReadiness()
+        {
+            int? age = _seeded ? StalledMilliseconds() : (int?)null;
+            string playMode = age.HasValue ? (_playing ? (_paused ? "paused" : "play") : "edit") : null;
+            bool fresh = age.HasValue && age.Value < ReadyTickThresholdMs;
+            bool hasModal = TryDescribeModalWindow(out string modal, out string title);
+            bool progress = hasModal && LooksLikeProgressWindow(title);
+
+            if (hasModal && !progress)
+                return ("dialog_wait", "Unity is waiting on a modal window.", age, playMode, modal);
+            if (_compilationEventActive || (fresh && _compiling))
+                return ("compiling", "Unity is compiling scripts.", age, playMode, modal);
+            if (_playModeTransition)
+                return ("play_mode_transition", "Unity is changing Play Mode.", age, playMode, modal);
+            if (fresh && _importing)
+                return ("importing", "Unity is importing assets.", age, playMode, modal);
+            if (progress)
+                return ("busy", "Unity is displaying a progress window.", age, playMode, modal);
+            if (!age.HasValue)
+                return ("starting", "Waiting for the first Unity main-thread update.", age, playMode, null);
+            if (!fresh)
+                return ("busy", "Unity's main thread has not updated recently.", age, playMode, null);
+            return ("ready", null, age, playMode, null);
+        }
+
         public static void NoteToolStart(string toolName) => _inFlightTool = toolName;
 
         public static void NoteToolFinish() => _inFlightTool = null;
@@ -175,8 +218,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         {
             _seeded = false;
             _inFlightTool = null;
+#if UNITY_EDITOR_WIN
             _mainWindow = IntPtr.Zero;
             _mainWindowResolved = false;
+#endif
             _compiling = _importing = _playing = _paused = false;
             _autoRefresh = null;
             _lastAutoRefreshSample = 0;
@@ -228,8 +273,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             else
             {
-                sb.Append("  This looks like a DIALOG awaiting an answer. A human must dismiss it in the Unity window. ");
-                sb.Append("No tool call can run until then — every queued call is blocked, not just this one.");
+                sb.Append("  This looks like a DIALOG awaiting an answer. Use AnswerModalDialog(dryRun=true) to inspect it. ");
+                sb.Append("Main-thread tool calls remain blocked until the dialog is dismissed.");
             }
 
             message = sb.ToString();
@@ -261,8 +306,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr hWnd);
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll")] static extern IntPtr GetLastActivePopup(IntPtr hWnd);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetWindowTextW")]
-        static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageTimeoutW")]
+        static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, StringBuilder lParam,
+                                                uint flags, uint timeoutMs, out IntPtr result);
         [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetClassNameW")]
         static extern int GetClassName(IntPtr hWnd, StringBuilder name, int count);
 
@@ -315,7 +361,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 }
 
                 var titleBuf = new StringBuilder(256);
-                GetWindowText(popup, titleBuf, titleBuf.Capacity);
+                // Same-process GetWindowText sends WM_GETTEXT synchronously and may wait for
+                // the very main thread being diagnosed. Bound the probe for the bridge heartbeat.
+                const uint WM_GETTEXT = 0x000D, SMTO_ABORTIFHUNG = 0x0002;
+                SendMessageTimeout(popup, WM_GETTEXT, (IntPtr)titleBuf.Capacity, titleBuf, SMTO_ABORTIFHUNG, 100, out _);
                 var cls = new StringBuilder(128);
                 GetClassName(popup, cls, cls.Capacity);
 

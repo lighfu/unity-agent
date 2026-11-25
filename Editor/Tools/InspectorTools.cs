@@ -11,7 +11,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class InspectorTools
     {
-        private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
+        private static GameObject FindGO(string name) => SceneTools.FindReadableTarget(name);
         [AgentTool("List ALL components on a GameObject with their enabled state and type info. Shows full Inspector overview.")]
         public static string InspectGameObject(string gameObjectName)
         {
@@ -102,14 +102,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Set a Vector3 property on a component. Use for positions, rotations, scales, etc. Example: SetVector3Property('MyObject', 'Transform', 'm_LocalPosition', 1.0, 2.0, 3.0)")]
         public static string SetVector3Property(string gameObjectName, string componentType, string propertyPath, float x, float y, float z)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
-
-            var type = ComponentTools.FindComponentType(componentType);
-            if (type == null) return $"Error: Component type '{componentType}' not found.";
-
-            var comp = go.GetComponent(type);
-            if (comp == null) return $"Error: Component '{componentType}' not found on '{gameObjectName}'.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!ComponentTools.TryResolveComponent(go, componentType, out var comp, out error)) return error;
 
             var so = new SerializedObject(comp);
             var prop = so.FindProperty(propertyPath);
@@ -122,20 +116,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             prop.vector3Value = new Vector3(x, y, z);
             so.ApplyModifiedProperties();
 
-            return $"Success: Set '{propertyPath}' to ({x}, {y}, {z}) on {componentType}.";
+            return $"Success: Set '{propertyPath}' to ({x}, {y}, {z}) on {componentType} at {SceneTools.DescribeTarget(go)}.";
         }
 
         [AgentTool("Set a Color property on a component. RGBA values 0-1. Example: SetColorProperty('MyObject', 'Renderer', 'm_Color', 1.0, 0.5, 0.0, 1.0)")]
         public static string SetColorProperty(string gameObjectName, string componentType, string propertyPath, float r, float g, float b, float a = 1f)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
-
-            var type = ComponentTools.FindComponentType(componentType);
-            if (type == null) return $"Error: Component type '{componentType}' not found.";
-
-            var comp = go.GetComponent(type);
-            if (comp == null) return $"Error: Component '{componentType}' not found on '{gameObjectName}'.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!ComponentTools.TryResolveComponent(go, componentType, out var comp, out error)) return error;
 
             var so = new SerializedObject(comp);
             var prop = so.FindProperty(propertyPath);
@@ -148,20 +136,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             prop.colorValue = new Color(r, g, b, a);
             so.ApplyModifiedProperties();
 
-            return $"Success: Set '{propertyPath}' to ({r}, {g}, {b}, {a}) on {componentType}.";
+            return $"Success: Set '{propertyPath}' to ({r}, {g}, {b}, {a}) on {componentType} at {SceneTools.DescribeTarget(go)}.";
         }
 
         [AgentTool("Set an object reference property on a component. Finds the asset by path or name. Example: SetObjectReference('MyObject', 'Animator', 'm_Controller', 'Assets/Animations/MyController.controller')")]
         public static string SetObjectReference(string gameObjectName, string componentType, string propertyPath, string assetPathOrName)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
-
-            var type = ComponentTools.FindComponentType(componentType);
-            if (type == null) return $"Error: Component type '{componentType}' not found.";
-
-            var comp = go.GetComponent(type);
-            if (comp == null) return $"Error: Component '{componentType}' not found on '{gameObjectName}'.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!ComponentTools.TryResolveComponent(go, componentType, out var comp, out error)) return error;
 
             var so = new SerializedObject(comp);
             var prop = so.FindProperty(propertyPath);
@@ -170,71 +152,67 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (prop.propertyType != SerializedPropertyType.ObjectReference)
                 return $"Error: Property '{propertyPath}' is {prop.propertyType}, not ObjectReference.";
 
-            // Find the asset
-            UnityEngine.Object asset = null;
-
-            // Try direct path first
-            if (assetPathOrName.StartsWith("Assets/") || assetPathOrName.StartsWith("Packages/"))
+            UnityEngine.Object asset;
+            string reference;
+            if ((assetPathOrName.StartsWith("Assets/") || assetPathOrName.StartsWith("Packages/")) && !assetPathOrName.Contains("::/"))
             {
-                asset = AssetDatabase.LoadMainAssetAtPath(assetPathOrName);
+                if (!AssetTools.TryResolveAssetPath(assetPathOrName, out reference, out error, allowPackages: true)) return error;
+                asset = AssetDatabase.LoadMainAssetAtPath(reference);
             }
-
-            // Try search by name
-            if (asset == null)
+            else
             {
-                string[] guids = AssetDatabase.FindAssets(assetPathOrName);
-                if (guids.Length > 0)
+                bool sceneFound = SceneTools.TryResolveTarget(assetPathOrName, out var sceneGo, out string sceneError, out bool sceneAmbiguous);
+                var paths = assetPathOrName.IndexOf('/') < 0 ? AssetTools.FindExactAssetPaths(assetPathOrName) : Array.Empty<string>();
+                if (paths.Length > 1 || (paths.Length > 0 && (sceneFound || sceneAmbiguous)))
+                    return $"Error: Reference '{assetPathOrName}' is ambiguous. Candidate asset paths: {string.Join(", ", paths.Take(12))}." +
+                           (sceneFound ? $" Scene candidate: {SceneTools.DescribeTarget(sceneGo)}." : sceneAmbiguous ? " " + sceneError : "");
+                if (paths.Length == 1)
                 {
-                    string path = AssetDatabase.GUIDToAssetPath(guids[0]);
-                    asset = AssetDatabase.LoadMainAssetAtPath(path);
+                    reference = paths[0];
+                    asset = AssetDatabase.LoadMainAssetAtPath(reference);
+                }
+                else
+                {
+                    if (!sceneFound) return sceneError;
+                    reference = SceneTools.DescribeTarget(sceneGo);
+                    asset = sceneGo;
                 }
             }
 
-            // Try finding as scene object
             if (asset == null)
-            {
-                var sceneGo = FindGO(assetPathOrName);
-                if (sceneGo != null) asset = sceneGo;
-            }
+                return $"Error: Could not load asset or object '{reference}'.";
 
-            if (asset == null)
-                return $"Error: Could not find asset or object '{assetPathOrName}'.";
-
-            Undo.RecordObject(comp, $"Set ObjectRef {propertyPath}");
             prop.objectReferenceValue = asset;
+            if (prop.objectReferenceValue != asset)
+                return $"Error: '{reference}' is incompatible with '{propertyPath}' on {componentType}.";
+            Undo.RecordObject(comp, $"Set ObjectRef {propertyPath}");
             so.ApplyModifiedProperties();
 
-            return $"Success: Set '{propertyPath}' to '{asset.name}' ({asset.GetType().Name}) on {componentType}.";
+            return $"Success: Set '{propertyPath}' to {reference} on {componentType} at {SceneTools.DescribeTarget(go)}.";
         }
 
         [AgentTool("Toggle a component's enabled state. Works with any Behaviour, Renderer, or Collider.")]
         public static string ToggleComponent(string gameObjectName, string componentType, bool enabled)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
-
-            var type = ComponentTools.FindComponentType(componentType);
-            if (type == null) return $"Error: Component type '{componentType}' not found.";
-
-            var comp = go.GetComponent(type);
-            if (comp == null) return $"Error: Component '{componentType}' not found on '{gameObjectName}'.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!ComponentTools.TryResolveComponent(go, componentType, out var comp, out error)) return error;
 
             Undo.RecordObject(comp, $"Toggle {componentType}");
 
             if (comp is Behaviour behaviour)
             {
                 behaviour.enabled = enabled;
-                return $"Success: {componentType} on '{gameObjectName}' is now {(enabled ? "enabled" : "disabled")}.";
+                return $"Success: {componentType} on {SceneTools.DescribeTarget(go)} is now {(enabled ? "enabled" : "disabled")}.";
             }
             if (comp is Renderer renderer)
             {
                 renderer.enabled = enabled;
-                return $"Success: {componentType} on '{gameObjectName}' is now {(enabled ? "enabled" : "disabled")}.";
+                return $"Success: {componentType} on {SceneTools.DescribeTarget(go)} is now {(enabled ? "enabled" : "disabled")}.";
             }
             if (comp is Collider collider)
             {
                 collider.enabled = enabled;
-                return $"Success: {componentType} on '{gameObjectName}' is now {(enabled ? "enabled" : "disabled")}.";
+                return $"Success: {componentType} on {SceneTools.DescribeTarget(go)} is now {(enabled ? "enabled" : "disabled")}.";
             }
 
             return $"Error: {componentType} does not support enable/disable toggling.";
@@ -243,25 +221,24 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Set a GameObject's active state (show/hide). Example: SetActive('MyObject', false) to hide.")]
         public static string SetActive(string gameObjectName, bool active)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
 
+            string target = SceneTools.DescribeTarget(go);
             Undo.RecordObject(go, $"SetActive via Agent");
             go.SetActive(active);
-            return $"Success: '{gameObjectName}' is now {(active ? "active" : "inactive")}.";
+            return $"Success: {target} activeSelf set to {active.ToString().ToLowerInvariant()}.";
         }
 
         [AgentTool("Set a GameObject's tag. Example: SetTag('MyObject', 'Player').")]
         public static string SetTag(string gameObjectName, string tag)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
 
             try
             {
                 Undo.RecordObject(go, "Set Tag via Agent");
                 go.tag = tag;
-                return $"Success: Set tag of '{gameObjectName}' to '{tag}'.";
+                return $"Success: Set tag of {SceneTools.DescribeTarget(go)} to '{tag}'.";
             }
             catch (Exception ex)
             {
@@ -272,8 +249,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Set a GameObject's layer by name. Example: SetLayer('MyObject', 'UI').")]
         public static string SetLayer(string gameObjectName, string layerName, bool includeChildren = false)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
 
             int layer = LayerMask.NameToLayer(layerName);
             if (layer == -1) return $"Error: Layer '{layerName}' not found.";
@@ -290,35 +266,32 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 }
             }
 
-            return $"Success: Set layer of '{gameObjectName}' to '{layerName}' ({layer}).{(includeChildren ? " (including children)" : "")}";
+            return $"Success: Set layer of {SceneTools.DescribeTarget(go)} to '{layerName}' ({layer}).{(includeChildren ? " (including children)" : "")}";
         }
 
         [AgentTool("Copy a component from one GameObject to another. Copies all serialized property values.")]
         public static string CopyComponent(string sourceGoName, string targetGoName, string componentType)
         {
-            var sourceGo = FindGO(sourceGoName);
-            if (sourceGo == null) return $"Error: Source GameObject '{sourceGoName}' not found. Use FindObjectsByName to search.";
-
-            var targetGo = FindGO(targetGoName);
-            if (targetGo == null) return $"Error: Target GameObject '{targetGoName}' not found. Use FindObjectsByName to search.";
-
-            var type = ComponentTools.FindComponentType(componentType);
-            if (type == null) return $"Error: Component type '{componentType}' not found.";
-
-            var sourceComp = sourceGo.GetComponent(type);
-            if (sourceComp == null) return $"Error: Component '{componentType}' not found on '{sourceGoName}'.";
+            if (!SceneTools.TryResolveTarget(sourceGoName, out var sourceGo, out string error)) return error;
+            if (!SceneTools.TryResolveTarget(targetGoName, out var targetGo, out error)) return error;
+            if (!ComponentTools.TryResolveComponent(sourceGo, componentType, out var sourceComp, out error)) return error;
+            string source = SceneTools.DescribeTarget(sourceGo);
+            string target = SceneTools.DescribeTarget(targetGo);
+            var type = sourceComp.GetType();
+            var targetComponents = targetGo.GetComponents(type);
+            if (targetComponents.Length > 1) return $"Error: {target} has {targetComponents.Length} {type.Name} components. The destination component is ambiguous.";
 
             // Use UnityEditorInternal for component copying
             if (!UnityEditorInternal.ComponentUtility.CopyComponent(sourceComp))
                 return $"Error: Failed to copy '{componentType}' from '{sourceGoName}'.";
 
-            var existing = targetGo.GetComponent(type);
+            var existing = targetComponents.SingleOrDefault();
             if (existing != null)
             {
                 Undo.RecordObject(existing, "Paste Component Values via Agent");
                 if (!UnityEditorInternal.ComponentUtility.PasteComponentValues(existing))
                     return $"Error: Failed to paste '{componentType}' values onto '{targetGoName}'.";
-                return $"Success: Pasted '{componentType}' values from '{sourceGoName}' to '{targetGoName}' (existing component updated).";
+                return $"Success: Pasted '{componentType}' values from {source} to {target} (existing component updated).";
             }
             else
             {
@@ -329,21 +302,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 var added = targetGo.GetComponent(type);
                 if (added != null)
                     Undo.RegisterCreatedObjectUndo(added, "Copy Component via Agent");
-                return $"Success: Copied '{componentType}' from '{sourceGoName}' to '{targetGoName}' (new component added).";
+                return $"Success: Copied '{componentType}' from {source} to {target} (new component added).";
             }
         }
 
         [AgentTool("Set an array element on a component. Useful for setting array-type properties. arrayIndex: index in array. value: string representation.")]
         public static string SetArrayElement(string gameObjectName, string componentType, string propertyPath, int arrayIndex, string value)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found. Use FindObjectsByName to search.";
-
-            var type = ComponentTools.FindComponentType(componentType);
-            if (type == null) return $"Error: Component type '{componentType}' not found.";
-
-            var comp = go.GetComponent(type);
-            if (comp == null) return $"Error: Component '{componentType}' not found on '{gameObjectName}'.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!ComponentTools.TryResolveComponent(go, componentType, out var comp, out error)) return error;
 
             var so = new SerializedObject(comp);
             var prop = so.FindProperty(propertyPath);
@@ -362,7 +329,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 SetPropertyValue(element, value);
                 so.ApplyModifiedProperties();
-                return $"Success: Set {propertyPath}[{arrayIndex}] to '{value}'.";
+                return $"Success: Set {propertyPath}[{arrayIndex}] to '{value}' at {SceneTools.DescribeTarget(go)}.";
             }
             catch (Exception ex)
             {

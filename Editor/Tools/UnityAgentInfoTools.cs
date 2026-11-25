@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -25,6 +26,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     {
         private const string DetailBrief = "brief";
         private const string DetailFull = "full";
+        private const string DetailConnection = "connection";
 
         [AgentTool(@"Report what this UnityAgent install actually is: its version, the Unity version and
 project it is attached to, how many tools are registered and how many of those are reachable, which
@@ -35,6 +37,8 @@ detail='brief' (default) is a handful of lines and is meant to be called once at
 detail='full' adds the per-category and per-risk tool breakdown, every detected package with its
   version, the MCP endpoint / bridge state, and project render settings. Use it when writing a bug
   report — it is the information a maintainer would otherwise have to ask for one field at a time.
+detail='connection' returns JSON with the project root, active scene, editor process ID, MCP
+  endpoint, client setup method and authentication configuration. Use it to verify the target.
 
 WHY THE TOOL COUNT IS NOT A CONSTANT: twelve asmdef versionDefines (MODULAR_AVATAR, NDMF, FACE_EMO,
 AVATAR_OPTIMIZER, VRCFURY, LILTOON, ...) compile whole tool modules in or out. A tool that is
@@ -53,8 +57,9 @@ reads as a zero.",
         {
             string mode = (detail ?? DetailBrief).Trim().ToLowerInvariant();
             if (mode.Length == 0) mode = DetailBrief;
+            if (mode == DetailConnection) return DescribeConnection();
             if (mode != DetailBrief && mode != DetailFull)
-                return $"Error: detail must be '{DetailBrief}' or '{DetailFull}' (got '{detail}').";
+                return $"Error: detail must be '{DetailBrief}', '{DetailFull}' or '{DetailConnection}' (got '{detail}').";
 
             var tools = CollectToolStats();
             var packages = CollectPackages(out bool upmAvailable);
@@ -308,6 +313,30 @@ reads as a zero.",
         // ─────────────────────────────────────────────────────────────
         // MCP
         // ─────────────────────────────────────────────────────────────
+
+        static string DescribeConnection()
+        {
+            bool bridge = AgentSettings.MCPServerMode == MCPServerMode.Bridge;
+            var scene = EditorSceneManager.GetActiveScene();
+            using var editorProcess = System.Diagnostics.Process.GetCurrentProcess();
+            return JNode.Obj(
+                ("unityVersion", JNode.Str(Application.unityVersion)),
+                ("editorPid", JNode.Num(editorProcess.Id)),
+                ("projectName", JNode.Str(Application.productName)),
+                ("projectPath", JNode.Str(GetProjectRoot())),
+                ("sceneName", JNode.Str(scene.name)),
+                ("scenePath", JNode.Str(scene.path)),
+                ("sceneDirty", JNode.Bool(scene.isDirty)),
+                ("mcp", JNode.Obj(
+                    ("enabled", JNode.Bool(AgentSettings.MCPServerEnabled)),
+                    ("mode", JNode.Str(AgentSettings.MCPServerMode.ToString())),
+                    ("endpoint", JNode.Str(bridge ? $"http://127.0.0.1:{AgentSettings.MCPBridgePublicPort}/mcp"
+                        : AgentMCPServer.Shared.Endpoint)),
+                    ("connected", JNode.Bool(bridge ? AgentMCPBridgeClient.Shared.IsConnected : AgentMCPServer.Shared.IsRunning)),
+                    ("clientRegistration", JNode.Str(bridge ? "staticEndpoint" : "staticEndpointOrOAuth")),
+                    ("authScheme", JNode.Str("Bearer")),
+                    ("tokenConfigured", JNode.Bool(!string.IsNullOrEmpty(AgentSettings.MCPServerToken)))))).ToJson();
+        }
 
         private static string DescribeMcpOneLine()
         {

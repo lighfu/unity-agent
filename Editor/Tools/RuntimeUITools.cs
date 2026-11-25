@@ -98,7 +98,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Set an interactable Canvas control value in Play Mode, firing its normal value-change callbacks. " +
                    "Supports Toggle (true/false), InputField/TMP_InputField (text), Slider/Scrollbar (finite number), Dropdown/TMP_Dropdown (option index), " +
                    "and ScrollRect (x,y normalized position in 0..1). componentType disambiguates controls on one GameObject. " +
-                   "selector is the ID/path/unique name from ListRuntimeUI. Queues the action; poll GetUIActionResult.",
+                   "selector is the ID/path/unique name from ListRuntimeUI. Poll GetUIActionResult for dispatch and immediate value read-back.",
             Category = "UIAutomation", Risk = ToolRisk.Caution, RiskExplicit = true)]
         public static string SetRuntimeUIValue(string selector, string value, string componentType = "")
         {
@@ -119,6 +119,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 // Bounds/options can change while queued, so parse again before invoking the setter.
                 converted = ParseControlValue(component, property, value);
                 property.SetValue(component, converted);
+            }, () =>
+            {
+                if (component == null || !EditorApplication.isPlaying || playSession != UIAutomationUtility.PlaySession)
+                    return null;
+                object observed = property.GetValue(component);
+                return observed is Vector2 position && converted is Vector2 expected
+                    ? position == expected
+                    : Equals(observed, converted);
             });
         }
 

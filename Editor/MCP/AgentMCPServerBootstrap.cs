@@ -34,11 +34,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             MCPMainThreadWakeup.Start();
 
             AssemblyReloadEvents.beforeAssemblyReload += StopBeforeReload;
-            EditorApplication.quitting += StopBeforeReload;
+            EditorApplication.quitting += StopOnQuit;
 
-            // モーダル自動応答のルールはファイルに持つので、リロードのたびに読み直して
-            // ポーラーを張り直す。MCP の有効/無効とは独立 (チャット UI からも使うため)。
-            EditorApplication.delayCall += ModalAutoAnswer.Initialize;
             AssemblyReloadEvents.beforeAssemblyReload += ModalAutoAnswer.Shutdown;
             EditorApplication.quitting += ModalAutoAnswer.Shutdown;
         }
@@ -46,6 +43,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         static void StartOnFirstUpdate()
         {
             EditorApplication.update -= StartOnFirstUpdate;
+            // Reload the saved modal rules on the same background-safe update as reconnect.
+            // The chat UI uses these rules even when the MCP server is disabled.
+            ModalAutoAnswer.Initialize();
             StartIfEnabled();
         }
 
@@ -75,16 +75,20 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
         }
 
-        static void StopBeforeReload()
+        static void StopBeforeReload() => Stop("domain_reload");
+
+        static void StopOnQuit() => Stop("editor_quit");
+
+        static void Stop(string reason)
         {
             EditorApplication.update -= StartOnFirstUpdate;
             StopSupervisor();
             var mode = AgentSettings.MCPServerMode;
-            AgentLogger.Info(LogTag.MCP, $"[Bootstrap] StopBeforeReload mode={mode}");
+            AgentLogger.Info(LogTag.MCP, $"[Bootstrap] stop mode={mode} reason={reason}");
             switch (mode)
             {
                 case MCPServerMode.Bridge:
-                    AgentMCPBridgeClient.Shared.Disconnect("domain_reload");
+                    AgentMCPBridgeClient.Shared.Disconnect(reason);
                     break;
                 case MCPServerMode.InProc:
                 default:

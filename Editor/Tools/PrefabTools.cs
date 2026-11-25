@@ -9,57 +9,32 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class PrefabTools
     {
-        private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
+        private static GameObject FindGO(string name) => SceneTools.FindReadableTarget(name);
         [AgentTool("Instantiate a prefab or model asset (.prefab, .fbx, .blend, etc.) into the scene from its asset path. Optionally set a parent by name.")]
         public static string InstantiatePrefab(string assetPath, string parentName = "")
         {
-            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
-            if (prefab == null) return $"Error: Prefab not found at '{assetPath}'. Check the path (e.g., 'Assets/Prefabs/MyPrefab.prefab').";
+            if (!AssetTools.TryResolveAssetPath(assetPath, out string path, out string error, allowPackages: true)) return error;
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (prefab == null) return $"Error: '{path}' does not contain a Prefab or model GameObject.";
+            if (!SceneTools.TryResolveCreationParent(parentName, out var parent, out error)) return error;
 
-            var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
-
-            // 名前の一意性を保証
-            string baseName = instance.name;
-            var found = GameObject.Find(instance.name);
-            if (found != null && found != instance)
+            var instance = (parent == null ? PrefabUtility.InstantiatePrefab(prefab) : PrefabUtility.InstantiatePrefab(prefab, parent.transform)) as GameObject;
+            if (instance == null) return $"Error: Failed to instantiate prefab '{path}'.";
+            if (parent != null)
             {
-                int suffix = 1;
-                string uniqueName;
-                do
-                {
-                    uniqueName = $"{baseName} ({suffix})";
-                    suffix++;
-                } while (GameObject.Find(uniqueName) != null);
-                instance.name = uniqueName;
+                instance.transform.localPosition = Vector3.zero;
+                instance.transform.localRotation = Quaternion.identity;
             }
-
+            instance.name = SceneTools.UniqueSiblingName(instance, instance.name);
             Undo.RegisterCreatedObjectUndo(instance, "Instantiate Prefab via Agent");
-
-            if (!string.IsNullOrEmpty(parentName))
-            {
-                var parent = FindGO(parentName);
-                if (parent != null)
-                {
-                    instance.transform.SetParent(parent.transform, false);
-                    instance.transform.localPosition = Vector3.zero;
-                    instance.transform.localRotation = Quaternion.identity;
-                }
-                else
-                {
-                    // Parent not found — destroy the instance to avoid orphaned objects at scene root
-                    Undo.DestroyObjectImmediate(instance);
-                    return $"Error: Parent '{parentName}' was not found. Prefab was not instantiated. Use GetHierarchyTree or ListChildren to find the correct parent path.";
-                }
-            }
-
-            return $"Success: Instantiated prefab '{instance.name}'.";
+            return $"Success: Instantiated prefab '{path}' at {SceneTools.DescribeTarget(instance)}.";
         }
 
         [AgentTool("Save a GameObject as a prefab.")]
         public static string SaveAsPrefab(string gameObjectName, string savePath)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
+            if (!AssetTools.IsProjectPath(savePath)) return $"Error: Invalid prefab destination '{savePath}'. Pass a full path under Assets/.";
 
             // Ensure directory exists
             // Ensure directory exists
@@ -87,14 +62,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             PrefabUtility.SaveAsPrefabAssetAndConnect(go, savePath, InteractionMode.UserAction, out bool success);
             if (!success)
                 return $"Error: Failed to save '{gameObjectName}' as prefab at '{savePath}'. Check the path is under Assets/ and writable.";
-            return $"Success: Saved '{gameObjectName}' as prefab at '{savePath}'.";
+            return $"Success: Saved {SceneTools.DescribeTarget(go)} as prefab at '{savePath}'.";
         }
 
         [AgentTool("Unpack a prefab instance in the scene. Mode: 'completely' (flatten all nested) or 'root' (one level only).")]
         public static string UnpackPrefab(string gameObjectName, string mode = "completely")
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
 
             if (!PrefabUtility.IsPartOfPrefabInstance(go))
                 return $"Error: '{gameObjectName}' is not a prefab instance.";
@@ -105,12 +79,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             if (mode.ToLower() == "completely")
             {
                 PrefabUtility.UnpackPrefabInstance(outermost, PrefabUnpackMode.Completely, InteractionMode.UserAction);
-                return $"Success: Completely unpacked prefab '{outermost.name}'.";
+                return $"Success: Completely unpacked prefab {SceneTools.DescribeTarget(outermost)}.";
             }
             else
             {
                 PrefabUtility.UnpackPrefabInstance(outermost, PrefabUnpackMode.OutermostRoot, InteractionMode.UserAction);
-                return $"Success: Unpacked one level of prefab '{outermost.name}'.";
+                return $"Success: Unpacked one level of prefab {SceneTools.DescribeTarget(outermost)}.";
             }
         }
 
@@ -167,8 +141,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Apply all prefab overrides on a GameObject back to the source prefab asset.")]
         public static string ApplyPrefabOverrides(string gameObjectName)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
 
             if (!PrefabUtility.IsPartOfPrefabInstance(go))
                 return $"Error: '{gameObjectName}' is not a prefab instance.";
@@ -177,14 +150,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             string assetPath = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(outermost);
 
             PrefabUtility.ApplyPrefabInstance(outermost, InteractionMode.UserAction);
-            return $"Success: Applied all overrides from '{outermost.name}' to prefab asset '{assetPath}'.";
+            return $"Success: Applied all overrides from {SceneTools.DescribeTarget(outermost)} to prefab asset '{assetPath}'.";
         }
 
         [AgentTool("Revert all prefab overrides on a GameObject, restoring it to match the source prefab asset.")]
         public static string RevertPrefabOverrides(string gameObjectName)
         {
-            var go = FindGO(gameObjectName);
-            if (go == null) return $"Error: GameObject '{gameObjectName}' not found.";
+            if (!SceneTools.TryResolveTarget(gameObjectName, out var go, out string error)) return error;
 
             if (!PrefabUtility.IsPartOfPrefabInstance(go))
                 return $"Error: '{gameObjectName}' is not a prefab instance.";
@@ -193,13 +165,15 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             Undo.RegisterFullObjectHierarchyUndo(outermost, "Revert Prefab via Agent");
 
             PrefabUtility.RevertPrefabInstance(outermost, InteractionMode.UserAction);
-            return $"Success: Reverted all overrides on '{outermost.name}' to match the source prefab.";
+            return $"Success: Reverted all overrides on {SceneTools.DescribeTarget(outermost)} to match the source prefab.";
         }
 
         [AgentTool("Create a Prefab Variant from an existing prefab asset. The variant inherits from the base and can have overrides. basePrefabPath: e.g. 'Assets/Prefabs/Base.prefab'. variantPath: output path.")]
         public static string CreatePrefabVariant(string basePrefabPath, string variantPath)
         {
-            var basePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(basePrefabPath);
+            if (!AssetTools.TryResolveAssetPath(basePrefabPath, out string source, out string error, allowPackages: true)) return error;
+            if (!AssetTools.IsProjectPath(variantPath)) return $"Error: Invalid variant destination '{variantPath}'. Pass a full path under Assets/.";
+            var basePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(source);
             if (basePrefab == null) return $"Error: Base prefab not found at '{basePrefabPath}'.";
 
             if (!variantPath.EndsWith(".prefab")) variantPath += ".prefab";
@@ -234,7 +208,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             }
 
             return variant != null
-                ? $"Success: Created prefab variant at '{variantPath}' based on '{basePrefabPath}'."
+                ? $"Success: Created prefab variant at '{variantPath}' based on '{source}'."
                 : $"Error: Failed to create prefab variant at '{variantPath}'.";
         }
 

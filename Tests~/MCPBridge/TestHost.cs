@@ -9,6 +9,7 @@ namespace UnityEditor
 {
     [AttributeUsage(AttributeTargets.Class)]
     public sealed class InitializeOnLoadAttribute : Attribute { }
+    public enum PlayModeStateChange { EnteredEditMode, ExitingEditMode, EnteredPlayMode, ExitingPlayMode }
 
     public static class EditorApplication
     {
@@ -38,8 +39,13 @@ namespace UnityEditor
         public static int SignalCount => Volatile.Read(ref _signalCount);
         public static int WorkerSignalCount => Volatile.Read(ref _workerSignalCount);
         public static int UpdateCount { get; private set; }
-        public static bool isCompiling { get { AssertMainThread(); return false; } }
+        public static bool Compiling { private get; set; }
+        public static bool isCompiling { get { AssertMainThread(); return Compiling; } }
         public static bool isUpdating { get { AssertMainThread(); return false; } }
+        public static bool isPlaying { get { AssertMainThread(); return false; } }
+        public static bool isPaused { get { AssertMainThread(); return false; } }
+        public static event Action<PlayModeStateChange> playModeStateChanged;
+        public static void ChangePlayMode(PlayModeStateChange state) { AssertMainThread(); playModeStateChanged?.Invoke(state); }
 
         // Mirrors Unity's internal, thread-safe wakeup: workers request a tick;
         // only the editor main thread executes update callbacks.
@@ -71,6 +77,16 @@ namespace UnityEditor
     {
         public static event Action beforeAssemblyReload;
         public static void Reload() { EditorApplication.AssertMainThread(); beforeAssemblyReload?.Invoke(); }
+    }
+}
+
+namespace UnityEditor.Compilation
+{
+    public static class CompilationPipeline
+    {
+        public static event Action<object> compilationStarted, compilationFinished;
+        public static void Start() { EditorApplication.AssertMainThread(); compilationStarted?.Invoke(null); }
+        public static void Finish() { EditorApplication.AssertMainThread(); compilationFinished?.Invoke(null); }
     }
 }
 
@@ -157,20 +173,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public static void Initialize() { InitializeCount++; }
         public static void Shutdown() { }
     }
-    internal static class MainThreadWatchdog
-    {
-        public const int DefaultStallThresholdMs = 5000;
-        public static bool TryDescribeStall(int threshold, out string message) { message = null; return false; }
-        public static void NoteMainThreadTick() { UnityEditor.EditorApplication.AssertMainThread(); }
-        public static void NoteToolStart(string tool) { UnityEditor.EditorApplication.AssertMainThread(); }
-        public static void NoteToolFinish() { UnityEditor.EditorApplication.AssertMainThread(); }
-    }
     internal static class ListenerThreadTools
     {
         public static void RefreshReaderGateOnMainThread() { UnityEditor.EditorApplication.AssertMainThread(); }
         public static Func<string> Match(string tool, JNode args) => null;
         public static Func<string> Match(string tool, JNode args, out string error) { error = null; return null; }
-        public static Func<string> Match(string tool, JNode args, out string error, out int errorCode, out ToolResultRequest.Options options)
+        public static Func<(string Text, JNode Failure)> MatchResult(string tool, JNode args, out string error, out int errorCode, out ToolResultRequest.Options options)
         { error = null; errorCode = -32602; options = ToolResultRequest.Options.Default; return null; }
     }
     internal static class ToolResultRequest
@@ -190,6 +198,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public readonly string ToolName;
         public readonly JNode Args;
         public string BridgePendingId, Error, ErrorData, ResultText;
+        public string ErrorReason = null;
+        public JNode ToolFailure = null;
         public string ImageMimeType = null;
         public int ErrorCode;
         public byte[] ImageBytes = null;
@@ -204,12 +214,26 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
     internal static class Invoker
     {
         public static readonly List<string> Executed = new List<string>();
+        public static PendingCall Deferred;
         public static void Invoke(PendingCall call)
         {
             UnityEditor.EditorApplication.AssertMainThread();
             Executed.Add(call.BridgePendingId);
             call.ResultText = call.Args["value"].AsString;
+            if (call.BridgePendingId == "deferred-test")
+            {
+                Deferred = call;
+                return;
+            }
             call.OnComplete?.Invoke(call);
         }
+    }
+}
+
+namespace AjisaiFlow.UnityAgent.Editor.Tools
+{
+    internal static class EditorStateTools
+    {
+        internal static string SampleAutoRefresh() { UnityEditor.EditorApplication.AssertMainThread(); return "enabled"; }
     }
 }

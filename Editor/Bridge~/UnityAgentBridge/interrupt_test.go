@@ -56,7 +56,7 @@ func startFakeUnityWithHello(t *testing.T, bridge *Bridge, hello wireMsg) (net.C
 		t.Fatalf("read hello_ack: %v", err)
 	}
 	var ack wireMsg
-	if err := json.Unmarshal([]byte(line), &ack); err != nil || ack.Type != "hello_ack" || !ack.OK {
+	if err := json.Unmarshal([]byte(line), &ack); err != nil || ack.Type != "hello_ack" || !ack.OK || !ack.UnityStatus {
 		t.Fatalf("unexpected hello_ack: %q (err=%v)", line, err)
 	}
 	return unity, reader

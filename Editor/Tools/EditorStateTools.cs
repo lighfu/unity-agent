@@ -83,13 +83,14 @@ modalDialog is read live from the OS, so it is accurate even while everything el
                 out bool compiling, out bool importing, out bool playing, out bool paused,
                 out string inFlightTool, out bool everPumped, out string autoRefresh);
 
-            int stalledMs = MainThreadWatchdog.StalledMilliseconds();
-            bool hasModal = MainThreadWatchdog.TryGetModalWindow(out string modalDesc, out string modalTitle);
+            var readiness = MainThreadWatchdog.ReadReadiness();
+            int stalledMs = readiness.MainThreadAgeMs ?? 0;
+            bool hasModal = readiness.ModalDescription != null;
 
             // A tick is scheduled ~100 Hz, so anything past a couple of hundred ms already means the
             // main thread is inside something. One second is a generous line between "a normal frame"
             // and "not answering".
-            bool responding = everPumped && stalledMs < 1000 && !hasModal;
+            bool responding = everPumped && stalledMs < MainThreadWatchdog.ReadyTickThresholdMs && !hasModal;
 
             string playMode;
             if (!everPumped) playMode = "unknown (no main-thread tick observed yet)";
@@ -99,11 +100,12 @@ modalDialog is read live from the OS, so it is accurate even while everything el
 
             var sb = new StringBuilder();
             sb.AppendLine($"responding: {responding}");
+            sb.AppendLine($"readiness: {readiness.Status}");
             sb.AppendLine($"snapshotAge: {(everPumped ? (stalledMs / 1000.0).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "s" : "n/a")}");
             sb.AppendLine($"compiling: {(everPumped ? compiling.ToString() : "unknown")}");
             sb.AppendLine($"importing: {(everPumped ? importing.ToString() : "unknown")}");
             sb.AppendLine($"playMode: {playMode}");
-            sb.AppendLine($"modalDialog: {(hasModal ? modalDesc : "(none)")}");
+            sb.AppendLine($"modalDialog: {readiness.ModalDescription ?? "(none)"}");
             sb.AppendLine($"inFlightTool: {inFlightTool ?? "(none)"}");
             sb.AppendLine($"autoRefresh: {autoRefresh ?? "unknown (not sampled yet)"}");
             // Auto-answer state travels with the editor state so an unattended run's log shows
@@ -117,52 +119,30 @@ modalDialog is read live from the OS, so it is accurate even while everything el
             if (buildTest != null) sb.AppendLine($"vrchatBuildTest: {buildTest}");
 
             sb.Append("verdict: ");
-            if (hasModal)
+            if (readiness.Status == "dialog_wait")
             {
-                sb.Append(LooksLikeProgress(modalTitle)
-                    ? "a PROGRESS window is up — Unity is busy on its own, retry shortly, no human needed."
-                    : "a DIALOG is waiting for an answer. Every queued tool call is blocked until then — " +
-                      "AnswerModalDialog(dryRun=true) shows what it says, and AnswerModalDialog(button=...) presses it.");
+                sb.Append("a DIALOG is waiting for an answer. AnswerModalDialog(dryRun=true) shows its message and buttons, " +
+                          "and AnswerModalDialog(button=...) presses a button.");
             }
-            else if (!everPumped)
+            else if (readiness.Status == "compiling" || readiness.Status == "importing" ||
+                     readiness.Status == "play_mode_transition" || hasModal || !everPumped)
             {
-                sb.Append("no main-thread tick observed yet — the editor may still be starting up or reloading the domain.");
+                sb.Append(readiness.Reason);
             }
-            else if (stalledMs >= 1000 && inFlightTool != null)
+            else if (readiness.Status == "busy" && inFlightTool != null)
             {
                 sb.Append($"the main thread is inside '{inFlightTool}'. This is a slow tool, not a wedge — wait for it.");
             }
-            else if (stalledMs >= 1000 && buildTest != null)
+            else if (readiness.Status == "busy" && buildTest != null)
             {
                 sb.Append("the main thread is inside the VRChat SDK Build & Test (vrchatBuildTest above). This is the build, not a wedge — " +
                           "GetVRChatBuildTestResult(waitSeconds=...) reports when it ends.");
             }
-            else if (stalledMs >= 1000)
-            {
-                sb.Append("the main thread has not ticked recently and no tool is running — likely a domain reload, an import, or an editor operation started from the GUI.");
-            }
-            else if (compiling || importing)
-            {
-                sb.Append("busy compiling / importing. Use WaitForCompilation before acting on new types.");
-            }
             else
             {
-                sb.Append("idle and responsive.");
+                sb.Append(readiness.Reason ?? "idle and responsive.");
             }
             return sb.ToString();
-        }
-
-        /// <summary>
-        /// Mirrors MainThreadWatchdog's progress-window heuristic. Duplicated rather than shared
-        /// because the two callers want different wording, and the list is a guess either way.
-        /// </summary>
-        static bool LooksLikeProgress(string title)
-        {
-            if (string.IsNullOrEmpty(title)) return false;
-            string t = title.ToLowerInvariant();
-            return t.Contains("hold on") || t.Contains("importing") || t.Contains("compiling")
-                || t.Contains("loading") || t.Contains("applying") || t.Contains("building")
-                || t.Contains("baking") || t.Contains("progress");
         }
 
         /// <summary>

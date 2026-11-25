@@ -180,7 +180,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                    "comma-separated components for Vector2/3/4, Vector2Int/3Int or Color (also #RRGGBB/#RRGGBBAA), " +
                    "or instance ID/null for ObjectField. notify=true uses the normal value setter/ChangeEvent; " +
                    "notify=false uses SetValueWithoutNotify. Unsupported value types return an error without mutation. " +
-                   "Queued; poll GetUIActionResult. UIDocument actions require Play mode.",
+                   "Queued; poll GetUIActionResult for dispatch and immediate value read-back. UIDocument actions require Play mode.",
             Category = "UIAutomation", Risk = ToolRisk.Caution, RiskExplicit = true)]
         public static string SetUIToolkitValue(string elementId, string value, bool notify = true)
         {
@@ -208,7 +208,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     var valueInterface = typeof(INotifyValueChanged<>).MakeGenericType(property.PropertyType);
                     valueInterface.GetMethod("SetValueWithoutNotify").Invoke(current, new[] { converted });
                 }
-            });
+            }, current => current.panel == null ? (bool?)null : Equals(property.GetValue(current), converted));
         }
 
         [AgentTool("Send a UI Toolkit event to an inspected elementId. eventName: pointerDown, pointerUp, pointerMove, " +
@@ -274,19 +274,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             scroll.ScrollTo(element);
         });
 
-        private static string QueueElement(string elementId, bool needsHit, Action<VisualElement> action)
+        private static string QueueElement(string elementId, bool needsHit, Action<VisualElement> action,
+            Func<VisualElement, bool?> verify = null)
         {
             if (!Resolve(elementId, out var snapshot, out var element, out string error)) return error;
             try { CheckInteractive(snapshot, element, false); }
             catch (Exception ex) { return "Error: " + ex.Message; }
+            VisualElement target = null;
             return UIAutomationUtility.Queue(snapshot.Owner, () =>
             {
-                if (!Resolve(elementId, out var current, out var target, out string stale)) throw new InvalidOperationException(stale);
+                if (!Resolve(elementId, out var current, out target, out string stale)) throw new InvalidOperationException(stale);
                 if (current.Owner is EditorWindow window) window.Focus();
                 CheckInteractive(current, target, needsHit);
                 action(target);
                 if (current.Owner is EditorWindow repaint) repaint.Repaint();
-            });
+            }, verify == null ? (Func<bool?>)null : () => verify(target));
         }
 
         private static bool Resolve(string elementId, out Snapshot snapshot, out VisualElement element, out string error)

@@ -154,7 +154,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             {
                 foreach (var evt in events)
                 {
-                    if (window == null) return; // A handler is allowed to close its own window.
+                    if (window == null)
+                        throw new InvalidOperationException("The target window closed before all events could be sent.");
                     if (usesPosition) evt.mousePosition += origin;
                     if (balanceMouse && evt.type == EventType.MouseDown) pendingPress = new Event(evt);
                     if (balanceMouse && evt.type == EventType.MouseUp) pendingPress = null;

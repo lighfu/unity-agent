@@ -582,6 +582,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     {
                         string toolName = paramsNode["name"].AsString ?? "";
                         JNode args = paramsNode["arguments"];
+                        string targetName = MCPToolFailure.Target(toolName, args);
                         string argsJson = (args ?? JNode.Obj()).ToJson();
 
                         // GetEditorState / AnswerModalDialog はここで答える。メインスレッドが詰まって
@@ -591,30 +592,27 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         // GUI ログには載せない。対象の一覧は ListenerThreadTools が持つ (Bridge と共通)。
                         // このリクエストは既に ThreadPool 上なので、待つ処理 (GetVRChatBuildTestResult
                         // の waitSeconds) をここで実行しても他のリクエストは止まらない。
-                        var fastWork = ListenerThreadTools.Match(toolName, args, out string pagingError, out int pagingErrorCode, out var resultOptions);
+                        var fastWork = ListenerThreadTools.MatchResult(toolName, args, out string pagingError, out int pagingErrorCode, out var resultOptions);
                         if (pagingError != null)
                         {
-                            WriteJsonRpcError(resp, idNode, pagingErrorCode, pagingError, null);
+                            WriteJsonRpcError(resp, idNode, pagingErrorCode, pagingError, null, targetName);
                             return;
                         }
                         if (fastWork != null)
                         {
-                            string fastText;
-                            try { fastText = fastWork(); }
+                            (string Text, JNode Failure) outcome;
+                            try { outcome = fastWork(); }
                             catch (Exception ex)
                             {
-                                string targetName = toolName == "ExecuteUnityTool" ? args["name"].AsString ?? toolName : toolName;
                                 string detail = DeveloperMode.IsDevBuild ? ex.ToString() : ex.Message;
-                                WriteJsonRpcError(resp, idNode, -32603, "Internal error",
-                                    ToolResultRequest.FormatError(targetName + ".errorData", detail, resultOptions));
-                                return;
+                                string reason = $"{targetName} failed: {ex.Message}";
+                                outcome = (ToolResultRequest.FormatError(targetName, reason, resultOptions),
+                                    MCPToolFailure.Execution(targetName, reason, ToolResultRequest.FormatError(targetName + ".errorData", detail, resultOptions)));
                             }
                             TraceLog($"  tools/call fast-path tool={toolName} (off main thread)");
-                            WriteJsonRpcResult(resp, idNode, JNode.Obj(
-                                ("content", JNode.Arr(JNode.Obj(
+                            WriteJsonRpcResult(resp, idNode, MCPToolFailure.Result(JNode.Arr(JNode.Obj(
                                     ("type", JNode.Str("text")),
-                                    ("text", JNode.Str(fastText))))),
-                                ("isError", JNode.Bool(false))));
+                                    ("text", JNode.Str(outcome.Text)))), outcome.Failure));
                             return;
                         }
 
@@ -627,7 +625,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                             // 拒否も「失敗した呼び出し」として残す。ここを記録しないと、モーダルで
                             // 数百件連続拒否されている最中だけ統計が空になり、成功率 100% に見えてしまう。
                             RecordStallRejection(toolName, argsJson.Length, stallMsg);
-                            WriteJsonRpcError(resp, idNode, -32002, "Unity main thread blocked", stallMsg);
+                            WriteJsonRpcError(resp, idNode, -32002, "Unity main thread blocked", stallMsg, targetName);
                             return;
                         }
 
@@ -646,27 +644,28 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         {
                             AgentLogger.Warning(LogTag.MCP, $"tools/call TIMEOUT tool={toolName} after {sw.ElapsedMilliseconds}ms (limit={DefaultCallTimeoutMs}ms)");
                             WriteJsonRpcError(resp, idNode, -32001, "Timeout",
-                                $"Tool '{toolName}' did not complete within {DefaultCallTimeoutMs}ms.");
+                                $"Tool '{targetName}' did not complete within {DefaultCallTimeoutMs}ms.", targetName);
                             pending.Cancel();
                             return;
                         }
 
-                        if (pending.Error != null)
+                        if (pending.Error != null && pending.ToolFailure == null)
                         {
                             AgentLogger.Warning(LogTag.MCP, $"tools/call ERROR tool={toolName} code={pending.ErrorCode} elapsed={sw.ElapsedMilliseconds}ms msg={pending.Error}");
-                            WriteJsonRpcError(resp, idNode, pending.ErrorCode, pending.Error, pending.ErrorData);
+                            WriteJsonRpcError(resp, idNode, pending.ErrorCode, pending.Error, pending.ErrorData, targetName, pending.ErrorReason);
                             return;
                         }
 
                         TotalCallsServed++;
+                        string outcomeName = pending.ToolFailure == null ? "OK" : "TOOL_ERROR";
                         AgentLogger.Debug(LogTag.MCP,
-                            $"tools/call OK tool={toolName} elapsed={sw.ElapsedMilliseconds}ms textBytes={(pending.ResultText?.Length ?? 0)} imgBytes={(pending.ImageBytes?.Length ?? 0)} served={TotalCallsServed}");
+                            $"tools/call {outcomeName} tool={toolName} elapsed={sw.ElapsedMilliseconds}ms textBytes={(pending.ResultText?.Length ?? pending.Error?.Length ?? 0)} imgBytes={(pending.ImageBytes?.Length ?? 0)} served={TotalCallsServed}");
 
                         var contentNodes = new List<JNode>
                         {
                             JNode.Obj(
                                 ("type", JNode.Str("text")),
-                                ("text", JNode.Str(pending.ResultText ?? "")))
+                                ("text", JNode.Str(pending.ResultText ?? pending.Error ?? "")))
                         };
                         if (pending.ImageBytes != null && pending.ImageBytes.Length > 0)
                         {
@@ -676,10 +675,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                                 ("mimeType", JNode.Str(pending.ImageMimeType ?? "image/png"))));
                         }
 
-                        var result = JNode.Obj(
-                            ("content", JNode.Arr(contentNodes.ToArray())),
-                            ("isError", JNode.Bool(false))
-                        );
+                        var result = MCPToolFailure.Result(JNode.Arr(contentNodes.ToArray()), pending.ToolFailure);
                         WriteJsonRpcResult(resp, idNode, result);
                         return;
                     }
@@ -953,14 +949,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             WriteJson(resp, 200, json);
         }
 
-        static void WriteJsonRpcError(HttpListenerResponse resp, JNode id, int code, string message, string data)
+        static void WriteJsonRpcError(HttpListenerResponse resp, JNode id, int code, string message, string data, string tool = null, string reason = null)
         {
+            reason ??= message;
             message = ToolResultRequest.FormatError("MCP.error", message ?? "Error", ToolResultRequest.Options.Default);
             data = ToolResultRequest.FormatError("MCP.errorData", data ?? "", ToolResultRequest.Options.Default);
             var errObj = JNode.Obj(
                 ("code", JNode.Num(code)),
                 ("message", JNode.Str(message ?? "Error")),
-                ("data", JNode.Str(data ?? ""))
+                ("data", string.IsNullOrEmpty(tool) ? JNode.Str(data ?? "") : MCPToolFailure.Protocol(tool, code, reason, data))
             );
             var root = JNode.Obj(
                 ("jsonrpc", JNode.Str("2.0")),

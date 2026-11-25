@@ -22,7 +22,7 @@ internal static class Program
             Assert(ListenerThreadTools.Match("ReadUnityToolResultPage", JNode.Obj(("resultId", JNode.Str("unknown"))), out string seedError) == null
                 && seedError.Contains("initialized"), "reader allowed before gate seed");
             ListenerThreadTools.RefreshReaderGateOnMainThread();
-            Invocation(); Validation(); AsyncImagesErrors(); ErrorPageAuthenticity(); ReaderGate(); FastRoutes(); SearchAndSchemas(); HttpRoutes(); BridgeRoutes();
+            Invocation(); Validation(); MutationBinding(); AsyncImagesErrors(); ErrorPageAuthenticity(); ReaderGate(); FastRoutes(); SearchAndSchemas(); HttpRoutes(); BridgeRoutes();
             Console.WriteLine("Tool result paging integration tests passed: " + _checks + " checks.");
             return 0;
         }
@@ -146,6 +146,24 @@ internal static class Program
                 "fast reader accepted duplicate case variants: " + key);
         }
     }
+
+    static void MutationBinding()
+    {
+        FixtureTools.Changes = 0;
+        var unknown = Invoke("ExecuteUnityTool", Envelope("SetPagingFixture", JNode.Obj(("valu", JNode.Num(1)))));
+        Assert(unknown.ErrorCode == -32602 && unknown.Error.Contains("valu") && unknown.Error.Contains("Accepted: value") && FixtureTools.Changes == 0,
+            "unknown mutation argument fell back to the default and invoked the tool");
+        var duplicate = Invoke("SetPagingFixture", JNode.Obj(("value", JNode.Num(1)), ("Value", JNode.Num(2))));
+        Assert(duplicate.ErrorCode == -32602 && duplicate.Error.Contains("Pass 'value' once") && FixtureTools.Changes == 0,
+            "competing spellings of one argument invoked the mutation");
+        var malformed = Invoke("ExecuteUnityTool", Envelope("SetPagingFixture", JNode.Num(1)));
+        Assert(malformed.ErrorCode == -32602 && FixtureTools.Changes == 0, "non-object arguments invoked the mutation with defaults");
+        var misplaced = Invoke("ExecuteUnityTool", JNode.Obj(("name", JNode.Str("SetPagingFixture")), ("value", JNode.Num(4))));
+        Assert(misplaced.ErrorCode == -32602 && misplaced.Error.Contains("inside 'arguments'") && FixtureTools.Changes == 0,
+            "misplaced wrapper argument invoked the mutation with defaults");
+        var valid = Invoke("SetPagingFixture", JNode.Obj(("Value", JNode.Num(8))));
+        Assert(valid.Error == null && valid.ResultText == "8" && FixtureTools.Changes == 1, "case-insensitive mutation argument failed");
+    }
     static void AsyncImagesErrors()
     {
         int before = FixtureTools.Calls;
@@ -166,6 +184,7 @@ internal static class Program
         {
             var failure = Invoke("GetPagingFailureFixture");
             Assert(failure.ErrorCode == -32000 && JNode.Parse(failure.Error)["page"]["hasMore"].AsBool, "exception error not bounded");
+            Assert(failure.ToolFailure["tool"].AsString == "GetPagingFailureFixture", "tool failure metadata missing from exception");
             Assert(eventError.Length > 20000, "error UI event lost original text");
             Assert(JoinPages(failure.Error, args => Invoke("ReadUnityToolResultPage", args).ResultText) == eventError, "error continuation is lossy");
             var pending = new PendingCall("Fixture", JNode.Obj()); pending.SetError("message", new string('d', 30000), -32603);
@@ -175,7 +194,7 @@ internal static class Program
     }
     static void FastRoutes()
     {
-        foreach (string name in new[] { "GetEditorState", "GetUIActionResult", "GetIMGUIInspectionResult", "AnswerModalDialog", "ListModalAutoAnswers", "GetVRChatBuildTestResult" })
+        foreach (string name in new[] { "GetEditorState", "GetUIActionResult", "GetIMGUIInspectionResult", "AnswerModalDialog", "ListModalAutoAnswers", "GetVRChatBuildTestResult", "GetJobResult" })
         {
             var direct = ListenerThreadTools.Match(name, JNode.Obj(), out string error);
             Assert(error == null && JNode.Parse(direct())["page"]["returned"].AsInt == 50, "fast default unbounded: " + name);
@@ -289,6 +308,10 @@ internal static class Program
             int beforeFast = ModalDialogTools.Calls;
             var invalid = Post(client, "ExecuteUnityTool", Envelope("AnswerModalDialog", limit: 0), false);
             Assert(invalid["error"]["code"].AsInt == -32602 && ModalDialogTools.Calls == beforeFast, "HTTP invalid fast envelope performed mutation");
+            var malformedModal = Post(client, "ExecuteUnityTool", Envelope("AnswerModalDialog", JNode.Obj(("button", JNode.Str("OK")), ("dryrun", JNode.Bool(true)))), false);
+            Assert(malformedModal["error"]["code"].AsInt == -32602 && ModalDialogTools.Calls == beforeFast
+                && malformedModal["error"]["data"]["tool"].AsString == "AnswerModalDialog"
+                && malformedModal["error"]["data"]["suggestions"].Count > 0, "HTTP malformed modal request lost diagnostics or performed mutation");
             var fast = Post(client, "ExecuteUnityTool", Envelope("GetEditorState", limit: 2), false);
             Assert(JNode.Parse(fast["result"]["content"][0]["text"].AsString)["page"]["returned"].AsInt == 2, "HTTP fast result unbounded");
             AgentSettings.DisabledTool = "ReadUnityToolResultPage";
@@ -301,10 +324,12 @@ internal static class Program
             AgentSettings.MCPServerExposeRisk = AjisaiFlow.UnityAgent.SDK.ToolRisk.Dangerous;
             EditorStateTools.Throw = true;
             var failure = Post(client, "ExecuteUnityTool", Envelope("GetEditorState", limit: 1, maxChars: 1024), false);
-            var errorPage = JNode.Parse(failure["error"]["data"].AsString);
-            Assert(failure["error"]["code"].AsInt == -32603 && errorPage["page"]["limit"].AsInt == 1
+            var result = failure["result"];
+            var errorPage = JNode.Parse(result["structuredContent"]["detail"].AsString);
+            Assert(result["isError"].AsBool && result["structuredContent"]["tool"].AsString == "GetEditorState"
+                && errorPage["page"]["limit"].AsInt == 1
                 && errorPage["page"]["maxChars"].AsInt == 1024 && errorPage["page"]["returnedChars"].AsInt <= 1024,
-                "HTTP fast exception ignored requested budget or lost RPC error");
+                "HTTP fast exception ignored requested budget or lost tool error");
             EditorStateTools.Throw = false;
         }
         finally { EditorStateTools.Throw = false; AgentSettings.DisabledTool = null; AgentSettings.MCPServerExposeRisk = AjisaiFlow.UnityAgent.SDK.ToolRisk.Dangerous;
@@ -367,6 +392,7 @@ internal static class Program
             Assert(failure["type"].AsString == "error" && failure["code"].AsInt == -32000 && errorPage["page"]["limit"].AsInt == 1
                 && errorPage["page"]["maxChars"].AsInt == 1024 && errorPage["page"]["returnedChars"].AsInt <= 1024,
                 "Bridge fast exception ignored requested budget or became success");
+            Assert(failure["failure"]["tool"].AsString == "GetEditorState", "Bridge fast exception lost execution failure metadata");
             EditorStateTools.Throw = false;
         }
         finally { EditorStateTools.Throw = false; AgentSettings.DisabledTool = null; AgentSettings.MCPServerExposeRisk = AjisaiFlow.UnityAgent.SDK.ToolRisk.Dangerous;

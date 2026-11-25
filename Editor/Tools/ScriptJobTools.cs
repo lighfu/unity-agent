@@ -5,6 +5,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
+using System.Threading;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 using AjisaiFlow.UnityAgent.SDK;
 
@@ -27,8 +29,8 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     public static class ScriptJobTools
     {
         /// <summary>
-        /// Jobs kept in memory, finished ones included, so a caller that polls late still gets an
-        /// answer. Bounded because nothing else evicts them.
+        /// Receipts to keep in the current editor session, including finished jobs.
+        /// Active jobs are never evicted.
         /// </summary>
         const int MaxRetainedJobs = 32;
 
@@ -37,25 +39,37 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         const int DefaultTimeoutSeconds = 600;
         const int MaxTimeoutSeconds = 3600;
+        // Allow the transport to send the receipt before a synchronous script can block Unity.
+        const int TicksBeforeExecution = 4;
+        const string SessionIndexKey = "UnityAgent.ScriptJob.Ids";
+        const string SessionKeyPrefix = "UnityAgent.ScriptJob.Receipt.";
 
-        sealed class ScriptJob
+        [Serializable]
+        sealed class JobReceipt
         {
             public string Id;
             public string CodePreview;
-            public MethodInfo Entry;
-            public IEnumerator Routine;      // non-null once a script has returned an IEnumerator
-            public bool Started;
-            public bool Done;
-            public string Result;
-            public string Error;
-            public double StartedAt;
-            public double FinishedAt;
-            public double TimeoutSeconds;
-            public int ConsoleBaseline;
+            public string State = "queued";
+            public long EnqueuedStamp;
+            public long FinishedStamp;
             public int Steps;
+            public string FinalText;
+
+            public bool IsPending => State == "queued" || State == "running";
         }
 
-        static readonly Dictionary<string, ScriptJob> _jobs = new Dictionary<string, ScriptJob>(StringComparer.Ordinal);
+        sealed class ScriptJob
+        {
+            public JobReceipt Receipt;
+            public MethodInfo Entry;
+            public IEnumerator Routine;      // non-null once a script has returned an IEnumerator
+            public int TicksUntilExecution = TicksBeforeExecution;
+            public double TimeoutSeconds;
+            public int ConsoleBaseline;
+        }
+
+        static readonly object _receiptLock = new object();
+        static readonly Dictionary<string, JobReceipt> _receipts = new Dictionary<string, JobReceipt>(StringComparer.Ordinal);
         static readonly List<ScriptJob> _runnable = new List<ScriptJob>();
         static bool _driverRegistered;
 
@@ -90,8 +104,9 @@ generic one and fails. Spell it in full:
 timeoutSeconds: abandon the job after this long (default 600, max 3600). A synchronous script
   cannot be interrupted mid-call — the timeout is only observed between ticks.
 
-DOES NOT SURVIVE A DOMAIN RELOAD. If the script recompiles scripts or triggers a reload, the job
-registry is wiped along with every other static, and GetJobResult will report the id as unknown.
+The job id and recorded result survive a domain reload in the current editor session. An
+interrupted job is reported as not_started or outcome_unknown. The script is never restarted
+automatically.
 Same risk tier as RunEditorScript: this is arbitrary code execution.",
             Risk = ToolRisk.Dangerous)]
         public static string RunEditorScriptAsync(string code, string usings = "",
@@ -116,28 +131,36 @@ Same risk tier as RunEditorScript: this is arbitrary code execution.",
                                                        out var entry, out string compileError))
                 return compileError + ScriptExecutionTools.DescribeToolOverlap(code);
 
-            EvictStaleJobs();
-
-            var job = new ScriptJob
+            var receipt = new JobReceipt
             {
                 Id = "job-" + Guid.NewGuid().ToString("N").Substring(0, 8),
                 CodePreview = Preview(code),
+                EnqueuedStamp = Stopwatch.GetTimestamp(),
+            };
+            var job = new ScriptJob
+            {
+                Receipt = receipt,
                 Entry = entry,
-                StartedAt = EditorApplication.timeSinceStartup,
                 TimeoutSeconds = timeoutSeconds,
                 ConsoleBaseline = ConsoleTools.GetEntryCount(),
             };
-            _jobs[job.Id] = job;
+            lock (_receiptLock)
+            {
+                EvictStaleJobs();
+                SaveReceipt(receipt);
+                _receipts.Add(receipt.Id, receipt);
+                SessionState.SetString(SessionIndexKey, string.Join(",", _receipts.Keys));
+            }
             _runnable.Add(job);
             EnsureDriver();
 
-            Debug.Log($"[UnityAgent] RunEditorScriptAsync queued {job.Id}:\n{code}");
+            Debug.Log($"[UnityAgent] RunEditorScriptAsync queued {receipt.Id}:\n{code}");
 
             // Named here rather than at GetJobResult: the point of a hint is to arrive before the caller
             // has spent the wait believing this was the only way to do it.
-            return $"jobId: {job.Id}\nstate: queued (starts on the next editor tick)\n" +
+            return $"jobId: {receipt.Id}\nstate: queued (starts after a few editor ticks)\n" +
                    $"timeoutSeconds: {timeoutSeconds}\n" +
-                   $"Poll with GetJobResult(jobId:'{job.Id}')." +
+                   $"Poll with GetJobResult(jobId:'{receipt.Id}')." +
                    ScriptExecutionTools.DescribeToolOverlap(code);
         }
 
@@ -153,81 +176,105 @@ The console excerpt is a time window, not a capture: anything else that logged w
 appears too. Treat it as context, not as the job's own output — use the return value for that.
 
 An unknown jobId lists the ids currently known, which is also how you recover after losing one.
-Jobs do not survive a domain reload.")]
+Receipts survive a domain reload during the current editor session. A reload leaves a queued job
+as not_started or a running job as outcome_unknown. In MCP, polling can report progress while a
+synchronous script occupies the editor's main thread.")]
         public static IEnumerator GetJobResult(string jobId, int waitSeconds = 0)
         {
-            if (string.IsNullOrWhiteSpace(jobId))
+            if (!TryFindReceipt(jobId, out var receipt, out string error))
             {
-                yield return "Error: jobId is required.\n" + DescribeKnownJobs();
-                yield break;
-            }
-
-            jobId = jobId.Trim();
-            if (!_jobs.TryGetValue(jobId, out var job))
-            {
-                yield return $"Error: unknown jobId '{jobId}'. Jobs are lost on domain reload.\n" +
-                             DescribeKnownJobs();
+                yield return error;
                 yield break;
             }
 
             if (waitSeconds > 0)
             {
-                if (waitSeconds > EditorStateTools.MaxToolSeconds) waitSeconds = EditorStateTools.MaxToolSeconds;
-                double deadline = EditorApplication.timeSinceStartup + waitSeconds;
-                while (!job.Done && EditorApplication.timeSinceStartup < deadline)
-                    yield return null;
+                double deadline = EditorApplication.timeSinceStartup + Math.Min(waitSeconds, EditorStateTools.MaxToolSeconds);
+                while (receipt.IsPending && EditorApplication.timeSinceStartup < deadline) yield return null;
             }
 
-            yield return Describe(job);
+            yield return Describe(receipt);
         }
 
-        static string Describe(ScriptJob job)
+        internal static Func<string> MatchOffMainThread(string jobId, int waitSeconds)
         {
-            double elapsed = (job.Done ? job.FinishedAt : EditorApplication.timeSinceStartup) - job.StartedAt;
-            var sb = new StringBuilder();
-            sb.AppendLine($"jobId: {job.Id}");
-            sb.AppendLine($"done: {job.Done}");
-            sb.AppendLine($"elapsedMs: {(int)(elapsed * 1000)}");
-            if (job.Routine != null || job.Steps > 0)
-                sb.AppendLine($"steps: {job.Steps}");
-            if (!job.Started) sb.AppendLine("state: queued (has not reached its first tick yet)");
-            else if (!job.Done) sb.AppendLine("state: running");
-
-            if (job.Done)
+            return () =>
             {
-                if (job.Error != null)
+                if (!TryFindReceipt(jobId, out var receipt, out string error)) return error;
+                int waitMs = Math.Min(Math.Max(0, waitSeconds), EditorStateTools.MaxToolSeconds) * 1000;
+                var clock = Stopwatch.StartNew();
+                lock (_receiptLock)
                 {
-                    sb.AppendLine("outcome: FAILED");
-                    sb.AppendLine("error:");
-                    sb.AppendLine(job.Error);
+                    long remainingMs;
+                    while (receipt.IsPending && (remainingMs = waitMs - clock.ElapsedMilliseconds) > 0)
+                        Monitor.Wait(_receiptLock, (int)remainingMs);
+                    return Describe(receipt);
                 }
-                else
-                {
-                    sb.AppendLine("outcome: ok");
-                    sb.AppendLine("result:");
-                    sb.AppendLine(job.Result ?? "(no value returned)");
-                }
+            };
+        }
 
-                string logs = ReadConsoleSince(job.ConsoleBaseline);
-                if (!string.IsNullOrEmpty(logs))
-                {
-                    sb.AppendLine("--- console during the job (may include unrelated messages) ---");
-                    sb.AppendLine(logs);
-                }
+        static bool TryFindReceipt(string jobId, out JobReceipt receipt, out string error)
+        {
+            string id = (jobId ?? "").Trim();
+            lock (_receiptLock)
+            {
+                error = null;
+                if (_receipts.TryGetValue(id, out receipt)) return true;
+                error = (id.Length == 0 ? "Error: jobId is required." : $"Error: unknown or expired jobId '{id}'.") +
+                        "\n" + DescribeKnownJobs();
+                return false;
+            }
+        }
+
+        static double ElapsedSeconds(long start, long end) => (double)(end - start) / Stopwatch.Frequency;
+
+        static string Describe(JobReceipt receipt)
+        {
+            if (!receipt.IsPending) return receipt.FinalText;
+            var sb = new StringBuilder();
+            sb.AppendLine($"jobId: {receipt.Id}");
+            sb.AppendLine("done: False");
+            sb.AppendLine($"elapsedMs: {(long)(ElapsedSeconds(receipt.EnqueuedStamp, Stopwatch.GetTimestamp()) * 1000)}");
+            if (receipt.Steps > 0) sb.AppendLine($"steps: {receipt.Steps}");
+            sb.AppendLine($"state: {receipt.State}");
+            sb.Append($"code: {receipt.CodePreview}");
+            return sb.ToString();
+        }
+
+        static string DescribeFinished(JobReceipt receipt, string result, string error, string logs)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"jobId: {receipt.Id}");
+            sb.AppendLine("done: True");
+            sb.AppendLine($"elapsedMs: {(long)(ElapsedSeconds(receipt.EnqueuedStamp, receipt.FinishedStamp) * 1000)}");
+            if (receipt.Steps > 0) sb.AppendLine($"steps: {receipt.Steps}");
+            sb.AppendLine($"state: {receipt.State}");
+            if (error != null)
+            {
+                sb.AppendLine("outcome: FAILED");
+                sb.AppendLine("error:");
+                sb.AppendLine(error);
             }
             else
             {
-                sb.AppendLine($"code: {job.CodePreview}");
+                sb.AppendLine("outcome: ok");
+                sb.AppendLine("result:");
+                sb.AppendLine(result ?? "(no value returned)");
+            }
+            if (!string.IsNullOrEmpty(logs))
+            {
+                sb.AppendLine("--- console during the job (may include unrelated messages) ---");
+                sb.AppendLine(logs);
             }
             return sb.ToString().TrimEnd();
         }
 
         static string DescribeKnownJobs()
         {
-            if (_jobs.Count == 0) return "No jobs are currently known.";
+            if (_receipts.Count == 0) return "No jobs are currently known.";
             var sb = new StringBuilder("Known jobs:");
-            foreach (var kv in _jobs)
-                sb.Append($"\n  {kv.Key}  done={kv.Value.Done}  {kv.Value.CodePreview}");
+            foreach (var receipt in _receipts.Values)
+                sb.Append($"\n  {receipt.Id}  state={receipt.State}  {receipt.CodePreview}");
             return sb.ToString();
         }
 
@@ -276,22 +323,26 @@ Jobs do not survive a domain reload.")]
             // One job per tick. Running them all would reintroduce exactly the freeze this exists
             // to avoid when several long jobs are queued together.
             var job = _runnable[0];
-            double now = EditorApplication.timeSinceStartup;
-
-            if (now - job.StartedAt > job.TimeoutSeconds)
+            var receipt = job.Receipt;
+            if (ElapsedSeconds(receipt.EnqueuedStamp, Stopwatch.GetTimestamp()) > job.TimeoutSeconds)
             {
                 Finish(job, null, $"Job abandoned after {job.TimeoutSeconds:F0}s (timeoutSeconds). " +
                                   (job.Routine != null
-                                      ? $"It had completed {job.Steps} steps."
-                                      : "A synchronous script cannot be interrupted, so it may still be running inside the editor."));
+                                      ? $"It had completed {receipt.Steps} steps."
+                                      : "The script had not started."));
                 return;
             }
 
             try
             {
-                if (!job.Started)
+                if (receipt.State == "queued")
                 {
-                    job.Started = true;
+                    if (--job.TicksUntilExecution > 0) return;
+                    lock (_receiptLock)
+                    {
+                        receipt.State = "running";
+                        SaveReceipt(receipt);
+                    }
                     object returned = job.Entry.Invoke(null, null);
                     if (returned is IEnumerator routine)
                     {
@@ -299,17 +350,14 @@ Jobs do not survive a domain reload.")]
                         return;
                     }
 
-                    // No console capture here on purpose: a job already reports what it logged, from
-                    // job.ConsoleBaseline in Describe(). Attaching the synchronous runner's capture as
-                    // well would print every line twice. Only the wording is shared, so a job and a
-                    // direct run do not describe the same outcome differently.
+                    // Use the synchronous runner's result format. Finish captures the console once.
                     Finish(job, ScriptExecutionTools.DescribeScriptResult(returned, null), null);
                     return;
                 }
 
                 if (job.Routine != null)
                 {
-                    job.Steps++;
+                    lock (_receiptLock) receipt.Steps++;
                     if (!job.Routine.MoveNext())
                     {
                         // Same trap as a script that forgets 'return': finishing quietly reads as "it ran
@@ -338,12 +386,51 @@ Jobs do not survive a domain reload.")]
 
         static void Finish(ScriptJob job, string result, string error)
         {
-            job.Done = true;
-            job.Result = result;
-            job.Error = error;
-            job.FinishedAt = EditorApplication.timeSinceStartup;
+            long finishedStamp = Stopwatch.GetTimestamp();
+            string logs = ReadConsoleSince(job.ConsoleBaseline);
+            lock (_receiptLock)
+            {
+                var receipt = job.Receipt;
+                receipt.FinishedStamp = finishedStamp;
+                receipt.State = error == null ? "succeeded" : "failed";
+                receipt.FinalText = DescribeFinished(receipt, result, error, logs);
+                SaveReceipt(receipt);
+                Monitor.PulseAll(_receiptLock);
+            }
             job.Routine = null;
             _runnable.Remove(job);
+        }
+
+        static void SaveReceipt(JobReceipt receipt)
+            => SessionState.SetString(SessionKeyPrefix + receipt.Id, JsonUtility.ToJson(receipt));
+
+        [InitializeOnLoadMethod]
+        static void RestoreReceipts()
+        {
+            string[] ids = SessionState.GetString(SessionIndexKey, "")
+                .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            lock (_receiptLock)
+            {
+                foreach (string id in ids)
+                {
+                    string json = SessionState.GetString(SessionKeyPrefix + id, "");
+                    if (string.IsNullOrEmpty(json)) continue;
+                    var receipt = JsonUtility.FromJson<JobReceipt>(json);
+                    if (receipt?.Id != id) continue;
+                    if (receipt.IsPending)
+                    {
+                        bool started = receipt.State == "running";
+                        receipt.State = started ? "outcome_unknown" : "not_started";
+                        receipt.FinishedStamp = Stopwatch.GetTimestamp();
+                        string detail = started
+                            ? "A domain reload interrupted the job before its outcome was recorded. Inspect the project's state before deciding whether to start a new job."
+                            : "A domain reload discarded the queued job before it started.";
+                        receipt.FinalText = $"jobId: {id}\ndone: True\nstate: {receipt.State}\n{detail}";
+                        SaveReceipt(receipt);
+                    }
+                    _receipts.Add(id, receipt);
+                }
+            }
         }
 
         /// <summary>
@@ -353,26 +440,28 @@ Jobs do not survive a domain reload.")]
         /// </summary>
         static void EvictStaleJobs()
         {
-            double now = EditorApplication.timeSinceStartup;
+            long now = Stopwatch.GetTimestamp();
             var expired = new List<string>();
-            foreach (var kv in _jobs)
-                if (kv.Value.Done && now - kv.Value.FinishedAt > RetentionSeconds)
-                    expired.Add(kv.Key);
-            foreach (string id in expired) _jobs.Remove(id);
+            foreach (var receipt in _receipts.Values)
+                if (!receipt.IsPending && ElapsedSeconds(receipt.FinishedStamp, now) > RetentionSeconds)
+                    expired.Add(receipt.Id);
+            foreach (string id in expired) RemoveReceipt(id);
 
-            while (_jobs.Count >= MaxRetainedJobs)
+            while (_receipts.Count >= MaxRetainedJobs)
             {
-                string oldest = null;
-                double oldestAt = double.MaxValue;
-                foreach (var kv in _jobs)
-                    if (kv.Value.Done && kv.Value.FinishedAt < oldestAt)
-                    {
-                        oldest = kv.Key;
-                        oldestAt = kv.Value.FinishedAt;
-                    }
+                JobReceipt oldest = null;
+                foreach (var receipt in _receipts.Values)
+                    if (!receipt.IsPending && (oldest == null || receipt.FinishedStamp < oldest.FinishedStamp))
+                        oldest = receipt;
                 if (oldest == null) break;   // everything still running — let the table grow
-                _jobs.Remove(oldest);
+                RemoveReceipt(oldest.Id);
             }
+        }
+
+        static void RemoveReceipt(string id)
+        {
+            _receipts.Remove(id);
+            SessionState.EraseString(SessionKeyPrefix + id);
         }
     }
 }

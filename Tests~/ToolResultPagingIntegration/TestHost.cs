@@ -91,6 +91,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         internal static void NoteMainThreadTick() { }
         internal static void NoteToolStart(string tool) { }
         internal static void NoteToolFinish() { }
+        internal static (string Status, string Reason, int? MainThreadAgeMs, string PlayMode, string ModalDescription) ReadReadiness()
+            => ("ready", null, 0, "edit", null);
     }
 }
 namespace AjisaiFlow.UnityAgent.Editor.Tools
@@ -115,6 +117,12 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         internal static string ListModalAutoAnswers() => FixtureTools.LongText;
     }
     internal static class VRChatBuildTestTools { internal static Func<string> MatchOffMainThread(string job, int wait) => () => FixtureTools.LongText; }
+    public static class ScriptJobTools
+    {
+        [AgentTool("job fixture", Risk = ToolRisk.Safe)]
+        public static IEnumerator GetJobResult(string jobId, int waitSeconds = 0) { yield return FixtureTools.LongText; }
+        internal static Func<string> MatchOffMainThread(string job, int wait) => () => FixtureTools.LongText;
+    }
     internal static class ToolUtility
     {
         internal static bool TryParseBool(string value, out bool result) => bool.TryParse(value, out result);
@@ -122,6 +130,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     public static class FixtureTools
     {
         public static int Calls, NativeOffset, NativeLimit;
+        public static int Changes;
+        [AgentTool("mutating binder fixture")]
+        public static string SetPagingFixture(int value = 0) { Changes++; return value.ToString(); }
         public static readonly string LongText = string.Join("\n", System.Linq.Enumerable.Range(0, 205)) + "\n";
         [AgentTool("paging fixture", Risk = ToolRisk.Safe)]
         public static string GetPagingFixture(int offset = 17, int limit = 23) { Calls++; NativeOffset = offset; NativeLimit = limit; return LongText; }

@@ -134,8 +134,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 ("properties", JNode.Obj(
                     ("detail", JNode.Obj(
                         ("type", JNode.Str("string")),
-                        ("enum", JNode.Arr(JNode.Str("brief"), JNode.Str("full"))),
-                        ("description", JNode.Str("'brief' (default) returns a few lines suitable for every session start. 'full' adds per-category and per-risk tool counts, every detected package, MCP endpoint / bridge state and project render settings — use it for bug reports.")),
+                        ("enum", JNode.Arr(JNode.Str("brief"), JNode.Str("full"), JNode.Str("connection"))),
+                        ("description", JNode.Str("'connection' returns JSON with the editor PID, project root, active scene and MCP settings. 'brief' gives a summary, and 'full' adds package versions, tool counts and render settings.")),
                         ("default", JNode.Str("brief"))))
                 )),
                 ("required", JNode.Arr())

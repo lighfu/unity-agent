@@ -26,6 +26,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             Arguments = newArgs ?? JNode.Obj();
         }
         public string ResultText { get; private set; }
+        internal JNode ToolFailure { get; private set; }
         ToolResultRequest.Options _resultOptions = ToolResultRequest.Options.Default;
 
         internal string ConfigureResultPaging()
@@ -44,6 +45,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public string ImageMimeType { get; private set; }
 
         public string Error { get; private set; }
+        internal string ErrorReason { get; private set; }
         public string ErrorData { get; private set; }
         public int ErrorCode { get; private set; } = -32000;
         public bool Cancelled { get; private set; }
@@ -129,9 +131,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public void SetResult(string text)
         {
             string body = WithArgumentWarning(text);
-            RecordStats(body.Length, false);
-            ResultText = ToolResultRequest.Format(ToolName, body, _resultOptions);
-            AgentMCPServer.RaiseCallFinish(ToolName, body, false);
+            ToolFailure = MCPToolFailure.FromText(ToolName, text);
+            bool failed = ToolFailure != null;
+            RecordStats(body.Length, failed);
+            ResultText = failed ? ToolResultRequest.FormatError(ToolName, body, _resultOptions)
+                : ToolResultRequest.Format(ToolName, body, _resultOptions);
+            AgentMCPServer.RaiseCallFinish(ToolName, body, failed);
             _done.Set();
             try { OnComplete?.Invoke(this); } catch { }
         }
@@ -147,13 +152,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             ImageMimeType = string.IsNullOrEmpty(mimeType) ? "image/png" : mimeType;
         }
 
-        public void SetError(string message, string data = null, int code = -32000)
+        public void SetError(string message, string data = null, int code = -32000, bool executionFailure = false)
         {
             RecordStats(0, true);
             string fullError = WithArgumentWarning(message ?? "Unknown error");
+            ErrorReason = MCPToolFailure.FirstLine(message);
             Error = ToolResultRequest.FormatError(ToolName, fullError, _resultOptions);
             ErrorData = ToolResultRequest.FormatError(ToolName + ".errorData", data ?? "", _resultOptions);
             ErrorCode = code;
+            if (executionFailure) ToolFailure = MCPToolFailure.Execution(ToolName, message, ErrorData);
             AgentMCPServer.RaiseCallFinish(ToolName, fullError, true);
             _done.Set();
             try { OnComplete?.Invoke(this); } catch { }
@@ -201,6 +208,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         }
 
         internal static bool IsReader(string name) => string.Equals(name, ReaderName, StringComparison.OrdinalIgnoreCase);
+
+        internal static string ValidateExecuteEnvelope(JNode args)
+        {
+            foreach (string key in args.Keys)
+                if (key != "name" && key != "arguments" && key != "resultOffset" && key != "resultLimit" && key != "resultMaxChars")
+                    return $"Unknown ExecuteUnityTool argument '{key}'. Accepted: name, arguments, resultOffset, resultLimit, resultMaxChars. Pass tool-specific arguments inside 'arguments'.";
+            return null;
+        }
 
         internal static bool TryGetOptions(string toolName, JNode args, out Options options, out string error)
         {

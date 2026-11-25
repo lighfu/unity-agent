@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -13,62 +14,168 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class SceneTools
     {
-        private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
+        internal static GameObject FindReadableTarget(string name)
+        {
+            if (name.StartsWith("/", System.StringComparison.Ordinal) || name.Contains("::/") ||
+                name.StartsWith("instanceId:", System.StringComparison.OrdinalIgnoreCase))
+                return TryResolveTarget(name, out var target, out _) ? target : null;
+            return MeshAnalysisTools.FindGameObject(name);
+        }
+
+        // Mutation targets never fall back from a path to a matching leaf elsewhere. A unique
+        // bare name or partial path remains supported, including inactive objects.
+        internal static bool TryResolveTarget(string target, out GameObject found, out string error) =>
+            TryResolveTarget(target, out found, out error, out _);
+
+        internal static bool TryResolveTarget(string target, out GameObject found, out string error, out bool ambiguous)
+        {
+            found = null;
+            error = null;
+            ambiguous = false;
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                error = "Error: A GameObject name or hierarchy path is required.";
+                return false;
+            }
+
+            var stage = PrefabStageUtility.GetCurrentPrefabStage();
+
+            if (target.StartsWith("instanceId:", System.StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(target.Substring("instanceId:".Length), out int id))
+            {
+                found = EditorUtility.InstanceIDToObject(id) as GameObject;
+                if (found != null && found.scene.IsValid() && found.scene.isLoaded && !EditorUtility.IsPersistent(found) &&
+                    (stage == null || found.scene == stage.scene)) return true;
+                found = null;
+                error = $"Error: '{target}' does not identify a loaded scene GameObject.";
+                return false;
+            }
+
+            int qualifier = target.IndexOf("::/", System.StringComparison.Ordinal);
+            string scene = qualifier >= 0 ? target.Substring(0, qualifier) : null;
+            string path = qualifier >= 0 ? target.Substring(qualifier + 2) : target;
+            int separator = path.LastIndexOf('/');
+            string leaf = path.Substring(separator + 1);
+            var exact = new List<GameObject>();
+            var folded = new List<GameObject>();
+            var nearby = new List<GameObject>();
+            int sceneCount = stage == null ? SceneManager.sceneCount : 1;
+            for (int i = 0; i < sceneCount; i++)
+            {
+                var loaded = stage == null ? SceneManager.GetSceneAt(i) : stage.scene;
+                if (!loaded.isLoaded) continue;
+                foreach (var root in loaded.GetRootGameObjects())
+                foreach (var transform in root.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!string.Equals(transform.name, leaf, System.StringComparison.OrdinalIgnoreCase)) continue;
+                    var candidate = transform.gameObject;
+                    nearby.Add(candidate);
+                    if (scene != null && !string.Equals(scene, stage?.assetPath ?? SceneLabel(loaded), System.StringComparison.OrdinalIgnoreCase)) continue;
+                    string candidatePath = separator < 0 ? transform.name : "/" + HierarchyTools.GetFullPath(transform);
+                    if (MatchesPath(candidatePath, path, System.StringComparison.Ordinal)) exact.Add(candidate);
+                    else if (MatchesPath(candidatePath, path, System.StringComparison.OrdinalIgnoreCase)) folded.Add(candidate);
+                }
+            }
+
+            var matches = exact.Count > 0 ? exact : folded;
+            if (matches.Count == 1)
+            {
+                found = matches[0];
+                return true;
+            }
+
+            ambiguous = matches.Count > 1;
+            error = ambiguous
+                ? $"Error: GameObject target '{target}' is ambiguous ({matches.Count} matches)."
+                : $"Error: GameObject target '{target}' was not found.";
+            var choices = matches.Count > 0 ? matches : nearby;
+            if (choices.Count > 0)
+            {
+                error += " Candidate hierarchy paths: " + string.Join(", ", choices.Take(12).Select(DescribeTarget)) + ".";
+                if (choices.Count > 12) error += $" Showing 12 of {choices.Count}.";
+                error += " Use the full path or the instanceId when paths are identical.";
+            }
+            else error += " Use FindObjectsByName or ListRootObjects to locate the target.";
+            return false;
+        }
+
+        static bool MatchesPath(string candidate, string target, System.StringComparison comparison) =>
+            target.IndexOf('/') < 0 || target.StartsWith("/", System.StringComparison.Ordinal)
+                ? string.Equals(candidate, target, comparison)
+                : candidate.EndsWith("/" + target, comparison);
+
+        static string SceneLabel(Scene scene) => string.IsNullOrEmpty(scene.path) ? scene.name : scene.path;
+
+        internal static string DescribeTarget(GameObject go)
+        {
+            var stage = PrefabStageUtility.GetCurrentPrefabStage();
+            string scene = stage != null && stage.scene == go.scene ? stage.assetPath : SceneLabel(go.scene);
+            return $"'{scene}::/{HierarchyTools.GetFullPath(go.transform)}' (instanceId:{go.GetInstanceID()})";
+        }
+
+        internal static bool TryResolveCreationParent(string name, out GameObject parent, out string error)
+        {
+            if (!string.IsNullOrEmpty(name)) return TryResolveTarget(name, out parent, out error);
+            parent = PrefabStageUtility.GetCurrentPrefabStage()?.prefabContentsRoot;
+            error = null;
+            return true;
+        }
+
+        internal static string UniqueSiblingName(GameObject go, string baseName)
+        {
+            var used = new HashSet<string>();
+            var parent = go.transform.parent;
+            if (parent == null)
+            {
+                foreach (var root in go.scene.GetRootGameObjects())
+                    if (root != go) used.Add(root.name);
+            }
+            else
+            {
+                for (int i = 0; i < parent.childCount; i++)
+                {
+                    var sibling = parent.GetChild(i).gameObject;
+                    if (sibling != go) used.Add(sibling.name);
+                }
+            }
+
+            string name = baseName;
+            for (int suffix = 1; used.Contains(name); suffix++) name = $"{baseName} ({suffix})";
+            return name;
+        }
+
         [AgentTool("Create a new empty GameObject. Optionally set a parent.")]
         public static string CreateGameObject(string name, string parentName = "")
         {
-            GameObject go = new GameObject(name);
+            if (string.IsNullOrWhiteSpace(name)) return "Error: GameObject name is required.";
+            if (!TryResolveCreationParent(parentName, out var parent, out string error)) return error;
 
-            // 名前の一意性を保証
-            var found = GameObject.Find(go.name);
-            if (found != null && found != go)
-            {
-                int suffix = 1;
-                string uniqueName;
-                do
-                {
-                    uniqueName = $"{name} ({suffix})";
-                    suffix++;
-                } while (GameObject.Find(uniqueName) != null);
-                go.name = uniqueName;
-            }
-
+            var go = new GameObject(name);
+            if (parent != null) go.transform.SetParent(parent.transform, false);
+            go.name = UniqueSiblingName(go, name);
             Undo.RegisterCreatedObjectUndo(go, "Create GameObject via Agent");
-
-            if (!string.IsNullOrEmpty(parentName))
-            {
-                var parent = FindGO(parentName);
-                if (parent != null)
-                {
-                    go.transform.SetParent(parent.transform, false);
-                }
-                else
-                {
-                    return $"Success: Created '{go.name}', but parent '{parentName}' was not found.";
-                }
-            }
-            return $"Success: Created GameObject '{go.name}'.";
+            return $"Success: Created GameObject {DescribeTarget(go)}.";
         }
 
         [AgentTool("Delete a GameObject by name. Requires user confirmation when enabled.")]
         public static string DeleteGameObject(string name)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
+            string target = DescribeTarget(go);
 
             if (!AgentSettings.RequestConfirmation(
                 "GameObject を削除",
-                $"'{name}' を削除します。子オブジェクトも全て削除されます。"))
+                $"{target} を削除します。子オブジェクトも全て削除されます。"))
                 return "Cancelled: User denied the deletion.";
 
             Undo.DestroyObjectImmediate(go);
-            return $"Success: Deleted GameObject '{name}'.";
+            return $"Success: Deleted GameObject {target}.";
         }
 
         [AgentTool("Find if a GameObject exists and return basic info.")]
         public static string FindGameObject(string name)
         {
-            var go = FindGO(name);
+            var go = FindReadableTarget(name);
             if (go == null) return "Result: Not found.";
 
             var t = go.transform;
@@ -80,17 +187,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Set the parent of a child GameObject. worldPositionStays=false (default) SNAPS the child to the parent's local origin AND resets localRotation to identity — useful for fresh attachment. worldPositionStays=true preserves the child's current world position AND rotation (Unity standard behavior) — use this when re-parenting a posed bone or accessory that already sits in the right place.")]
         public static string SetParent(string childName, string parentName, bool worldPositionStays = false)
         {
-            var child = FindGO(childName);
-            if (child == null) return $"Error: Child '{childName}' not found.";
+            if (!TryResolveTarget(childName, out var child, out string error)) return error;
 
             if (string.IsNullOrEmpty(parentName))
             {
                 Undo.SetTransformParent(child.transform, null, "Set Parent via Agent");
-                return $"Success: Unparented '{childName}'.";
+                return $"Success: Unparented {DescribeTarget(child)}.";
             }
 
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: Parent '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out error)) return error;
+            if (parent.transform.IsChildOf(child.transform))
+                return $"Error: {DescribeTarget(parent)} cannot be the parent of {DescribeTarget(child)}.";
 
             Undo.SetTransformParent(child.transform, parent.transform, worldPositionStays, "Set Parent via Agent");
             if (!worldPositionStays)
@@ -98,14 +205,13 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 child.transform.localPosition = UnityEngine.Vector3.zero;
                 child.transform.localRotation = UnityEngine.Quaternion.identity;
             }
-            return $"Success: Set parent of '{childName}' to '{parentName}'.";
+            return $"Success: Set parent of {DescribeTarget(child)} to {DescribeTarget(parent)}.";
         }
 
         [AgentTool("Set LOCAL position/rotation/scale of a GameObject. Values are in local space (relative to parent). Only pass values to change — omit or use -999 to leave unchanged. Supports named args: SetTransform('Obj', posY=1.5) to change only Y.")]
         public static string SetTransform(string name, float posX = -999, float posY = -999, float posZ = -999, float rotX = -999, float rotY = -999, float rotZ = -999, float scaleX = -999, float scaleY = -999, float scaleZ = -999)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
 
             Undo.RecordObject(go.transform, "Set Transform via Agent");
 
@@ -136,7 +242,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                 go.transform.localScale = scale;
             }
 
-            return $"Success: Updated local Transform for '{name}'.";
+            return $"Success: Updated local Transform for {DescribeTarget(go)}.";
         }
 
         [AgentTool(@"Set WORLD-space position/rotation of a GameObject (avoids manual local-space math when the parent has non-identity transform).
@@ -145,8 +251,7 @@ Scale remains local (world scale can't be set directly when parents have non-uni
 Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
         public static string SetTransformWorld(string name, float posX = -999, float posY = -999, float posZ = -999, float rotX = -999, float rotY = -999, float rotZ = -999)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
 
             Undo.RecordObject(go.transform, "Set Transform World via Agent");
 
@@ -169,61 +274,42 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
             }
 
             var wp = go.transform.position;
-            return $"Success: Updated world Transform for '{name}' (world pos=({wp.x:F3}, {wp.y:F3}, {wp.z:F3})).";
+            return $"Success: Updated world Transform for {DescribeTarget(go)} (world pos=({wp.x:F3}, {wp.y:F3}, {wp.z:F3})).";
         }
 
         [AgentTool("Duplicate a GameObject.")]
         public static string DuplicateGameObject(string name)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
 
             var newGo = Object.Instantiate(go, go.transform.parent);
-
-            // 名前の一意性を保証
-            string baseName = go.name + "_Clone";
-            newGo.name = baseName;
-            var found = GameObject.Find(newGo.name);
-            if (found != null && found != newGo)
-            {
-                int suffix = 1;
-                string uniqueName;
-                do
-                {
-                    uniqueName = $"{baseName} ({suffix})";
-                    suffix++;
-                } while (GameObject.Find(uniqueName) != null);
-                newGo.name = uniqueName;
-            }
+            newGo.name = UniqueSiblingName(newGo, go.name + "_Clone");
 
             Undo.RegisterCreatedObjectUndo(newGo, "Duplicate GameObject via Agent");
 
-            return $"Success: Duplicated '{name}' to '{newGo.name}'.";
+            return $"Success: Duplicated {DescribeTarget(go)} to {DescribeTarget(newGo)}.";
         }
 
         [AgentTool("Make a GameObject look at another target GameObject.")]
         public static string LookAt(string sourceName, string targetName)
         {
-            var source = FindGO(sourceName);
-            if (source == null) return $"Error: Source GameObject '{sourceName}' not found.";
-
-            var target = FindGO(targetName);
-            if (target == null) return $"Error: Target GameObject '{targetName}' not found.";
+            if (!TryResolveTarget(sourceName, out var source, out string error)) return error;
+            if (!TryResolveTarget(targetName, out var target, out error)) return error;
 
             Undo.RecordObject(source.transform, "LookAt via Agent");
             source.transform.LookAt(target.transform);
-            return $"Success: Made '{sourceName}' look at '{targetName}'.";
+            return $"Success: Made {DescribeTarget(source)} look at {DescribeTarget(target)}.";
         }
 
         [AgentTool("Get the local and world Transform values (position, rotation, scale) of a GameObject.")]
         public static string GetTransform(string name)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
 
             var t = go.transform;
             var sb = new StringBuilder();
             sb.AppendLine($"Transform: {go.name}");
+            sb.AppendLine($"  Target: {DescribeTarget(go)}");
             sb.AppendLine($"  Local Position: ({t.localPosition.x:F4}, {t.localPosition.y:F4}, {t.localPosition.z:F4})");
             sb.AppendLine($"  Local Rotation: ({t.localEulerAngles.x:F2}, {t.localEulerAngles.y:F2}, {t.localEulerAngles.z:F2})");
             sb.AppendLine($"  Local Scale: ({t.localScale.x:F4}, {t.localScale.y:F4}, {t.localScale.z:F4})");
@@ -235,8 +321,9 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
         [AgentTool("Rename a GameObject.")]
         public static string RenameGameObject(string currentName, string newName)
         {
-            var go = FindGO(currentName);
-            if (go == null) return $"Error: GameObject '{currentName}' not found.";
+            if (!TryResolveTarget(currentName, out var go, out string error)) return error;
+            if (string.IsNullOrWhiteSpace(newName)) return "Error: The new GameObject name is required.";
+            string oldTarget = DescribeTarget(go);
 
             Undo.RecordObject(go, "Rename GameObject via Agent");
             go.name = newName;
@@ -252,24 +339,22 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
                         sameNameCount++;
                 }
                 if (sameNameCount > 0)
-                    return $"Success: Renamed '{currentName}' to '{newName}'. Warning: {sameNameCount} sibling(s) with the same name exist.";
+                    return $"Success: Renamed {oldTarget} to {DescribeTarget(go)}. Warning: {sameNameCount} sibling(s) with the same name exist.";
             }
 
-            return $"Success: Renamed '{currentName}' to '{newName}'.";
+            return $"Success: Renamed {oldTarget} to {DescribeTarget(go)}.";
         }
 
         [AgentTool("Copy transform (position/rotation/scale) from one GameObject to another. 'what' = position, rotation, scale, or all.")]
         public static string CopyTransform(string sourceName, string targetName, string what = "all", bool local = false)
         {
-            var source = FindGO(sourceName);
-            if (source == null) return $"Error: Source GameObject '{sourceName}' not found.";
-
-            var target = FindGO(targetName);
-            if (target == null) return $"Error: Target GameObject '{targetName}' not found.";
+            if (!TryResolveTarget(sourceName, out var source, out string error)) return error;
+            if (!TryResolveTarget(targetName, out var target, out error)) return error;
+            string w = what.ToLowerInvariant();
+            if (w != "position" && w != "rotation" && w != "scale" && w != "all")
+                return "Error: 'what' must be position, rotation, scale, or all.";
 
             Undo.RecordObject(target.transform, "Copy Transform via Agent");
-
-            string w = what.ToLowerInvariant();
 
             if (w == "position" || w == "all")
             {
@@ -293,14 +378,13 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
             }
 
             string space = local ? "local" : "world";
-            return $"Success: Copied {w} from '{sourceName}' to '{targetName}' ({space} space).";
+            return $"Success: Copied {w} from {DescribeTarget(source)} to {DescribeTarget(target)} ({space} space).";
         }
 
         [AgentTool("Set the sibling order of a GameObject in hierarchy. Index 0 = first child, -1 = last.")]
         public static string SetSiblingIndex(string name, int index)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
 
             Undo.RecordObject(go.transform, "Set Sibling Index via Agent");
 
@@ -312,7 +396,7 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
                 go.transform.SetSiblingIndex(index);
 
             int actual = go.transform.GetSiblingIndex();
-            return $"Success: Set sibling index of '{name}' to {actual}.";
+            return $"Success: Set sibling index of {DescribeTarget(go)} to {actual}.";
         }
 
         // ── Helper ──────────────────────────────────────────────────
@@ -349,8 +433,7 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
         [AgentTool("Set active state for child GameObjects matching a name pattern. Case-insensitive partial match. Recursive by default.")]
         public static string BatchSetActive(string parentName, string namePattern, bool isActive, bool recursive = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
 
             var matches = GetMatchingChildren(parent, namePattern, recursive);
             if (matches.Count == 0) return $"No children matching '{namePattern}' found under '{parentName}'.";
@@ -363,14 +446,13 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
             }
             ToolProgress.Clear();
 
-            return $"Success: Set active={isActive} on {matches.Count} object(s) matching '{namePattern}' under '{parentName}'.";
+            return $"Success: Set active={isActive} on {matches.Count} object(s) matching '{namePattern}' under {DescribeTarget(parent)}.";
         }
 
         [AgentTool("Rename child GameObjects by replacing a search string with a replacement. Case-insensitive match. Recursive by default.")]
         public static string BatchRename(string parentName, string search, string replace, bool recursive = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
 
             var matches = GetMatchingChildren(parent, search, recursive);
             if (matches.Count == 0) return $"No children matching '{search}' found under '{parentName}'.";
@@ -384,7 +466,7 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
                 Undo.RecordObject(matches[i], "BatchRename via Agent");
                 string oldName = matches[i].name;
                 matches[i].name = Regex.Replace(matches[i].name, pattern, replace, RegexOptions.IgnoreCase);
-                sb.AppendLine($"  '{oldName}' -> '{matches[i].name}'");
+                sb.AppendLine($"  '{oldName}' -> {DescribeTarget(matches[i])}");
             }
             ToolProgress.Clear();
 
@@ -394,15 +476,15 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
         [AgentTool("Delete child GameObjects matching a name pattern. Requires user confirmation. Recursive by default.")]
         public static string BatchDelete(string parentName, string namePattern, bool recursive = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
+            string target = DescribeTarget(parent);
 
             var matches = GetMatchingChildren(parent, namePattern, recursive);
             if (matches.Count == 0) return $"No children matching '{namePattern}' found under '{parentName}'.";
 
             if (!AgentSettings.RequestConfirmation(
                 "一括削除",
-                $"{matches.Count}個のGameObjectを削除します。\nパターン: '{namePattern}' (親: '{parentName}')"))
+                $"{matches.Count}個のGameObjectを削除します。\nパターン: '{namePattern}' (親: {target})"))
                 return "Cancelled: User denied the batch deletion.";
 
             // 逆順で削除（インデックスずれ防止）
@@ -414,14 +496,13 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
             }
             ToolProgress.Clear();
 
-            return $"Success: Deleted {total} object(s) matching '{namePattern}' under '{parentName}'.";
+            return $"Success: Deleted {total} object(s) matching '{namePattern}' under {target}.";
         }
 
         [AgentTool("Set tag on child GameObjects matching a name pattern. Recursive by default.")]
         public static string BatchSetTag(string parentName, string namePattern, string tag, bool recursive = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
 
             // タグの有効性を事前検証
             try { parent.CompareTag(tag); }
@@ -436,14 +517,13 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
                 go.tag = tag;
             }
 
-            return $"Success: Set tag='{tag}' on {matches.Count} object(s) matching '{namePattern}' under '{parentName}'.";
+            return $"Success: Set tag='{tag}' on {matches.Count} object(s) matching '{namePattern}' under {DescribeTarget(parent)}.";
         }
 
         [AgentTool("Set layer on child GameObjects matching a name pattern. Layer can be a name or number. Recursive by default.")]
         public static string BatchSetLayer(string parentName, string namePattern, string layerName, bool recursive = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
 
             int layer;
             if (int.TryParse(layerName, out layer))
@@ -466,7 +546,7 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
             }
 
             string resolvedName = LayerMask.LayerToName(layer);
-            return $"Success: Set layer='{resolvedName}' ({layer}) on {matches.Count} object(s) matching '{namePattern}' under '{parentName}'.";
+            return $"Success: Set layer='{resolvedName}' ({layer}) on {matches.Count} object(s) matching '{namePattern}' under {DescribeTarget(parent)}.";
         }
 
         // ── Hierarchy Structure ─────────────────────────────────────
@@ -474,8 +554,7 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
         [AgentTool("Detach all direct children of a GameObject to its parent level. Preserves world position by default.")]
         public static string UnparentChildren(string parentName, bool worldPositionStays = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
 
             int childCount = parent.transform.childCount;
             if (childCount == 0) return $"'{parentName}' has no children to unparent.";
@@ -489,14 +568,13 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
                 Undo.SetTransformParent(child, grandparent, worldPositionStays, "UnparentChildren via Agent");
             }
 
-            return $"Success: Unparented {childCount} children from '{parentName}'.";
+            return $"Success: Unparented {childCount} children from {DescribeTarget(parent)}.";
         }
 
         [AgentTool("Sort direct children of a GameObject alphabetically. ascending=true for A-Z.")]
         public static string SortChildren(string parentName, bool ascending = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
 
             int childCount = parent.transform.childCount;
             if (childCount <= 1) return $"'{parentName}' has {childCount} child(ren), no sorting needed.";
@@ -516,14 +594,13 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
                 children[i].SetSiblingIndex(i);
 
             string order = ascending ? "A-Z" : "Z-A";
-            return $"Success: Sorted {childCount} children of '{parentName}' ({order}).";
+            return $"Success: Sorted {childCount} children of {DescribeTarget(parent)} ({order}).";
         }
 
         [AgentTool("Move grandchildren and deeper descendants to be direct children of a GameObject. Direct children are left untouched. Preserves world position by default.")]
         public static string FlattenHierarchy(string parentName, bool worldPositionStays = true)
         {
-            var parent = FindGO(parentName);
-            if (parent == null) return $"Error: GameObject '{parentName}' not found.";
+            if (!TryResolveTarget(parentName, out var parent, out string error)) return error;
 
             var allDescendants = parent.GetComponentsInChildren<Transform>(true);
             // 自身と直接の子は除外 — 孫以下のみ対象
@@ -547,36 +624,34 @@ Supports named args: SetTransformWorld('Cube', posX=1.5, posZ=-0.2).")]
                 Undo.SetTransformParent(t, parent.transform, worldPositionStays, "FlattenHierarchy via Agent");
             }
 
-            return $"Success: Flattened {toMove.Count} descendant(s) to direct children of '{parentName}'.";
+            return $"Success: Flattened {toMove.Count} descendant(s) to direct children of {DescribeTarget(parent)}.";
         }
 
         [AgentTool("Move a GameObject one position up in sibling order.")]
         public static string MoveUp(string name)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
 
             int current = go.transform.GetSiblingIndex();
             if (current == 0) return $"'{name}' is already the first sibling.";
 
             Undo.RecordObject(go.transform, "MoveUp via Agent");
             go.transform.SetSiblingIndex(current - 1);
-            return $"Success: Moved '{name}' up from index {current} to {current - 1}.";
+            return $"Success: Moved {DescribeTarget(go)} up from index {current} to {current - 1}.";
         }
 
         [AgentTool("Move a GameObject one position down in sibling order.")]
         public static string MoveDown(string name)
         {
-            var go = FindGO(name);
-            if (go == null) return $"Error: GameObject '{name}' not found.";
+            if (!TryResolveTarget(name, out var go, out string error)) return error;
 
             int current = go.transform.GetSiblingIndex();
-            int lastIndex = go.transform.parent != null ? go.transform.parent.childCount - 1 : SceneManager.GetActiveScene().GetRootGameObjects().Length - 1;
+            int lastIndex = go.transform.parent != null ? go.transform.parent.childCount - 1 : go.scene.rootCount - 1;
             if (current >= lastIndex) return $"'{name}' is already the last sibling.";
 
             Undo.RecordObject(go.transform, "MoveDown via Agent");
             go.transform.SetSiblingIndex(current + 1);
-            return $"Success: Moved '{name}' down from index {current} to {current + 1}.";
+            return $"Success: Moved {DescribeTarget(go)} down from index {current} to {current + 1}.";
         }
     }
 }

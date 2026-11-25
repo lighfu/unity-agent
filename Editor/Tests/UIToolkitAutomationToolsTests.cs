@@ -65,7 +65,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
             return match.Groups[1].Value;
         }
 
-        private static IEnumerator Completed(string result)
+        private static IEnumerator Completed(string result, string verification = "not_performed")
         {
             var match = Regex.Match(result, @"actionId=([a-f0-9]+)");
             Assert.IsTrue(match.Success, result);
@@ -77,6 +77,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
                 status = UIActionTools.GetUIActionResult(match.Groups[1].Value);
             } while (status.Contains("state=queued") && EditorApplication.timeSinceStartup < deadline);
             Assert.That(status, Does.Contain("state=completed"), status);
+            Assert.That(status, Does.Contain("verification=" + verification), status);
         }
 
         [UnityTest]
@@ -93,12 +94,21 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
         {
             yield return null;
             string id = Id("number");
-            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "42"));
+            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "42"), "matched");
             Assert.AreEqual(42, window.Number.value);
             Assert.AreEqual(1, window.Changes);
-            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "43", notify: false));
+            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "43", notify: false), "matched");
             Assert.AreEqual(43, window.Number.value);
             Assert.AreEqual(1, window.Changes);
+        }
+
+        [UnityTest]
+        public IEnumerator ValueReadBackReportsCallbackOverridingTheRequestedValue()
+        {
+            yield return null;
+            window.Number.RegisterValueChangedCallback(_ => window.Number.SetValueWithoutNotify(17));
+            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(Id("number"), "42"), "mismatch");
+            Assert.AreEqual(17, window.Number.value);
         }
 
         [UnityTest]
@@ -107,7 +117,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
             yield return null;
             string id = Id("number");
             window.rootVisualElement.Insert(0, new IntegerField { value = 99 });
-            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "7"));
+            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "7"), "matched");
             Assert.AreEqual(7, window.Number.value);
         }
 
@@ -184,9 +194,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
         public IEnumerator EnumFieldsUseInitializedConcreteEnumType()
         {
             yield return null;
-            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(Id("choice"), "Second"));
+            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(Id("choice"), "Second"), "matched");
             Assert.AreEqual(UIToolkitAutomationTestWindow.Choice.Second, window.rootVisualElement.Q<EnumField>("choice").value);
-            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(Id("options"), "A,B"));
+            yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(Id("options"), "A,B"), "matched");
             Assert.AreEqual(UIToolkitAutomationTestWindow.Options.A | UIToolkitAutomationTestWindow.Options.B,
                 window.rootVisualElement.Q<UnityEditor.UIElements.EnumFlagsField>("options").value);
             Assert.That(UIToolkitAutomationTools.SetUIToolkitValue(Id("options"), "99999"), Does.StartWith("Error:"));
@@ -216,9 +226,9 @@ namespace AjisaiFlow.UnityAgent.Editor.Tests
                 yield return null;
                 string id = Id("object");
                 Assert.That(UIToolkitAutomationTools.SetUIToolkitValue(id, UIAutomationUtility.InstanceId(wrong).ToString()), Does.Contain("accepts Texture2D"));
-                yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, UIAutomationUtility.InstanceId(texture).ToString()));
+                yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, UIAutomationUtility.InstanceId(texture).ToString()), "matched");
                 Assert.AreSame(texture, window.rootVisualElement.Q<UnityEditor.UIElements.ObjectField>("object").value);
-                yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "null"));
+                yield return Completed(UIToolkitAutomationTools.SetUIToolkitValue(id, "null"), "matched");
                 Assert.IsNull(window.rootVisualElement.Q<UnityEditor.UIElements.ObjectField>("object").value);
             }
             finally

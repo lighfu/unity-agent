@@ -59,13 +59,21 @@ TypeEditorUIText("日本語の入力", windowInstanceId: 12345);
 
 ## 実行結果と対応範囲
 
-操作ツールは次の Editor 更新へ実行をキューし、`actionId` をすぐ返します。`GetUIActionResult` の状態は queued / running / completed / failed です。**completed はイベント送信の完了**を表し、目的の画面状態になった保証ではありません。再検査やキャプチャで確認し、結果待ちの操作を重ねて再実行しないでください。結果は直近 256 件を保持し、ドメインリロードで失効します。
+操作ツールは次の Editor 更新へ実行をキューし、`actionId` を返します。`GetUIActionResult` は `state` で送信の進行状況を返します。`state=completed` になった後、`verification` で操作直後の確認結果を読めます。`SetUIToolkitValue` と `SetRuntimeUIValue` は対象コントロールの値を読み返し、`matched`、`mismatch`、`unavailable` のいずれかを返します。クリックやキー送信などの `verification=not_performed` は、UI を再検査するかキャプチャして反映を確認してください。
+
+同じ Unity Editor の起動中は、ドメインリロード後も同じ `actionId` で最大 256 件の結果を確認できます。リロード前に送信を始めていない操作は `not_dispatched`、送信を始めて結果を記録できなかった操作は `outcome_unknown` になります。中断された操作の自動再実行はありません。`outcome_unknown` や `failed` の場合は、再実行する前に部分的な反映が起きていないか確認してください。
 
 クリック先がモーダルダイアログを開くと Unity のメインスレッドが停止する場合があります。MCP の `GetUIActionResult` / `GetIMGUIInspectionResult` はメインスレッドを使わず結果キャッシュを読めます。Windows では既存の `GetEditorState` / `AnswerModalDialog` が別スレッドからダイアログの状態取得・応答もできます。UI 操作とフォーカス・再描画を伴う `InspectIMGUI` の分類は Caution、構造検査と結果取得は Safe です。UI 操作を元に戻せるかは、対象 UI のコールバックが Undo を実装しているかによります。
 
 対象は Unity の読み取り可能な UI Toolkit ツリー、IMGUI の取得可能な描画命令、Canvas UI です。閉じたウィンドウ、未生成の UI、描画しない仮想化項目、OS のネイティブファイルダイアログ、独自 GPU 描画の内部状態は自動で完全認識できません。画像からの視覚的な判断は利用中のモデルの画像入力対応にも依存します。
 
 API の仕様確認には [Unity UI Toolkit の Clickable](https://docs.unity3d.com/2022.3/Documentation/ScriptReference/UIElements.Clickable.html) と [Unity 2022.3 GUI デバッガの公開参照ソース](https://github.com/Unity-Technologies/UnityCsReference/blob/2022.3/Editor/Mono/GUIDebugger/GUIViewDebuggerHelper.bindings.cs) を使用しています。
+
+## MV の指定時刻を撮影する
+
+対応する MV レンダラーがあるプロジェクトでは、MV シーンを Edit Mode で開き、`ExecuteUnityTool` から `CaptureMVFrame` を呼び出します。引数に `mvAssetPath`、`timeSeconds`、`camera` をまとめて渡します。`camera` に `viewer` を指定すると、その時刻に評価された MV ビューアの視点を使います。ほかに `scene:Main Camera` のような名前、`scene:/Root/Camera` のような階層パス、`scene-id:<GlobalObjectId>`、`mv:<カメラクリップID>` を指定できます。
+
+MV レンダラーがシーンを評価し、動画のシークを待ってから 1 フレームを描画します。MCP の同じ応答に PNG と `evaluatedTimeSeconds`、使用したカメラの識別情報、位置、回転、画角が含まれます。編集前後の比較では同じ `mvAssetPath`、`timeSeconds`、`camera`、`width`、`height` を渡します。撮影を始めるとタイムラインの再生が止まり、処理後に直前のプレビュー状態を復元します。
 
 ## 検証
 

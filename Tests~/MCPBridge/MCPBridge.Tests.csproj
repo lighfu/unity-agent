@@ -10,6 +10,8 @@
     <Compile Include="../../Editor/MCP/AgentMCPServerBootstrap.cs" Link="AgentMCPServerBootstrap.cs" />
     <Compile Include="../../Editor/MCP/AgentMCPBridgeClient.cs" Link="AgentMCPBridgeClient.cs" />
     <Compile Include="../../Editor/MCP/MCPMainThreadWakeup.cs" Link="MCPMainThreadWakeup.cs" />
+    <Compile Include="../../Editor/MCP/MainThreadWatchdog.cs" Link="MainThreadWatchdog.cs" />
     <Compile Include="../../Editor/MCP/SimpleJson.cs" Link="SimpleJson.cs" />
+    <Compile Include="../../Editor/MCP/MCPToolFailure.cs" Link="MCPToolFailure.cs" />
   </ItemGroup>
 </Project>

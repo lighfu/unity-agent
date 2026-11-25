@@ -12,23 +12,49 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
     [InitializeOnLoad]
     internal static class UIAutomationUtility
     {
+        [Serializable]
         private sealed class ActionResult
         {
             public string Id;
             public string State = "queued";
+            public string Verification = "not_performed";
             public string Error;
         }
 
         private const int MaxResults = 256;
+        private const string SessionIndexKey = "UnityAgent.UIAction.Ids";
+        private const string SessionKeyPrefix = "UnityAgent.UIAction.Result.";
         private static readonly object ResultLock = new object();
         private static readonly Dictionary<string, ActionResult> Results = new Dictionary<string, ActionResult>();
-        private static readonly Queue<string> ResultOrder = new Queue<string>();
+        private static readonly List<string> ResultOrder = new List<string>();
 
         internal static int PlaySession { get; private set; }
 
         static UIAutomationUtility()
         {
             EditorApplication.playModeStateChanged += _ => PlaySession++;
+        }
+
+        [InitializeOnLoadMethod]
+        private static void RestoreResults()
+        {
+            lock (ResultLock)
+            {
+                string[] ids = SessionState.GetString(SessionIndexKey, "")
+                    .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string id in ids)
+                {
+                    string json = SessionState.GetString(SessionKeyPrefix + id, "");
+                    if (string.IsNullOrEmpty(json)) continue;
+                    var result = JsonUtility.FromJson<ActionResult>(json);
+                    if (result?.Id != id) continue;
+                    // The old delegates belonged to the unloaded domain. Only their receipts survive.
+                    if (result.State == "queued") result.State = "not_dispatched";
+                    else if (result.State == "running") result.State = "outcome_unknown";
+                    Results.Add(id, result);
+                    ResultOrder.Add(id);
+                }
+            }
         }
 
         internal static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
@@ -93,7 +119,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         internal static string Title(EditorWindow window) => window.titleContent != null ? window.titleContent.text ?? "" : "";
 
-        internal static string Queue(UnityEngine.Object target, Action action)
+        internal static string Queue(UnityEngine.Object target, Action action, Func<bool?> verify = null)
         {
             if (target == null) return "Error: the UI target was destroyed.";
             ActionResult result;
@@ -105,13 +131,14 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     string completed = ResultOrder.FirstOrDefault(id => Results[id].State != "queued" && Results[id].State != "running");
                     if (completed == null) return "Error: too many pending UI actions. Wait for existing actions to finish.";
                     Results.Remove(completed);
-                    var kept = ResultOrder.Where(id => id != completed).ToArray();
-                    ResultOrder.Clear();
-                    foreach (string id in kept) ResultOrder.Enqueue(id);
+                    ResultOrder.Remove(completed);
+                    SessionState.EraseString(SessionKeyPrefix + completed);
                 }
                 result = new ActionResult { Id = Guid.NewGuid().ToString("N") };
+                SaveResult(result);
                 Results.Add(result.Id, result);
-                ResultOrder.Enqueue(result.Id);
+                ResultOrder.Add(result.Id);
+                SessionState.SetString(SessionIndexKey, string.Join(",", ResultOrder));
             }
             // update is also pumped by batch mode and the Unity test runner. Registering during
             // an update does not enter its current delegate snapshot, so the tool response goes first.
@@ -119,31 +146,58 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             dispatch = () =>
             {
                 EditorApplication.update -= dispatch;
-                lock (ResultLock) result.State = "running";
+                SetResult(result, "running");
                 try
                 {
                     if (target == null) throw new InvalidOperationException("The UI target was destroyed before dispatch.");
                     action();
-                    lock (ResultLock) result.State = "completed";
                 }
                 catch (ExitGUIException)
                 {
                     // Native menus and some IMGUI commands abort the current GUI pass deliberately.
-                    lock (ResultLock) result.State = "completed";
+                    SetResult(result, "completed", verify == null ? "not_performed" : "unavailable");
+                    return;
                 }
                 catch (Exception ex)
                 {
-                    lock (ResultLock)
-                    {
-                        result.State = "failed";
-                        result.Error = ex.GetBaseException().Message;
-                    }
+                    SetResult(result, "failed", error: ex.GetBaseException().Message);
                     Debug.LogWarning("[UnityAgent] UI action " + result.Id + " failed: " + result.Error);
+                    return;
                 }
+                SetResult(result, "completed", CheckEffect(verify));
             };
             EditorApplication.update += dispatch;
             return "Queued: actionId=" + result.Id + ". Call GetUIActionResult after the next editor update. " +
                 "Queued is not confirmation that the UI changed. If a modal blocks Unity, use GetEditorState and AnswerModalDialog.";
+        }
+
+        private static string CheckEffect(Func<bool?> verify)
+        {
+            if (verify == null) return "not_performed";
+            try
+            {
+                bool? matches = verify();
+                return matches == true ? "matched" : matches == false ? "mismatch" : "unavailable";
+            }
+            catch (Exception)
+            {
+                // A failing getter cannot change the outcome of dispatch.
+                return "unavailable";
+            }
+        }
+
+        private static void SaveResult(ActionResult result)
+            => SessionState.SetString(SessionKeyPrefix + result.Id, JsonUtility.ToJson(result));
+
+        private static void SetResult(ActionResult result, string state, string verification = "not_performed", string error = null)
+        {
+            lock (ResultLock)
+            {
+                result.State = state;
+                result.Verification = verification;
+                result.Error = error;
+                SaveResult(result);
+            }
         }
 
         internal static string ReadResult(string actionId)
@@ -151,19 +205,39 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
             lock (ResultLock)
             {
                 if (string.IsNullOrWhiteSpace(actionId) || !Results.TryGetValue(actionId, out var result))
-                    return "Error: unknown or expired actionId (results keep the last 256 actions and reset on domain reload).";
-                return "actionId=" + result.Id + " state=" + result.State +
-                    (result.Error == null ? "" : " error=" + result.Error) +
-                    (result.State == "completed" ? ". Dispatch completed; inspect the UI to verify the resulting application state." : "");
+                    return "Error: unknown or expired actionId (up to 256 results are retained in this Unity editor session).";
+                string detail = null;
+                switch (result.State)
+                {
+                    case "completed":
+                        detail = result.Verification == "matched"
+                            ? "Dispatch completed and the control reported the requested value immediately afterward."
+                            : "Dispatch completed. Inspect the UI to confirm the resulting application state.";
+                        break;
+                    case "failed":
+                        detail = "Dispatch failed. Inspect the UI for partial effects before deciding whether to try again.";
+                        break;
+                    case "not_dispatched":
+                        detail = "A domain reload discarded the queued action before dispatch.";
+                        break;
+                    case "outcome_unknown":
+                        detail = "A domain reload interrupted result recording after dispatch began. Inspect the UI for effects before deciding whether to try again.";
+                        break;
+                }
+                return "actionId=" + result.Id + " state=" + result.State + " verification=" + result.Verification +
+                    (result.Error == null ? "" : " error=" + result.Error) + (detail == null ? "" : ". " + detail);
             }
         }
     }
 
     public static class UIActionTools
     {
-        [AgentTool("Read a queued UI automation action's status: queued, running, completed or failed. " +
-                   "Dispatch completed does not prove the application's desired state; inspect or capture the UI afterward. " +
-                   "Results expire after 256 actions or a domain reload. MCP serves this cache off the main thread, " +
+        [AgentTool("Read a queued UI automation action's dispatch status: queued, running, completed, failed, " +
+                   "not_dispatched (discarded while queued), or outcome_unknown (reload during dispatch). " +
+                   "For direct value writes, verification reports the control's immediate read-back separately: matched, mismatch or unavailable. " +
+                   "For other actions it is not_performed; inspect or capture the UI to confirm the effect. " +
+                   "Up to 256 results survive a domain reload within this Unity editor session. Interrupted actions are never replayed. " +
+                   "MCP serves this cache off the main thread, " +
                    "so running can be observed while a modal blocks Unity; GetEditorState/AnswerModalDialog handles the dialog.", Category = "UIAutomation", Risk = ToolRisk.Safe)]
         public static string GetUIActionResult(string actionId) => UIAutomationUtility.ReadResult(actionId);
     }

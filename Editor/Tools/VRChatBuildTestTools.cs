@@ -120,8 +120,8 @@ would be auto-confirmed), a Windows / Android / iOS build target, and the avatar
 SDK Control Panel. The panel is opened automatically, but the SDK creates the builder only while
 logged in (see CheckVRChatAuthentication).
 If the avatar has no blueprint ID, the SDK assigns a local test ID, which marks the scene dirty.
-One build at a time. The jobId does not survive a domain reload; GetVRChatBuildTestResult then
-reports the job as lost.",
+One build at a time. The jobId and recorded result survive domain reloads in this editor session.
+If the reload interrupts the build, GetVRChatBuildTestResult reports state 'lost'.",
             Category = "VRChat Publishing", Risk = ToolRisk.Caution, RiskExplicit = true)]
         public static IEnumerator StartVRChatBuildTest(string avatarRootName)
         {
@@ -242,7 +242,7 @@ reports the job as lost.",
             if (note != null) sb.AppendLine($"note: {note}");
             sb.AppendLine($"Poll with GetVRChatBuildTestResult(jobId:'{job.Id}', waitSeconds:50) until state is succeeded or failed.");
             sb.Append("The SDK holds the editor's main thread for most of the build, so other tools will queue until it ends. " +
-                      "GetVRChatBuildTestResult and GetEditorState keep answering. The jobId does not survive a domain reload.");
+                      "GetVRChatBuildTestResult and GetEditorState keep answering. The jobId remains queryable after a domain reload.");
             yield return sb.ToString();
         }
 
@@ -687,8 +687,8 @@ record: the recorded outcome if the build had finished, or state 'lost' if the r
             return $"jobId: {id}\n" +
                    $"avatar: {avatar}\n" +
                    $"state: lost (a domain reload happened while this Build & Test was running; it started at {started} UTC)\n" +
-                   "The SDK's build task lived in the unloaded domain, so its outcome was never recorded and the build most likely did not complete. " +
-                   "GetConsoleLogs shows how far the SDK got; start a new build with StartVRChatBuildTest.";
+                   "The SDK's build task lived in the unloaded domain and its outcome is unknown. " +
+                   "Inspect GetConsoleLogs and the build output before deciding whether to start a new build.";
         }
 
         static string RunningRecord(BuildTestJob job)

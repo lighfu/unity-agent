@@ -85,6 +85,56 @@ In Unity:
 3. Enable `MCP Server`
 4. The bridge is auto-spawned by `AgentMCPServerBootstrap` and Unity connects automatically
 
+## Check whether Unity is ready
+
+`GET /health` reports Bridge liveness. From an MCP client, call the Bridge tool
+`GetUnityConnectionStatus` with empty arguments to check the Editor independently. The tool
+responds during a disconnect and returns a JSON object in the result's text content.
+
+| `readiness` | When it appears |
+| --- | --- |
+| `ready` | Unity recently reported that its main thread can process tools |
+| `waiting_for_connection`, `reconnecting`, `disconnected` | The Bridge is alive and has no Unity connection. `disconnectReason` records the last known cause when available |
+| `starting`, `compiling`, `importing`, `play_mode_transition`, `busy` | The Editor is connected and reports work or a transition in progress |
+| `dialog_wait` | The Editor detects a blocking dialog |
+| `unknown` | The Editor is connected, but its readiness report is missing or at least three seconds old |
+
+`unityConnected` reports the last observed transport state. `statusAgeMs` shows how long ago the
+Bridge received the latest Editor report on that connection. `mainThreadAgeMs`, when present,
+shows the age of the main-thread tick when the Editor sampled it.
+
+For `dialog_wait`, call `ExecuteUnityTool` with `name=GetEditorState` to inspect the Editor state.
+Use `ExecuteUnityTool` with `name=AnswerModalDialog` and `arguments={"dryRun":true}` to read the
+message and buttons of a supported native dialog. Choose a button explicitly to answer it.
+
+## Verify the target and classify failures
+
+Set `UNITY_AGENT_MCP_TOKEN` to the token for the selected local MCP endpoint. Run the example
+from the repository root with Python 3. It initializes the named MCP client, authenticates the
+request and calls `GetUnityAgentInfo` with `detail=connection` when invoked without a tool name.
+The report includes the editor PID, absolute project path, active scene path, endpoint, and
+authentication configuration. In Bridge mode, register the local `/mcp` URL and Bearer token
+in the client configuration. Each running Unity project needs its own MCP ports.
+
+```powershell
+python Tests~/mcp_call.py --endpoint http://127.0.0.1:17800/mcp --expect-project 'C:\Unity\ProjectA' --expect-scene Assets/Main.unity
+'{"name":"GetPlayModeState","arguments":{}}' | python Tests~/mcp_call.py --expect-project 'C:\Unity\ProjectA' ExecuteUnityTool -
+```
+
+The `--expect-project` and `--expect-scene` checks run before the named tool. The example
+writes a JSON failure report to stderr and exits with a nonzero status.
+
+| Exit status | Failure layer | MCP response |
+| --- | --- | --- |
+| `10` | HTTP or network | HTTP status outside the success range, or no HTTP connection |
+| `11` | JSON-RPC | An `error` envelope or malformed JSON-RPC response. Tool-specific failures include `error.data` with `tool`, `reason` and `suggestions` |
+| `12` | Tool execution | `result.isError` is `true`. `result.structuredContent` contains `tool`, `reason` and `suggestions` |
+| `13` | Target verification | The connected Editor identity is missing or differs from the expected project or scene |
+
+For example, an unknown tool name or invalid argument is a JSON-RPC error. A tool that accepts
+the request and reports a missing scene target is an execution error. This distinction lets a
+client decide which input to correct and whether it needs to verify the previous operation.
+
 ## Wire protocol (Unity ↔ Bridge)
 
 Each direction is line-delimited JSON. One object per line.
@@ -95,8 +145,12 @@ Each direction is line-delimited JSON. One object per line.
 // handshake (must be first message); unityPid is optional for older clients
 {"type":"hello","version":"1","token":"<shared-secret>","unityPid":12345}
 
+// readiness report, sent only when the handshake acknowledgement advertises unityStatus
+{"type":"unity_status","status":"ready","mainThreadAgeMs":15,"playMode":"edit"}
+
 // tool result
 {"type":"result","id":"<bridge-id>","ok":true,"text":"<output>"}
+{"type":"result","id":"<bridge-id>","ok":true,"text":"<description>","imageBase64":"<encoded-image>","imageMimeType":"image/png"}
 {"type":"error", "id":"<bridge-id>","code":-32000,"message":"...","data":"..."}
 
 // reload notice (sent in beforeAssemblyReload, then connection closes)
@@ -107,7 +161,7 @@ Each direction is line-delimited JSON. One object per line.
 
 ```jsonc
 // hello acknowledgement
-{"type":"hello_ack","ok":true}
+{"type":"hello_ack","ok":true,"unityStatus":true}
 {"type":"hello_ack","ok":false,"error":"bad token"}
 
 // tool call dispatch
@@ -157,7 +211,7 @@ Each direction is line-delimited JSON. One object per line.
 ## Limitations (P1)
 
 - Only one Unity connection at a time
-- `tools/list` advertises only the 4 top-level tools (SearchUnityTool, DescribeUnityTool, ExecuteUnityTool, GetUnityAgentInfo). The schemas are hardcoded here and duplicated from `Handlers.HandleToolsList` on the C# side, so adding a top-level tool means editing both. `tools/call` forwards any name to Unity, so a tool absent from this list still runs — it is only undiscoverable.
+- `tools/list` advertises the four top-level Editor tools (SearchUnityTool, DescribeUnityTool, ExecuteUnityTool, GetUnityAgentInfo) and the Bridge-local `GetUnityConnectionStatus`. The Editor tool schemas are mirrored from `Handlers.HandleToolsList` on the C# side. The Bridge also forwards unlisted Editor tool calls when the caller already knows the name.
 - No SSE channel (Claude Code falls back to plain POST)
 - No OAuth discovery (Bearer token only)
 - macOS / Linux binaries are unsigned

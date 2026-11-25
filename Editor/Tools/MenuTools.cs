@@ -141,10 +141,11 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                     return "Success: Reimporting all assets.";
 
                 case "Edit/Play":
-                    EditorApplication.isPlaying = !EditorApplication.isPlaying;
-                    return EditorApplication.isPlaying
-                        ? "Success: Entered Play mode."
-                        : "Success: Exited Play mode.";
+                    bool startPlaying = !EditorApplication.isPlaying;
+                    EditorApplication.isPlaying = startPlaying;
+                    return startPlaying
+                        ? "Success: Play Mode start requested. Check GetPlayModeState after the transition."
+                        : "Success: Play Mode stop requested. Check GetPlayModeState after the transition.";
 
                 case "Edit/Pause":
                     EditorApplication.isPaused = !EditorApplication.isPaused;

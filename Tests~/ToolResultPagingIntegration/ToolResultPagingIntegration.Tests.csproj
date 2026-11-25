@@ -10,6 +10,7 @@
     <Compile Include="../../SDK/AgentToolAttribute.cs" Link="AgentToolAttribute.cs" />
     <Compile Include="../../Editor/ToolInfra/ToolRegistry.cs" Link="ToolRegistry.cs" />
     <Compile Include="../../Editor/MCP/SimpleJson.cs" Link="SimpleJson.cs" />
+    <Compile Include="../../Editor/MCP/MCPToolFailure.cs" Link="MCPToolFailure.cs" />
     <Compile Include="../../Editor/MCP/ToolResultPager.cs" Link="ToolResultPager.cs" />
     <Compile Include="../../Editor/MCP/AgentMCPServer.cs" Link="AgentMCPServer.cs" />
     <Compile Include="../../Editor/MCP/AgentMCPServer.PendingCall.cs" Link="PendingCall.cs" />

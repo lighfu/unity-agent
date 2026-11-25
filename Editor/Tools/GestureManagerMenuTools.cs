@@ -26,8 +26,12 @@ The menus array is a graph: submenuId references another menu node. Shared menus
 offset/limit: offset is a zero-based structural record offset, limit defaults to 50 and must be 1..200. Records are ordered breadth-first by menu, then menu header, each control header, its subParameter slots and labels. Even empty menus and null controls have headers. Continue with page.nextOffset until page.hasMore is false.
 menus/controls can be fragments across pages: merge by menu id/control index, headerIncluded identifies the one header record, subParameters.slot and labels.index identify array entries. Primary parameter and parent identity are constant-size context on each fragment.
 maxMenus/maxControls: optional additional caps on menu/control fragments in this page; 0 disables that extra cap, never the limit cap. totalMenus/totalControls remain exact. Runtime values are included only for the active preview. Keep arguments unchanged while paging and restart from offset 0 if the menu graph changes.
+nameContains: case-insensitive substring of the menu or control name. A matching menu includes all its controls.
+maxDepth: maximum submenu depth from the selected menu; 0 includes that menu only, -1 (default) visits all levels.
+fields: comma-separated control details to return from parameter, subParameters, labels, icon, submenu. Empty includes all details. Identity fields are always included. Filters apply before paging.
 This reads the avatar's Expressions asset, not GM's built-in Options/Looks/Clones/Tools wheel.", Risk = ToolRisk.Safe)]
-        public static string GestureManagerGetExpressionMenu(string avatarName = "", string menuPath = "", int maxMenus = 0, int maxControls = 0, int offset = 0, int limit = GestureManagerPaging.DefaultLimit)
+        public static string GestureManagerGetExpressionMenu(string avatarName = "", string menuPath = "", int maxMenus = 0, int maxControls = 0, int offset = 0, int limit = GestureManagerPaging.DefaultLimit,
+            string nameContains = "", int maxDepth = -1, string fields = "")
         {
 #if !GESTURE_MANAGER
             return "Error: Gesture Manager package not installed.";
@@ -35,6 +39,10 @@ This reads the avatar's Expressions asset, not GM's built-in Options/Looks/Clone
             var pagingError = GestureManagerPaging.Validate(offset, limit);
             if (pagingError != null) return pagingError;
             if (maxMenus < 0 || maxControls < 0) return "Error: maxMenus and maxControls must be zero (no extra cap) or positive.";
+            if (maxDepth < -1) return "Error: maxDepth must be -1 (all levels) or non-negative.";
+            var details = new HashSet<string>((fields ?? "").Split(',').Select(field => field.Trim()).Where(field => field.Length > 0), StringComparer.OrdinalIgnoreCase);
+            if (details.Any(field => !ExpressionControlDetails.Any(known => string.Equals(known, field, StringComparison.OrdinalIgnoreCase))))
+                return $"Error: fields must be selected from {string.Join(", ", ExpressionControlDetails)}.";
             if (!TryGetMenuAvatar(avatarName, out var avatar, out var module, out var error)) return error;
             var root = avatar.expressionsMenu;
             string prefix = "";
@@ -46,19 +54,27 @@ This reads the avatar's Expressions asset, not GM's built-in Options/Looks/Clone
                 root = selected.subMenu;
             }
 
-            var graph = CollectExpressionMenus(root, prefix);
-            int totalControls = graph.Sum(entry => entry.Menu.controls?.Count ?? 0);
-            var records = CollectExpressionMenuRecords(graph);
+            var graph = CollectExpressionMenus(root, prefix, maxDepth);
+            var records = CollectExpressionMenuRecords(graph, nameContains, details);
+            int totalMenus = records.Count(record => record.Kind == ExpressionMenuRecordKind.Menu);
+            int totalControls = records.Count(record => record.Kind == ExpressionMenuRecordKind.Control);
             var menus = ExpressionMenuPage(avatar, module, records, offset, limit, maxMenus, maxControls, out var returned);
             int includedMenus = menus.AsArray.Count(menu => menu["headerIncluded"].AsBool);
             int includedControls = menus.AsArray.Sum(menu => menu["controls"].AsArray.Count(control => control["headerIncluded"].AsBool));
+            if (details.Count > 0)
+            {
+                foreach (var menu in menus.AsArray)
+                    foreach (var control in menu["controls"].AsArray)
+                        foreach (var detail in ExpressionControlDetails)
+                            if (!details.Contains(detail)) OmitExpressionDetail(control, detail);
+            }
             return JNode.Obj(
                 ("avatar", JNode.Str(avatar.gameObject.name)),
                 ("rootMenuId", JNode.Str(ExpressionMenuId(root))),
                 ("runtimeAvailable", JNode.Bool(module != null)),
-                ("totalMenus", JNode.Num(graph.Count)),
+                ("totalMenus", JNode.Num(totalMenus)),
                 ("totalControls", JNode.Num(totalControls)),
-                ("omittedMenus", JNode.Num(graph.Count - includedMenus)),
+                ("omittedMenus", JNode.Num(totalMenus - includedMenus)),
                 ("omittedControls", JNode.Num(totalControls - includedControls)),
                 ("truncated", JNode.Bool(offset > 0 || returned < records.Count)),
                 ("menus", menus),
@@ -219,10 +235,33 @@ All referenced runtime parameters and input values are validated before changing
         }
 
 #if GESTURE_MANAGER
+        private static readonly string[] ExpressionControlDetails = { "parameter", "subParameters", "labels", "icon", "submenu" };
+
+        private static void OmitExpressionDetail(JNode control, string detail)
+        {
+            switch (detail)
+            {
+                case "subParameters":
+                    control.AsObject.Remove("totalSubParameters");
+                    control.AsObject.Remove("omittedSubParameters");
+                    break;
+                case "labels":
+                    control.AsObject.Remove("totalLabels");
+                    control.AsObject.Remove("omittedLabels");
+                    break;
+                case "submenu":
+                    control.AsObject.Remove("submenuId");
+                    return;
+            }
+            control.AsObject.Remove(detail);
+        }
+
         private sealed class ExpressionMenuEntry
         {
             internal VRCExpressionsMenu Menu;
             internal string Path;
+            internal int Depth;
+            internal int MatchedControls;
         }
 
         private enum ExpressionMenuRecordKind { Menu, Control, SubParameter, Label }
@@ -238,27 +277,40 @@ All referenced runtime parameters and input values are validated before changing
 
         // Page records include collection entries, rather than just their parents, so a
         // single large menu/control cannot hide an unbounded array in one result item.
-        private static List<ExpressionMenuRecord> CollectExpressionMenuRecords(List<ExpressionMenuEntry> graph)
+        private static List<ExpressionMenuRecord> CollectExpressionMenuRecords(List<ExpressionMenuEntry> graph, string nameContains, HashSet<string> details)
         {
             var records = new List<ExpressionMenuRecord>();
+            bool Matches(string value) => string.IsNullOrEmpty(nameContains) ||
+                (value?.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0;
             foreach (var entry in graph)
             {
+                var controls = entry.Menu.controls;
+                bool menuMatches = Matches(entry.Menu.name);
+                if (!menuMatches && (controls == null || !controls.Any(control => Matches(control?.name)))) continue;
                 records.Add(new ExpressionMenuRecord { Menu = entry, Kind = ExpressionMenuRecordKind.Menu });
-                if (entry.Menu.controls == null) continue;
-                for (int i = 0; i < entry.Menu.controls.Count; i++)
-                    AddExpressionControlRecords(records, entry, entry.Menu.controls[i], i);
+                if (controls == null) continue;
+                for (int i = 0; i < controls.Count; i++)
+                {
+                    if (menuMatches || Matches(controls[i]?.name))
+                    {
+                        entry.MatchedControls++;
+                        AddExpressionControlRecords(records, entry, controls[i], i, details);
+                    }
+                }
             }
             return records;
         }
 
-        private static void AddExpressionControlRecords(List<ExpressionMenuRecord> records, ExpressionMenuEntry menu, MenuControl control, int index)
+        private static void AddExpressionControlRecords(List<ExpressionMenuRecord> records, ExpressionMenuEntry menu, MenuControl control, int index, HashSet<string> details = null)
         {
             records.Add(new ExpressionMenuRecord { Menu = menu, Control = control, ControlIndex = index, Kind = ExpressionMenuRecordKind.Control });
             if (control == null) return;
-            for (int s = 0; s < (control.subParameters?.Length ?? 0); s++)
-                records.Add(new ExpressionMenuRecord { Menu = menu, Control = control, ControlIndex = index, Kind = ExpressionMenuRecordKind.SubParameter, Slot = s });
-            for (int l = 0; l < (control.labels?.Length ?? 0); l++)
-                records.Add(new ExpressionMenuRecord { Menu = menu, Control = control, ControlIndex = index, Kind = ExpressionMenuRecordKind.Label, Slot = l });
+            if (details == null || details.Count == 0 || details.Contains("subParameters"))
+                for (int s = 0; s < (control.subParameters?.Length ?? 0); s++)
+                    records.Add(new ExpressionMenuRecord { Menu = menu, Control = control, ControlIndex = index, Kind = ExpressionMenuRecordKind.SubParameter, Slot = s });
+            if (details == null || details.Count == 0 || details.Contains("labels"))
+                for (int l = 0; l < (control.labels?.Length ?? 0); l++)
+                    records.Add(new ExpressionMenuRecord { Menu = menu, Control = control, ControlIndex = index, Kind = ExpressionMenuRecordKind.Label, Slot = l });
         }
 
         private static JNode ExpressionMenuPage(VRCAvatarDescriptor avatar, ModuleVrc3 module, List<ExpressionMenuRecord> records, int offset, int limit, int maxMenus, int maxControls, out int returned)
@@ -290,7 +342,7 @@ All referenced runtime parameters and input values are validated before changing
                         ("assetPath", JNode.Str(AssetDatabase.GetAssetPath(record.Menu.Menu))),
                         ("firstPath", JNode.Str(record.Menu.Path)),
                         ("headerIncluded", JNode.Bool(false)),
-                        ("totalControls", JNode.Num(record.Menu.Menu.controls?.Count ?? 0)),
+                        ("totalControls", JNode.Num(record.Menu.MatchedControls)),
                         ("controls", JNode.Arr()));
                     menus.AsArray.Add(menu);
                 }
@@ -395,7 +447,7 @@ All referenced runtime parameters and input values are validated before changing
         }
 
         // Iterative breadth-first traversal preserves shared/cyclic asset references and avoids a stack-depth limit.
-        private static List<ExpressionMenuEntry> CollectExpressionMenus(VRCExpressionsMenu root, string rootPath)
+        private static List<ExpressionMenuEntry> CollectExpressionMenus(VRCExpressionsMenu root, string rootPath, int maxDepth = -1)
         {
             var result = new List<ExpressionMenuEntry>();
             var seen = new HashSet<VRCExpressionsMenu>();
@@ -404,12 +456,12 @@ All referenced runtime parameters and input values are validated before changing
             for (int m = 0; m < result.Count; m++)
             {
                 var entry = result[m];
-                if (entry.Menu.controls == null) continue;
+                if (entry.Menu.controls == null || (maxDepth >= 0 && entry.Depth >= maxDepth)) continue;
                 for (int i = 0; i < entry.Menu.controls.Count; i++)
                 {
                     var control = entry.Menu.controls[i];
                     if (control == null || control.type != MenuControl.ControlType.SubMenu || control.subMenu == null || !seen.Add(control.subMenu)) continue;
-                    result.Add(new ExpressionMenuEntry { Menu = control.subMenu, Path = MenuControlPath(entry.Path, i) });
+                    result.Add(new ExpressionMenuEntry { Menu = control.subMenu, Path = MenuControlPath(entry.Path, i), Depth = entry.Depth + 1 });
                 }
             }
             return result;

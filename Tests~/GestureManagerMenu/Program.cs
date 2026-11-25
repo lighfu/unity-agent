@@ -65,6 +65,15 @@ internal static class Program
         Assert(GestureManagerTools.GestureManagerGetExpressionMenu("Avatar", "Duplicate").Contains("ambiguous"), "Duplicate names must error instead of selecting arbitrarily.");
         var nested = Parse(GestureManagerTools.GestureManagerGetExpressionMenu("Avatar", "1"));
         Assert(nested["menus"][0]["firstPath"].AsString == "1", "Selected subtree must keep paths relative to avatar root.");
+        var rootOnly = Parse(GestureManagerTools.GestureManagerGetExpressionMenu("Avatar", maxDepth: 0));
+        Assert(rootOnly["totalMenus"].AsInt == 1 && rootOnly["totalControls"].AsInt == 7, "Depth zero must retain the selected menu without visiting children.");
+        var filtered = Parse(GestureManagerTools.GestureManagerGetExpressionMenu("Avatar", nameContains: "UNBOUND", fields: " parameter "));
+        Assert(filtered["totalMenus"].AsInt == 1 && filtered["totalControls"].AsInt == 1 &&
+            filtered["page"]["total"].AsInt == 2, "Name and field filters must apply before paging.");
+        var filteredControl = filtered["menus"][0]["controls"][0];
+        Assert(filteredControl["controlPath"].AsString == "0/1" && filteredControl.AsObject.ContainsKey("parameter") &&
+            !filteredControl.AsObject.ContainsKey("subParameters"), "Filtered records must retain canonical identity and only requested details.");
+        Assert(GestureManagerTools.GestureManagerGetExpressionMenu("Avatar", fields: "opaque").StartsWith("Error:"), "Unknown fields must fail.");
         var slots = Parse(GestureManagerTools.GestureManagerGetExpressionMenuParameters("1/1", "Avatar"));
         Assert(slots["subParameters"].Count == 2 && !slots["subParameters"][1]["bound"].AsBool, "Unbound subparameter slots must remain visible.");
         Assert(slots["subParameters"][0]["defaultValue"].AsNumber == 0.25 && slots["subParameters"][0]["saved"].AsBool, "ExpressionParameter definitions must remain distinct from runtime values.");

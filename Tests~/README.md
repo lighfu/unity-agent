@@ -27,8 +27,9 @@ response routing, notification delivery, and complete, ordered JSONL writes to a
 real child process. The MCP bridge harness links the production bootstrap,
 TCP client, and wakeup helper to an editor scheduler stub and a real loopback
 bridge peer. It checks startup without `delayCall`, background main-thread
-dispatch, reconnect after socket EOF, rapid socket replacement, and wakeup
-cleanup on disabling/reload.
+dispatch, readiness reports independent of editor updates, reconnect after
+socket EOF, isolation of retired connections, and wakeup cleanup on
+disabling/reload.
 The scheduler executes updates only when `SignalTick` requests them and asserts
 that Editor APIs and tools run on the main thread. These are not full Unity
 Editor integration tests. Import the package with its Unity/VRChat dependencies

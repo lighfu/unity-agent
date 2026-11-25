@@ -77,6 +77,8 @@ Modular Avatar · NDMF · VRCFury · Avatar Optimizer (AAO) · lilToon · FaceEm
 
 > 破壊的な操作(削除など)は実行前に確認ダイアログが表示されます。
 
+繰り返す作業は UnityAgent SDK で独自の MCP ツールとして登録できます。 [シーン検査ツールの登録例](docs/project-tools.md)
+
 ## 依存・必要要件
 
 - Unity **2022.3** 以降

@@ -38,15 +38,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         public static AgentMCPBridgeClient Shared => _instance ??= new AgentMCPBridgeClient();
 
-        TcpClient _tcp;
+        volatile TcpClient _tcp;
         NetworkStream _stream;
         StreamWriter _writer;
 
         const int MainThreadStallThresholdMs = MainThreadWatchdog.DefaultStallThresholdMs;
         StreamReader _reader;
         Thread _readerThread;
+        Timer _statusTimer;
         volatile bool _running;
-        volatile bool _connected;
+        TcpClient _connectedTcp;
         volatile bool _starting;
 
         readonly object _queueLock = new object();
@@ -64,8 +65,8 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         string _token;
         const string ProtocolVersion = "1";
 
-        public bool IsConnected => _connected;
-        public bool IsStarting => _starting && !_connected;
+        public bool IsConnected => Volatile.Read(ref _connectedTcp) != null;
+        public bool IsStarting => _starting && !IsConnected;
         public int Port => _port;
 
         public void MarkStarting() { _starting = true; }
@@ -114,7 +115,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     throw new InvalidOperationException($"Bridge rejected hello: {err}");
                 }
 
-                _connected = true;
+                Volatile.Write(ref _connectedTcp, _tcp);
                 _starting = false;
                 AgentLogger.Info(LogTag.MCP, $"[BridgeClient] connected to bridge at 127.0.0.1:{port}");
 
@@ -130,11 +131,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 _readerThread.Start();
 
                 RegisterPump();
+                // Older bridge binaries do not understand status frames. Publish from a worker
+                // so a modal or busy main thread cannot also stop readiness reports.
+                if (ack["unityStatus"].AsBool)
+                    _statusTimer = new Timer(_ => PublishStatus(tcp), null, 0, 500);
             }
             catch (Exception ex)
             {
                 _running = false;
-                _connected = false;
+                Volatile.Write(ref _connectedTcp, null);
                 CleanupSocket();
                 // Warning 止まりにする。接続は監視 tick から無限に再試行されるので、Error にすると
                 // bridge バイナリ未ビルドのようなケースで 30 秒ごとに赤エラーが永久に積もる。
@@ -160,7 +165,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 System.Threading.Monitor.TryEnter(_writeLock, 500, ref writeLockTaken);
                 if (!writeLockTaken)
                     AgentLogger.Warning(LogTag.MCP, "[BridgeClient] shutdown frame skipped — writer busy");
-                else if (_writer != null && _connected)
+                else if (_writer != null && IsConnected)
                 {
                     var msg = JNode.Obj(
                         ("type", JNode.Str("shutdown")),
@@ -192,13 +197,16 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             if (dropped > 0)
                 AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] disconnect dropped {dropped} pending call(s) (reason={reason})");
 
-            _connected = false;
+            Volatile.Write(ref _connectedTcp, null);
             _starting = false;
             AgentLogger.Info(LogTag.MCP, $"[BridgeClient] disconnected (reason={reason})");
         }
 
         void CleanupSocket()
         {
+            _statusTimer?.Dispose();
+            _statusTimer = null;
+
             // Close the socket BEFORE disposing StreamWriter: Dispose flushes, and a writer
             // held by a blocked send cannot safely be disposed concurrently. Closing TCP
             // unblocks the send/read without another managed stream write.
@@ -246,6 +254,38 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] sent hello (version={ProtocolVersion}, token.len={_token?.Length ?? 0})");
         }
 
+        bool IsCurrentConnection(TcpClient tcp) => _running && ReferenceEquals(Volatile.Read(ref _connectedTcp), tcp);
+
+        void PublishStatus(TcpClient tcp)
+        {
+            if (!IsCurrentConnection(tcp)) return;
+            try
+            {
+                var readiness = MainThreadWatchdog.ReadReadiness();
+                var fields = new List<(string, JNode)>
+                {
+                    ("type", JNode.Str("unity_status")),
+                    ("status", JNode.Str(readiness.Status)),
+                };
+                if (readiness.Reason != null) fields.Add(("reason", JNode.Str(readiness.Reason)));
+                if (readiness.PlayMode != null) fields.Add(("playMode", JNode.Str(readiness.PlayMode)));
+                if (readiness.MainThreadAgeMs.HasValue)
+                    fields.Add(("mainThreadAgeMs", JNode.Num(readiness.MainThreadAgeMs.Value)));
+
+                // Heartbeats yield to results/shutdown. The receiver can identify stale samples.
+                if (!System.Threading.Monitor.TryEnter(_writeLock)) return;
+                try
+                {
+                    if (IsCurrentConnection(tcp)) _writer?.WriteLine(JNode.Obj(fields.ToArray()).ToJson());
+                }
+                finally { System.Threading.Monitor.Exit(_writeLock); }
+            }
+            catch (Exception ex)
+            {
+                AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] failed to send readiness: {ex.Message}");
+            }
+        }
+
         // ─── Reader loop (background thread) ───
 
         void ReaderLoop(StreamReader reader, TcpClient tcp)
@@ -285,6 +325,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         ID = msg["id"].AsString ?? "",
                         Tool = msg["tool"].AsString ?? "",
                         Args = msg["args"] ?? JNode.Obj(),
+                        Connection = tcp,
                     };
                     // ログ・RaiseCallStart・統計の 3 箇所で使うので、ここで 1 度だけ作る。
                     call.ArgsJson = call.Args.ToJson() ?? "{}";
@@ -293,10 +334,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     // fast-path と同じ一覧 (ListenerThreadTools)。モーダルで止まっている最中に
                     // 状態を読み、ボタンを押すためのツールなので、下の stall 判定より先に見ないと
                     // 「止まっている」と拒否されて肝心の場面で使えない。
-                    var fastWork = ListenerThreadTools.Match(call.Tool, call.Args, out string pagingError, out int pagingErrorCode, out var resultOptions);
+                    var fastWork = ListenerThreadTools.MatchResult(call.Tool, call.Args, out string pagingError, out int pagingErrorCode, out var resultOptions);
                     if (pagingError != null)
                     {
-                        SendErrorFrame(call.ID, call.Tool, pagingError, null, pagingErrorCode);
+                        SendErrorFrame(tcp, call.ID, call.Tool, pagingError, null, pagingErrorCode);
                         continue;
                     }
                     if (fastWork != null)
@@ -309,19 +350,21 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         string fastId = call.ID, fastTool = call.Tool;
                         ThreadPool.QueueUserWorkItem(_ =>
                         {
-                            string fastText;
-                            try { fastText = fastWork(); }
+                            if (!IsCurrentConnection(tcp)) return;
+                            (string Text, JNode Failure) outcome;
+                            try { outcome = fastWork(); }
                             catch (Exception ex)
                             {
-                                string targetName = fastTool == "ExecuteUnityTool" ? call.Args["name"].AsString ?? fastTool : fastTool;
-                                string message = ToolResultRequest.FormatError(targetName,
-                                    $"Error: {targetName} failed off the main thread: {ex.GetType().Name}: {ex.Message}", resultOptions);
+                                string targetName = MCPToolFailure.Target(fastTool, call.Args);
+                                string reason = $"Error: {targetName} failed off the main thread: {ex.GetType().Name}: {ex.Message}";
+                                string message = ToolResultRequest.FormatError(targetName, reason, resultOptions);
                                 string detail = DeveloperMode.IsDevBuild ? ex.ToString() : "";
-                                SendErrorFrame(fastId, fastTool, message,
-                                    ToolResultRequest.FormatError(targetName + ".errorData", detail, resultOptions), -32000);
+                                detail = ToolResultRequest.FormatError(targetName + ".errorData", detail, resultOptions);
+                                SendErrorFrame(tcp, fastId, fastTool, message, detail, -32000,
+                                    MCPToolFailure.Execution(targetName, reason, detail));
                                 return;
                             }
-                            SendResultFrame(fastId, fastTool, fastText);
+                            SendResultFrame(tcp, fastId, fastTool, outcome.Text, outcome.Failure);
                         });
                         continue;
                     }
@@ -339,13 +382,14 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         // AgentMCPServer.RaiseCallFinish synchronously, and the in-editor chat window
                         // subscribes to that — touching UI Toolkit and mutating its history list.
                         // Both are main-thread-only, and this is the reader thread.
-                        SendErrorFrame(call.ID, call.Tool, "Unity main thread blocked", stallMsg, -32002);
+                        SendErrorFrame(tcp, call.ID, call.Tool, "Unity main thread blocked", stallMsg, -32002);
                         continue;
                     }
 
                     int qdepth;
                     lock (_queueLock)
                     {
+                        if (!IsCurrentConnection(tcp)) break;
                         _pending.Enqueue(call);
                         qdepth = _pending.Count;
                     }
@@ -364,8 +408,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
             finally
             {
-                if (ReferenceEquals(_tcp, tcp))
-                    _connected = false;
+                Interlocked.CompareExchange(ref _connectedTcp, null, tcp);
             }
         }
 
@@ -405,6 +448,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     remaining = _pending.Count;
                 }
 
+                if (!IsCurrentConnection(call.Connection)) continue;
                 AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] pump dispatch id={call.ID} tool={call.Tool} remaining={remaining}");
 
                 // Forward to existing Invoker via a shim PendingCall.
@@ -413,7 +457,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 // argsJson は reader スレッドで組み立て済み。長さを渡して再シリアライズを省く。
                 var inner = new PendingCall(call.Tool, call.Args, call.ArgsJson?.Length ?? -1);
                 inner.BridgePendingId = call.ID;
-                inner.OnComplete = (resultCall) => SendResultBack(resultCall);
+                inner.OnComplete = (resultCall) => SendResultBack(call.Connection, resultCall);
 
                 // RaiseCallStart so UnityAgentWindow can show it in chat (same as InProc path)
                 AgentMCPServer.RaiseCallStart(call.Tool, call.ArgsJson ?? "{}");
@@ -442,11 +486,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// Writes an error frame without going through <see cref="PendingCall"/>. Safe to call from
         /// the reader thread: it raises no events and touches no Unity API.
         /// </summary>
-        void SendErrorFrame(string id, string tool, string message, string data, int code)
+        void SendErrorFrame(TcpClient tcp, string id, string tool, string message, string data, int code, JNode failure = null)
         {
+            string reason = failure?["reason"].AsString ?? MCPToolFailure.FirstLine(message);
             message = ToolResultRequest.FormatError(tool, message ?? "Error", ToolResultRequest.Options.Default);
             data = ToolResultRequest.FormatError(tool + ".errorData", data ?? "", ToolResultRequest.Options.Default);
-            if (!_connected || _writer == null)
+            if (!IsCurrentConnection(tcp))
             {
                 AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] error frame dropped (disconnected) id={id} tool={tool}");
                 return;
@@ -458,13 +503,15 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     ("id", JNode.Str(id ?? "")),
                     ("code", JNode.Num(code)),
                     ("message", JNode.Str(message ?? "")),
+                    ("reason", JNode.Str(reason ?? "")),
                     ("data", JNode.Str(data ?? ""))
                 );
+                if (failure != null) msg.AsObject.Add("failure", failure);
                 string wire = msg.ToJson();
                 lock (_writeLock)
                 {
-                    if (_writer == null) return;
-                    _writer.WriteLine(wire);
+                    if (!IsCurrentConnection(tcp)) return;
+                    _writer?.WriteLine(wire);
                 }
                 AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] send error id={id} tool={tool} bytes={wire.Length} code={code}");
             }
@@ -479,9 +526,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         /// thread counterpart of <see cref="SendErrorFrame"/>: raises no events, touches no Unity
         /// API, so the listener-thread tools can answer while the main thread is held.
         /// </summary>
-        void SendResultFrame(string id, string tool, string text)
+        void SendResultFrame(TcpClient tcp, string id, string tool, string text, JNode failure)
         {
-            if (!_connected || _writer == null)
+            if (!IsCurrentConnection(tcp))
             {
                 AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] result frame dropped (disconnected) id={id} tool={tool}");
                 return;
@@ -494,11 +541,12 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     ("ok", JNode.Bool(true)),
                     ("text", JNode.Str(text ?? ""))
                 );
+                if (failure != null) msg.AsObject.Add("failure", failure);
                 string wire = msg.ToJson();
                 lock (_writeLock)
                 {
-                    if (_writer == null) return;
-                    _writer.WriteLine(wire);
+                    if (!IsCurrentConnection(tcp)) return;
+                    _writer?.WriteLine(wire);
                 }
                 AgentLogger.Debug(LogTag.MCP, $"[BridgeClient] send result (fast-path) id={id} tool={tool} bytes={wire.Length}");
             }
@@ -508,10 +556,10 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
             }
         }
 
-        void SendResultBack(PendingCall call)
+        void SendResultBack(TcpClient tcp, PendingCall call)
         {
             // Note: PendingCall.SetResult/SetError already raises OnCallFinish; do not duplicate it here.
-            if (!_connected || _writer == null)
+            if (!IsCurrentConnection(tcp))
             {
                 AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] send dropped (disconnected) id={call.BridgePendingId} tool={call.ToolName}");
                 return;
@@ -528,6 +576,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                         ("id", JNode.Str(call.BridgePendingId ?? "")),
                         ("code", JNode.Num(call.ErrorCode)),
                         ("message", JNode.Str(call.Error)),
+                        ("reason", JNode.Str(call.ErrorReason ?? "")),
                         ("data", JNode.Str(call.ErrorData ?? ""))
                     );
                 }
@@ -551,12 +600,13 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                     }
                     msg = JNode.Obj(fields.ToArray());
                 }
+                if (call.ToolFailure != null) msg.AsObject.Add("failure", call.ToolFailure);
                 string wire = msg.ToJson();
                 lock (_writeLock)
                 {
                     // Re-check inside the lock: CleanupSocket may have disposed and nulled the
                     // writer between the guard at the top of this method and here.
-                    if (_writer == null)
+                    if (!IsCurrentConnection(tcp) || _writer == null)
                     {
                         AgentLogger.Warning(LogTag.MCP, $"[BridgeClient] send dropped (socket closed) id={call.BridgePendingId} tool={call.ToolName}");
                         return;
@@ -578,6 +628,7 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         public string ID;
         public string Tool;
         public JNode Args;
+        public TcpClient Connection;
 
         /// <summary>
         /// 受信フレームの args をシリアライズし直した文字列。ログ・RaiseCallStart・統計の

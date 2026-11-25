@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using AjisaiFlow.UnityAgent.Editor;
@@ -8,7 +9,42 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class AssetTools
     {
-        private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
+        internal static bool IsProjectPath(string path, bool allowPackages = false) =>
+            !string.IsNullOrEmpty(path) && !path.Contains("\\") &&
+            (path.StartsWith("Assets/", System.StringComparison.Ordinal) ||
+             (allowPackages && path.StartsWith("Packages/", System.StringComparison.Ordinal))) &&
+            path.Split('/').All(part => part.Length > 0 && part != "." && part != "..");
+
+        internal static bool TryResolveAssetPath(string requested, out string path, out string error, bool allowPackages = false)
+        {
+            path = null;
+            error = null;
+            if (IsProjectPath(requested, allowPackages))
+            {
+                string guid = AssetDatabase.AssetPathToGUID(requested, AssetPathToGUIDOptions.OnlyExistingAssets);
+                if (!string.IsNullOrEmpty(guid)) path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!string.IsNullOrEmpty(path)) return true;
+            }
+
+            error = $"Error: Asset '{requested}' was not found. Pass a full project asset path under Assets/" +
+                    (allowPackages ? " or Packages/." : ".");
+            string leaf = requested ?? "";
+            leaf = leaf.Substring(System.Math.Max(leaf.LastIndexOf('/'), leaf.LastIndexOf('\\')) + 1);
+            var candidates = FindExactAssetPaths(leaf, allowPackages).Take(12).ToArray();
+            if (candidates.Length > 0) error += " Candidate asset paths: " + string.Join(", ", candidates) + ".";
+            return false;
+        }
+
+        internal static string[] FindExactAssetPaths(string name, bool allowPackages = true)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return System.Array.Empty<string>();
+            return AssetDatabase.GetAllAssetPaths()
+                .Where(path => IsProjectPath(path, allowPackages) &&
+                    (string.Equals(Path.GetFileName(path), name, System.StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(Path.GetFileNameWithoutExtension(path), name, System.StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(path => path, System.StringComparer.Ordinal)
+                .ToArray();
+        }
         /// <summary>
         /// 指定されたパスにフォルダを作成します。
         /// </summary>
@@ -34,42 +70,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Create a primitive GameObject (Cube, Sphere, Capsule, Cylinder, Plane, Quad).")]
         public static string CreatePrimitive(string type, string name = "", string parentName = "")
         {
-            if (!System.Enum.TryParse(type, true, out PrimitiveType primitiveType))
+            if (!System.Enum.TryParse(type, true, out PrimitiveType primitiveType) || !System.Enum.IsDefined(typeof(PrimitiveType), primitiveType))
             {
                 return $"Error: Invalid PrimitiveType '{type}'. Supported: Cube, Sphere, Capsule, Cylinder, Plane, Quad.";
             }
 
-            GameObject go = GameObject.CreatePrimitive(primitiveType);
-
-            // 名前を設定
-            string baseName = string.IsNullOrEmpty(name) ? type : name;
-            go.name = baseName;
-
-            // 名前の一意性を保証: GameObject.Find で確実にこのオブジェクトを見つけられるようにする
-            var found = GameObject.Find(go.name);
-            if (found != null && found != go)
-            {
-                int suffix = 1;
-                string uniqueName;
-                do
-                {
-                    uniqueName = $"{baseName} ({suffix})";
-                    suffix++;
-                } while (GameObject.Find(uniqueName) != null);
-                go.name = uniqueName;
-            }
-
+            if (!SceneTools.TryResolveCreationParent(parentName, out var parent, out string error)) return error;
+            var go = GameObject.CreatePrimitive(primitiveType);
+            if (parent != null) go.transform.SetParent(parent.transform);
+            go.name = SceneTools.UniqueSiblingName(go, string.IsNullOrEmpty(name) ? type : name);
             Undo.RegisterCreatedObjectUndo(go, "Create Primitive via Agent");
-
-            if (!string.IsNullOrEmpty(parentName))
-            {
-                var parent = FindGO(parentName);
-                if (parent != null)
-                {
-                    go.transform.SetParent(parent.transform);
-                }
-            }
-            return $"Success: Created {type} '{go.name}'.";
+            return $"Success: Created {type} {SceneTools.DescribeTarget(go)}.";
         }
 
         /// <summary>
@@ -80,20 +91,19 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Move an asset to a different path. Both sourcePath and destinationPath must be full asset paths starting with 'Assets/' (e.g. 'Assets/Models/Old/Cube.fbx' to 'Assets/Models/New/Cube.fbx'). The destination folder must already exist.")]
         public static string MoveAsset(string sourcePath, string destinationPath)
         {
-            if (!sourcePath.StartsWith("Assets/") || sourcePath.Contains(".."))
-                return $"Error: Invalid source path '{sourcePath}'.";
-            if (!destinationPath.StartsWith("Assets/") || destinationPath.Contains(".."))
+            if (!TryResolveAssetPath(sourcePath, out string source, out string error)) return error;
+            if (!IsProjectPath(destinationPath))
                 return $"Error: Invalid destination path '{destinationPath}'.";
 
             string destFolder = Path.GetDirectoryName(destinationPath)?.Replace('\\', '/');
             if (!AssetDatabase.IsValidFolder(destFolder))
                 return $"Error: Destination folder '{destFolder}' does not exist.";
 
-            string error = AssetDatabase.MoveAsset(sourcePath, destinationPath);
+            error = AssetDatabase.MoveAsset(source, destinationPath);
             if (!string.IsNullOrEmpty(error))
                 return $"Error: {error}";
 
-            return $"Success: Moved '{sourcePath}' to '{destinationPath}'.";
+            return $"Success: Moved '{source}' to '{destinationPath}'.";
         }
 
         /// <summary>
@@ -104,16 +114,16 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Rename an asset. assetPath is the full path (e.g. 'Assets/Materials/OldName.mat'). newName is the new filename without extension (e.g. 'NewName'). The extension is preserved automatically.")]
         public static string RenameAsset(string assetPath, string newName)
         {
-            if (!assetPath.StartsWith("Assets/") || assetPath.Contains(".."))
-                return $"Error: Invalid asset path '{assetPath}'.";
-            if (string.IsNullOrWhiteSpace(newName) || newName.Contains("/") || newName.Contains("\\"))
+            if (!TryResolveAssetPath(assetPath, out string source, out string error)) return error;
+            if (string.IsNullOrWhiteSpace(newName) || newName == "." || newName == ".." || newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
                 return $"Error: Invalid new name '{newName}'. Must be a filename without path separators.";
 
-            string error = AssetDatabase.RenameAsset(assetPath, newName);
+            string guid = AssetDatabase.AssetPathToGUID(source, AssetPathToGUIDOptions.OnlyExistingAssets);
+            error = AssetDatabase.RenameAsset(source, newName);
             if (!string.IsNullOrEmpty(error))
                 return $"Error: {error}";
 
-            return $"Success: Renamed '{assetPath}' to '{newName}'.";
+            return $"Success: Renamed '{source}' to '{AssetDatabase.GUIDToAssetPath(guid)}'.";
         }
 
         /// <summary>
@@ -124,19 +134,18 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("Copy an asset to a new path. Both sourcePath and destinationPath must be full asset paths starting with 'Assets/' (e.g. 'Assets/Materials/Original.mat' to 'Assets/Materials/Duplicate.mat'). The destination folder must already exist. Will not overwrite an existing file.")]
         public static string CopyAsset(string sourcePath, string destinationPath)
         {
-            if (!sourcePath.StartsWith("Assets/") || sourcePath.Contains(".."))
-                return $"Error: Invalid source path '{sourcePath}'.";
-            if (!destinationPath.StartsWith("Assets/") || destinationPath.Contains(".."))
+            if (!TryResolveAssetPath(sourcePath, out string source, out string error)) return error;
+            if (!IsProjectPath(destinationPath))
                 return $"Error: Invalid destination path '{destinationPath}'.";
 
             string destFolder = Path.GetDirectoryName(destinationPath)?.Replace('\\', '/');
             if (!AssetDatabase.IsValidFolder(destFolder))
                 return $"Error: Destination folder '{destFolder}' does not exist.";
 
-            if (!AssetDatabase.CopyAsset(sourcePath, destinationPath))
-                return $"Error: Failed to copy '{sourcePath}' to '{destinationPath}'.";
+            if (!AssetDatabase.CopyAsset(source, destinationPath))
+                return $"Error: Failed to copy '{source}' to '{destinationPath}'.";
 
-            return $"Success: Copied '{sourcePath}' to '{destinationPath}'.";
+            return $"Success: Copied '{source}' to '{destinationPath}'.";
         }
 
         /// <summary>
@@ -146,16 +155,17 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
         [AgentTool("指定されたパスのアセットまたはフォルダを削除します。Requires user confirmation when enabled.")]
         public static string DeleteAsset(string path)
         {
+            if (!TryResolveAssetPath(path, out string source, out string error)) return error;
             if (!AgentSettings.RequestConfirmation(
                 "アセットを削除",
-                $"'{path}' を削除します。"))
+                $"'{source}' を削除します。"))
                 return "Cancelled: User denied the deletion.";
 
-            if (AssetDatabase.DeleteAsset(path))
+            if (AssetDatabase.DeleteAsset(source))
             {
-                return $"Success: Deleted asset at '{path}'.";
+                return $"Success: Deleted asset at '{source}'.";
             }
-            return $"Error: Failed to delete asset at '{path}'. Check if the path is correct.";
+            return $"Error: Failed to delete asset at '{source}'.";
         }
     }
 }

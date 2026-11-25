@@ -13,7 +13,7 @@ import (
 func TestPagingEnvelopeAndSnapshotTextSurviveBridge(t *testing.T) {
 	bridge := newBridge("secret")
 	unity, reader := startFakeUnity(t, bridge)
-	for _, envelope := range []string{
+	for index, envelope := range []string{
 		`{"name":"SetFixture","arguments":{"offset":7,"limit":9},"resultOffset":0,"resultLimit":3,"resultMaxChars":2048}`,
 		`{"name":"ReadUnityToolResultPage","arguments":{"resultId":"snapshot","offset":3,"limit":2,"maxChars":1024}}`,
 		`{"name":"SetFixture","arguments":{},"resultLimit":"invalid"}`,
@@ -42,7 +42,11 @@ func TestPagingEnvelopeAndSnapshotTextSurviveBridge(t *testing.T) {
 		// The bridge must treat the snapshot JSON as text; quotes, Unicode and nested
 		// metadata survive without being interpreted, split, or executed again.
 		text := `{"resultId":"snapshot","toolName":"SetFixture","text":"line\\n日本語😀","page":{"offset":0,"returned":3,"hasMore":true,"nextOffset":3},"nextTool":"ReadUnityToolResultPage"}`
-		response, _ := json.Marshal(wireMsg{Type: "result", ID: call.ID, OK: true, Text: text})
+		frame := wireMsg{Type: "result", ID: call.ID, OK: true, Text: text}
+		if index == 0 {
+			frame.ImageBase64, frame.ImageMimeType = "AQID", "image/test"
+		}
+		response, _ := json.Marshal(frame)
 		if _, err := unity.Write(append(response, '\n')); err != nil {
 			t.Fatalf("write result: %v", err)
 		}
@@ -53,26 +57,43 @@ func TestPagingEnvelopeAndSnapshotTextSurviveBridge(t *testing.T) {
 		}
 		var body struct {
 			Result struct {
-				Content []struct{ Type, Text string }
+				Content []struct{ Type, Text, Data, MimeType string }
 				IsError bool `json:"isError"`
 			}
 		}
 		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 			t.Fatalf("parse HTTP result: %v", err)
 		}
-		if recorder.Code != http.StatusOK || body.Result.IsError || len(body.Result.Content) != 1 || body.Result.Content[0].Text != text {
+		expectedBlocks := 1
+		if index == 0 {
+			expectedBlocks++
+		}
+		if recorder.Code != http.StatusOK || body.Result.IsError || len(body.Result.Content) != expectedBlocks ||
+			body.Result.Content[0].Type != "text" || body.Result.Content[0].Text != text {
 			t.Fatalf("snapshot result changed: %s", recorder.Body.String())
+		}
+		if index == 0 {
+			image := body.Result.Content[1]
+			if image.Type != "image" || image.MimeType != frame.ImageMimeType || image.Data != frame.ImageBase64 {
+				t.Fatalf("expected MCP image content with the original MIME type and data, got %+v", image)
+			}
 		}
 	}
 }
 
-func TestPagingSchemasKeepFourToolSurfaceAndEnvelopeDefaults(t *testing.T) {
+func TestPagingSchemasKeepEditorToolSurfaceAndEnvelopeDefaults(t *testing.T) {
 	tools := newBridge("secret").handleToolsList()["tools"].([]any)
-	if len(tools) != 4 {
-		t.Fatalf("expected four top-level tools, got %d", len(tools))
-	}
+	editorTools := map[string]bool{"SearchUnityTool": true, "DescribeUnityTool": true, "ExecuteUnityTool": true, "GetUnityAgentInfo": true}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
+		name := tool["name"].(string)
+		if name == unityConnectionStatusTool {
+			continue
+		}
+		if !editorTools[name] {
+			t.Fatalf("unexpected Editor tool %q", name)
+		}
+		delete(editorTools, name)
 		properties := tool["inputSchema"].(map[string]any)["properties"].(map[string]any)
 		if tool["name"] == "ExecuteUnityTool" {
 			for key, expected := range map[string][]int{"resultOffset": {0, 0}, "resultLimit": {50, 1, 200}, "resultMaxChars": {8192, 1024, 32768}} {
@@ -93,5 +114,8 @@ func TestPagingSchemasKeepFourToolSurfaceAndEnvelopeDefaults(t *testing.T) {
 				t.Fatal("Search schema paging mismatch")
 			}
 		}
+	}
+	if len(editorTools) != 0 {
+		t.Fatalf("missing Editor tools: %v", editorTools)
 	}
 }

@@ -20,28 +20,36 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
         // Fail closed until a main-thread startup/pump or settings setter publishes a gate.
         // Listener threads must never touch AgentSettings' mutable sets or lazy SettingsStore.
         static volatile string _readerGateError = "Tool 'ReadUnityToolResultPage' access settings have not been initialized.";
+        static volatile string _scriptJobGateError = "Tool 'GetJobResult' access settings have not been initialized.";
 
         internal static void RefreshReaderGateOnMainThread()
         {
-            string error = "Tool 'ReadUnityToolResultPage' is not available.";
+            string readerError = "Tool 'ReadUnityToolResultPage' is not available.";
+            string scriptJobError = "Tool 'GetJobResult' is not available.";
             try
             {
                 foreach (var info in ToolRegistry.GetAllTools())
                 {
-                    if (info.method == null || !ToolResultRequest.IsReader(info.method.Name)) continue;
-                    if (!AgentSettings.IsToolEnabled(info.method.Name, info.isExternal))
-                        error = $"Tool '{info.method.Name}' is disabled in UnityAgent settings.";
+                    string name = info.method?.Name;
+                    bool isReader = ToolResultRequest.IsReader(name);
+                    if (!isReader && name != "GetJobResult") continue;
+                    string error;
+                    if (!AgentSettings.IsToolEnabled(name, info.isExternal))
+                        error = $"Tool '{name}' is disabled in UnityAgent settings.";
                     else if ((int)info.resolvedRisk > (int)AgentSettings.MCPServerExposeRisk)
-                        error = $"Tool '{info.method.Name}' risk level ({info.resolvedRisk}) exceeds MCP expose limit ({AgentSettings.MCPServerExposeRisk}).";
+                        error = $"Tool '{name}' risk level ({info.resolvedRisk}) exceeds MCP expose limit ({AgentSettings.MCPServerExposeRisk}).";
                     else error = null;
-                    break;
+                    if (isReader) readerError = error;
+                    else scriptJobError = error;
                 }
             }
             catch
             {
-                error = "Tool 'ReadUnityToolResultPage' access settings are unavailable.";
+                readerError = "Tool 'ReadUnityToolResultPage' access settings are unavailable.";
+                scriptJobError = "Tool 'GetJobResult' access settings are unavailable.";
             }
-            _readerGateError = error;
+            _readerGateError = readerError;
+            _scriptJobGateError = scriptJobError;
         }
 
         /// <summary>
@@ -61,17 +69,66 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
 
         public static Func<string> Match(string toolName, JNode args, out string error, out int errorCode, out ToolResultRequest.Options options)
         {
+            var work = MatchResult(toolName, args, out error, out errorCode, out options);
+            return work == null ? null : () => work().Text;
+        }
+
+        internal static Func<(string Text, JNode Failure)> MatchResult(string toolName, JNode args,
+            out string error, out int errorCode, out ToolResultRequest.Options options)
+        {
             errorCode = -32602;
             if (!ToolResultRequest.TryGetOptions(toolName, args, out options, out error)) return null;
-            string targetName = toolName == "ExecuteUnityTool" ? args?["name"].AsString ?? "" : toolName;
-            if (ToolResultRequest.IsReader(targetName))
+            string targetName = MCPToolFailure.Target(toolName, args);
+            if (targetName == "AnswerModalDialog")
             {
-                error = _readerGateError;
+                error = ValidateModalArguments(toolName, args);
+                if (error != null) return null;
+            }
+            if (ToolResultRequest.IsReader(targetName) || targetName == "GetJobResult")
+            {
+                error = targetName == "GetJobResult" ? _scriptJobGateError : _readerGateError;
                 if (error != null) { errorCode = -32000; return null; }
             }
             var work = MatchCore(toolName, args, depth: 0);
             var resultOptions = options;
-            return work == null ? null : () => ToolResultRequest.Format(targetName, work(), resultOptions);
+            return work == null ? null : () =>
+            {
+                string text = work();
+                JNode failure = MCPToolFailure.FromText(targetName, text);
+                return (failure == null ? ToolResultRequest.Format(targetName, text, resultOptions)
+                    : ToolResultRequest.FormatError(targetName, text, resultOptions), failure);
+            };
+        }
+
+        static string ValidateModalArguments(string toolName, JNode args)
+        {
+            if (toolName == "ExecuteUnityTool")
+            {
+                string invalidEnvelope = ToolResultRequest.ValidateExecuteEnvelope(args);
+                if (invalidEnvelope != null) return invalidEnvelope;
+                args = args["arguments"];
+            }
+
+            if (args == null || args.IsNull) return null;
+            if (args.Type != JNode.JType.Object) return "AnswerModalDialog arguments must be an object.";
+            foreach (string key in args.Keys)
+            {
+                JNode value = args[key];
+                switch (key)
+                {
+                    case "button":
+                    case "titleContains":
+                        if (value.Type != JNode.JType.String && !value.IsNull) return $"AnswerModalDialog '{key}' must be a string.";
+                        break;
+                    case "dryRun":
+                        if (value.Type != JNode.JType.Bool && !(value.Type == JNode.JType.String && Tools.ToolUtility.TryParseBool(value.AsString, out _)))
+                            return "AnswerModalDialog 'dryRun' must be a boolean.";
+                        break;
+                    default:
+                        return $"Unknown AnswerModalDialog argument '{key}'. Valid keys: button, titleContains, dryRun.";
+                }
+            }
+            return null;
         }
 
         static Func<string> MatchCore(string toolName, JNode args, int depth)
@@ -124,6 +181,9 @@ namespace AjisaiFlow.UnityAgent.Editor.MCP
                 // of the session records, so it cannot end up queued behind the build.
                 case "GetVRChatBuildTestResult":
                     return Tools.VRChatBuildTestTools.MatchOffMainThread(Str(args, "jobId"), Int(args, "waitSeconds"));
+
+                case "GetJobResult":
+                    return Tools.ScriptJobTools.MatchOffMainThread(Str(args, "jobId"), Int(args, "waitSeconds"));
 
                 default:
                     return null;

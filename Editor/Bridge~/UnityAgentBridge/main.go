@@ -91,11 +91,15 @@ type pendingCall struct {
 }
 
 type callResult struct {
-	OK      bool
-	Text    string
-	Error   string
-	ErrCode int
-	Data    string // JSON-RPC error.data: guidance for the caller, never shown on success
+	OK            bool
+	Text          string
+	Error         string
+	Reason        string
+	ErrCode       int
+	Data          string // JSON-RPC error.data: guidance for the caller, never shown on success
+	Failure       *toolFailure
+	ImageBase64   string
+	ImageMimeType string
 }
 
 // Error code for a call that was dispatched to Unity and then orphaned by the connection
@@ -125,6 +129,10 @@ type Bridge struct {
 	mcpClientCount int                     // MCP HTTP requests currently being served (idle-quit guard)
 	lastActivity   time.Time               // last Unity message OR MCP HTTP request; drives the idle quit
 	ownerUnityPID  int                     // authenticated editor process; survives its TCP disconnect during reload
+
+	unityStatus           editorStatus // latest status published by the current connection
+	unityStatusAt         time.Time    // when the bridge received that status
+	unityDisconnectReason string       // why the last Unity connection closed
 
 	// Atomic counters for diagnostics
 	callsServed atomic.Uint64
@@ -167,23 +175,31 @@ func newBridge(token string) *Bridge {
 //
 // Bridge → Unity (handshake ack):
 //
-//	{"type":"hello_ack","ok":true}
+//	{"type":"hello_ack","ok":true,"unityStatus":true}
 //	{"type":"hello_ack","ok":false,"error":"bad token"}
 type wireMsg struct {
-	Type     string          `json:"type"`
-	Version  string          `json:"version,omitempty"`
-	Token    string          `json:"token,omitempty"`
-	UnityPID int             `json:"unityPid,omitempty"`
-	ID       string          `json:"id,omitempty"`
-	Tool     string          `json:"tool,omitempty"`
-	Args     json.RawMessage `json:"args,omitempty"`
-	OK       bool            `json:"ok,omitempty"`
-	Text     string          `json:"text,omitempty"`
-	Error    string          `json:"error,omitempty"`
-	Message  string          `json:"message,omitempty"`
-	Code     int             `json:"code,omitempty"`
-	Data     string          `json:"data,omitempty"`
-	Reason   string          `json:"reason,omitempty"`
+	Type          string          `json:"type"`
+	Version       string          `json:"version,omitempty"`
+	Token         string          `json:"token,omitempty"`
+	UnityPID      int             `json:"unityPid,omitempty"`
+	ID            string          `json:"id,omitempty"`
+	Tool          string          `json:"tool,omitempty"`
+	Args          json.RawMessage `json:"args,omitempty"`
+	OK            bool            `json:"ok,omitempty"`
+	Text          string          `json:"text,omitempty"`
+	Error         string          `json:"error,omitempty"`
+	Message       string          `json:"message,omitempty"`
+	Code          int             `json:"code,omitempty"`
+	Data          string          `json:"data,omitempty"`
+	Reason        string          `json:"reason,omitempty"`
+	Failure       *toolFailure    `json:"failure,omitempty"`
+	ImageBase64   string          `json:"imageBase64,omitempty"`
+	ImageMimeType string          `json:"imageMimeType,omitempty"`
+
+	UnityStatus     bool   `json:"unityStatus,omitempty"`
+	Status          string `json:"status,omitempty"`
+	MainThreadAgeMS *int   `json:"mainThreadAgeMs,omitempty"`
+	PlayMode        string `json:"playMode,omitempty"`
 }
 
 func (b *Bridge) startUnityTCPServer(addr string) error {
@@ -215,6 +231,9 @@ func (b *Bridge) swapUnityConn(newConn net.Conn, unityPID int) {
 	}
 	b.unityConn = newConn
 	b.unityWriter = bufio.NewWriter(newConn)
+	b.unityStatus = editorStatus{}
+	b.unityStatusAt = time.Time{}
+	b.unityDisconnectReason = ""
 	// Only an authenticated hello reaches this method. Keep the owner after TCP disconnect:
 	// Unity can spend much longer than idleQuitGrace reloading or wait for focus to reconnect.
 	// A legacy hello without a PID keeps the original connection-based idle behavior.
@@ -246,6 +265,12 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 		if b.unityConn == conn {
 			b.unityConn = nil
 			b.unityWriter = nil
+			b.unityStatus = editorStatus{}
+			b.unityStatusAt = time.Time{}
+			b.unityDisconnectReason = shutdownReason
+			if b.unityDisconnectReason == "" {
+				b.unityDisconnectReason = "transport_closed"
+			}
 		}
 		// Reset lastActivity on disconnect so the idle-quit grace period starts fresh from
 		// the moment Unity went away — not from when it first connected. Without this, a
@@ -311,7 +336,7 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 			// authenticated and its acknowledgement is on the wire. Otherwise any
 			// local process can connect with a bad token, evict a healthy editor
 			// session, or race a call write with the handshake acknowledgement.
-			if err := b.writeUnityMsg(conn, wireMsg{Type: "hello_ack", OK: true}); err != nil {
+			if err := b.writeUnityMsg(conn, wireMsg{Type: "hello_ack", OK: true, UnityStatus: true}); err != nil {
 				log.Printf("[bridge] failed to acknowledge Unity hello: %v", err)
 				return
 			}
@@ -327,10 +352,17 @@ func (b *Bridge) handleUnityConn(conn net.Conn) {
 		}
 
 		switch msg.Type {
+		case "unity_status":
+			b.noteUnityStatus(conn, editorStatus{
+				Status: msg.Status, MainThreadAgeMS: msg.MainThreadAgeMS, PlayMode: msg.PlayMode, Reason: msg.Reason,
+			})
 		case "result":
-			b.deliverResult(msg.ID, callResult{OK: true, Text: msg.Text})
+			b.deliverResult(msg.ID, callResult{
+				OK: true, Text: msg.Text, Failure: msg.Failure,
+				ImageBase64: msg.ImageBase64, ImageMimeType: msg.ImageMimeType,
+			})
 		case "error":
-			b.deliverResult(msg.ID, callResult{OK: false, Error: msg.Message, ErrCode: msg.Code, Data: msg.Data})
+			b.deliverResult(msg.ID, callResult{OK: false, Error: msg.Message, Reason: msg.Reason, ErrCode: msg.Code, Data: msg.Data, Failure: msg.Failure})
 		case "shutdown":
 			log.Printf("[bridge] unity announced shutdown (reason=%s)", msg.Reason)
 			// Connection will close shortly — the deferred cleanup fails the in-flight
@@ -580,7 +612,7 @@ type rpcResponse struct {
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Data    string `json:"data,omitempty"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // beginMCPRequest / endMCPRequest bracket one authenticated MCP HTTP request.
@@ -933,13 +965,10 @@ func (b *Bridge) handleInitialize(protocolVersion string) map[string]any {
 	}
 }
 
-// handleToolsList returns the same 4 top-level tools as the InProc server.
-// In P1 we hardcode the schemas; P2 will fetch them from Unity at hello time.
+// handleToolsList advertises the InProc tools and the Bridge's local readiness probe.
 //
-// This list is a duplicate of Handlers.HandleToolsList on the C# side and the two drift silently:
-// tools/call forwards any name straight through to Unity, so a tool missing here still WORKS if the
-// client already knows its name — it is merely undiscoverable in Bridge mode. Anything added there
-// has to be added here too.
+// Editor tool schemas are mirrored from Handlers.HandleToolsList on the C# side. Keep the two
+// lists in sync so MCP clients can discover the tools; Unity calls can also be forwarded by name.
 func (b *Bridge) handleToolsList() map[string]any {
 	return map[string]any{
 		"tools": []any{
@@ -993,13 +1022,20 @@ func (b *Bridge) handleToolsList() map[string]any {
 					"properties": map[string]any{
 						"detail": map[string]any{
 							"type":        "string",
-							"enum":        []any{"brief", "full"},
+							"enum":        []any{"brief", "full", "connection"},
 							"default":     "brief",
-							"description": "'brief' (default) is a few lines. 'full' adds per-category and per-risk tool counts, package versions, MCP endpoint/bridge state and project render settings.",
+							"description": "'connection' returns JSON with the editor PID, project root, active scene and MCP settings. 'brief' gives a summary, and 'full' adds package versions, tool counts and render settings.",
 						},
 					},
 					"required": []any{},
 				},
+			},
+			map[string]any{
+				"name": unityConnectionStatusTool,
+				"description": "Check Bridge liveness and Unity readiness, including reconnects, compilation and dialogs. " +
+					"This call responds even while Unity is disconnected. If readiness is dialog_wait, use ExecuteUnityTool " +
+					"with GetEditorState or AnswerModalDialog (dryRun=true) to inspect the dialog.",
+				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
 		},
 	}
@@ -1040,6 +1076,11 @@ func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, c
 		writeJSONRPCError(w, req.ID, -32602, "Invalid params", "tool name is required")
 		return
 	}
+	if params.Name == unityConnectionStatusTool {
+		b.writeUnityConnectionStatus(w, req.ID)
+		return
+	}
+	target := effectiveToolName(params.Name, params.Arguments)
 
 	call := &pendingCall{
 		ID:       generateID(),
@@ -1061,7 +1102,7 @@ func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, c
 		b.mu.Lock()
 		delete(b.pending, call.ID)
 		b.mu.Unlock()
-		writeJSONRPCError(w, req.ID, -32603, "Dispatch failed", err.Error())
+		writeToolCallResult(w, req.ID, callResult{Error: "Dispatch failed", ErrCode: -32603, Data: err.Error()}, target)
 		return
 	}
 
@@ -1070,7 +1111,7 @@ func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, c
 
 	select {
 	case res := <-call.Response:
-		writeToolCallResult(w, req.ID, res)
+		writeToolCallResult(w, req.ID, res, target)
 	case <-ctx.Done():
 		if b.cancelPendingCall(call) {
 			log.Printf("[bridge] canceled call id=%s tool=%s because MCP request ended", call.ID, call.Tool)
@@ -1083,25 +1124,41 @@ func (b *Bridge) handleToolsCallContext(w http.ResponseWriter, req rpcRequest, c
 			// of reporting a false timeout.
 			select {
 			case res := <-call.Response:
-				writeToolCallResult(w, req.ID, res)
+				writeToolCallResult(w, req.ID, res, target)
 			case <-ctx.Done():
 			}
 			return
 		}
-		writeJSONRPCError(w, req.ID, -32001, "Timeout",
-			fmt.Sprintf("Tool '%s' did not complete within %s.", params.Name, callTimeout))
+		writeToolCallResult(w, req.ID, callResult{Error: "Timeout", ErrCode: -32001,
+			Data: fmt.Sprintf("Tool '%s' did not complete within %s.", target, callTimeout)}, target)
 	}
 }
 
-func writeToolCallResult(w http.ResponseWriter, id json.RawMessage, res callResult) {
-	if !res.OK {
-		writeJSONRPCError(w, id, res.ErrCode, res.Error, res.Data)
+func writeToolCallResult(w http.ResponseWriter, id json.RawMessage, res callResult, tool string) {
+	if !res.OK && res.Failure == nil {
+		writeJSONRPCError(w, id, res.ErrCode, res.Error, protocolToolFailure(tool, res))
 		return
 	}
-	writeJSONRPCResult(w, id, map[string]any{
-		"content": []any{map[string]any{"type": "text", "text": res.Text}},
-		"isError": false,
-	})
+	text := res.Text
+	if !res.OK {
+		text = res.Error
+	}
+	content := []any{map[string]any{"type": "text", "text": text}}
+	if res.ImageBase64 != "" {
+		mimeType := res.ImageMimeType
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		content = append(content, map[string]any{"type": "image", "data": res.ImageBase64, "mimeType": mimeType})
+	}
+	result := map[string]any{
+		"content": content,
+		"isError": res.Failure != nil,
+	}
+	if res.Failure != nil {
+		result["structuredContent"] = res.Failure
+	}
+	writeJSONRPCResult(w, id, result)
 }
 
 func writeJSONRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
@@ -1110,7 +1167,7 @@ func writeJSONRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func writeJSONRPCError(w http.ResponseWriter, id json.RawMessage, code int, message, data string) {
+func writeJSONRPCError(w http.ResponseWriter, id json.RawMessage, code int, message string, data any) {
 	resp := rpcResponse{
 		JsonRPC: "2.0",
 		ID:      id,

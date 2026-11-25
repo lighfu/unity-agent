@@ -10,7 +10,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 {
     public static class HierarchyTools
     {
-        private static GameObject FindGO(string name) => MeshAnalysisTools.FindGameObject(name);
+        private static GameObject FindGO(string name) => SceneTools.FindReadableTarget(name);
         [AgentTool("List all root GameObjects in the active scene with name, active state, child count, and components.")]
         public static string ListRootObjects()
         {
@@ -311,7 +311,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
 
         // ── Utility ─────────────────────────────────────────────────
 
-        private static string GetFullPath(Transform t)
+        internal static string GetFullPath(Transform t)
         {
             var sb = new StringBuilder(t.name);
             var current = t.parent;
