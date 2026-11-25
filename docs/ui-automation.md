@@ -71,7 +71,7 @@ API の仕様確認には [Unity UI Toolkit の Clickable](https://docs.unity3d.
 
 ## MV の指定時刻を撮影する
 
-対応する MV レンダラーがあるプロジェクトでは、MV シーンを Edit Mode で開き、`ExecuteUnityTool` から `CaptureMVFrame` を呼び出します。引数に `mvAssetPath`、`timeSeconds`、`camera` をまとめて渡します。`camera` に `viewer` を指定すると、その時刻に評価された MV ビューアの視点を使います。ほかに `scene:Main Camera` のような名前、`scene:/Root/Camera` のような階層パス、`scene-id:<GlobalObjectId>`、`mv:<カメラクリップID>` を指定できます。
+対応する MV レンダラーがあるプロジェクトでは、MV シーンを Edit Mode で開き、`ExecuteUnityTool` から `CaptureSequenceFrame` を呼び出します。引数に `mvAssetPath`、`timeSeconds`、`camera` をまとめて渡します。`camera` に `viewer` を指定すると、その時刻に評価された MV ビューアの視点を使います。ほかに `scene:Main Camera` のような名前、`scene:/Root/Camera` のような階層パス、`scene-id:<GlobalObjectId>`、`mv:<カメラクリップID>` を指定できます。
 
 MV レンダラーがシーンを評価し、動画のシークを待ってから 1 フレームを描画します。MCP の同じ応答に PNG と `evaluatedTimeSeconds`、使用したカメラの識別情報、位置、回転、画角が含まれます。編集前後の比較では同じ `mvAssetPath`、`timeSeconds`、`camera`、`width`、`height` を渡します。撮影を始めるとタイムラインの再生が止まり、処理後に直前のプレビュー状態を復元します。
 

@@ -43,7 +43,7 @@ namespace AjisaiFlow.UnityAgent.Editor.Tools
                    "Use the same MV, time, camera and dimensions to compare edits. Requires Edit Mode and a graphics device. " +
                    "Rendering stops timeline playback and restores the previous preview.",
             Category = "Capture", Risk = ToolRisk.Caution, RiskExplicit = true)]
-        public static IEnumerator CaptureMVFrame(string mvAssetPath, double timeSeconds, string camera,
+        public static IEnumerator CaptureSequenceFrame(string mvAssetPath, double timeSeconds, string camera,
             int width = 960, int height = 540)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
